@@ -1,4 +1,4 @@
-# Sources — the plug-in contract
+# Sources, and the contract that keeps the database honest
 
 A **source** is anything that can answer *"what award space exists on this route,
 on these dates"*. The app knows nothing else about where its data comes from: a
@@ -6,45 +6,52 @@ source produces `AvailabilityResult[]`, the ingest pipeline decides what that
 means for the database, and every read goes through one CTE regardless of who
 wrote the row.
 
-The contract itself is `packages/core/src/sources/types.ts`, the catalogue is
-`registry.ts`, and the two built-ins are `seatsaero.ts` and `pointsyeah.ts` in
-the same directory. This document is the guide to them.
+The contract is `shared/src/sources/types.ts`, the catalogue is `registry.ts`,
+and the one entry is `seatsaero.ts` in the same directory.
 
-There are two sources today:
+There is one source:
 
-| id | runtime | what | doc |
-|---|---|---|---|
-| `seatsaero` | `worker` | A keyed, metered vendor API. Breadth: ~16 storable programs, a year out, for a handful of calls. | `docs/SEATS-AERO.md` |
-| `pointsyeah` | `local` | A free aggregator, and the only source this app has for `cathay` and `eva`. | `docs/POINTSYEAH.md` |
+| id | what | doc |
+|---|---|---|
+| `seatsaero` | A keyed, metered vendor API. Breadth: ~16 storable programs, a year out, for a handful of calls. | `docs/SEATS-AERO.md` |
 
-There used to be more, and they read airlines' own booking sites. That is over —
-`docs/HARVEST-POSTMORTEM.md` is why, and it is worth reading before you propose
-a source that scrapes a carrier.
+There used to be more. Some read airlines' own booking sites — that is over, and
+`docs/HARVEST-POSTMORTEM.md` is why. One, `pointsyeah`, was a free aggregator
+scraped from a laptop; it was removed because it was an undocumented endpoint of
+a service whose terms nobody had a good answer about, and taking it out also took
+the entire second runtime with it. **Sections 3 and 5 below are the part of that
+architecture that survives, and they survive because they were never about having
+two sources.**
 
 ---
 
-## 1. Runtime is evidence, not preference
+## 1. What may be added, and where it may run
 
-The single most important field on a source is where it may run.
+**There is one place code runs: this Worker.** Not a policy — a fact, since the
+local runner was deleted. So "where does this source run" is no longer a
+question a source answers; the question is whether it may be called at all.
 
-- **`worker`** — the service authenticates the **credential**. seats.aero wants
-  its key and does not care that Cloudflare made the request, so the Worker calls
-  it directly and a search needs no laptop awake.
-- **`local`** — the service judges the **client**, or its posture against a
-  datacenter IP has never been measured. It runs from `packages/local-sources`
-  on a residential connection and POSTs to `/api/ingest/*`.
+The test is **who is being scored**:
 
-Neither runner can pick up the other's sources: the Worker asks the registry for
-`runtime: "worker"`, `npm run gather` asks for `"local"`, and `resolveRunnable`
-throws with an explanation rather than returning nothing.
+- **The service authenticates the CREDENTIAL** — it wants a key and does not care
+  that Cloudflare made the request. seats.aero is this, which is why a search
+  needs no laptop awake. Resend is this too, on the notification side.
+- **The service judges the CLIENT** — it scores the browser, the IP, the TLS
+  fingerprint. Carriers do this and refuse datacenter IPs outright: United
+  answers an Akamai `428`, Delta a `444` that survives a real browser session
+  replayed verbatim.
 
-**Setting this to `worker` without having measured it is the most expensive
-mistake available here.** A source that quietly returns nothing in production is
-indistinguishable from "there is no award space on this route" — which is the one
-failure this whole application is built to prevent. PointsYeah is pinned to
-`local` for exactly that reason: it is an anonymous JSON API and might well
-answer a Worker, but nobody has probed it from the edge, so the field records
-what is known rather than what is likely.
+A source of the first kind can be added. A source of the second kind cannot, and
+**that is now a rejection rather than a redirection.** There used to be a
+`runtime: "worker" | "local"` field on `SourceDescriptor` for exactly this, and
+setting it to `local` meant "we have not measured this, so run it somewhere the
+answer doesn't matter". With nowhere else to run, the honest options are *prove
+it works from the edge* or *don't add it*.
+
+Why that matters more than it sounds: **a source that quietly returns nothing in
+production is indistinguishable from "there is no award space on this route"**,
+which is the one failure this whole application exists to prevent. Guessing was
+always the expensive mistake; there is simply no longer a hedge available.
 
 ---
 
@@ -56,7 +63,6 @@ interface SourceDescriptor {
   readonly label: string;
   readonly programs: string[];    // every one MUST exist in PROGRAM_SEEDS
   readonly horizonDays: number;
-  readonly runtime: "worker" | "local";
 }
 
 interface RunnableSource extends SourceDescriptor {
@@ -70,13 +76,20 @@ interface RunnableSource extends SourceDescriptor {
 
 **`id` is a permanent stored value.** It is written into
 `availability_snapshots.source` and `search_coverage.source`, and prunes are
-scoped per source. Renaming one without migrating both tables orphans every row
-it ever wrote: nothing would clean them and they would read as current forever.
-(Migration `0009` is what that migration looks like.)
+scoped per source. Two things follow, and the second is the one that was learned
+the hard way:
+
+- Renaming an id without migrating both tables orphans every row it ever wrote:
+  nothing would clean them and they would read as current forever.
+- **Retiring a source without deleting its rows does the same thing.** Delete the
+  code and nothing is left with the authority to prune what it wrote. That is
+  what `migrations/0002_drop_pointsyeah.sql` is, and what migration 0009 was for
+  the scrapers before it.
 
 **`programs` are foreign keys.** `registerSource` validates every entry against
 `PROGRAM_SEEDS`, because otherwise the typo surfaces as a write failing mid-run
-rather than as a bad registration.
+rather than as a bad registration. Since `sources/index.ts` registers at import
+time, that check runs on every Worker boot — it is the registry's one live job.
 
 **`supports` bows the source out** — false means no request is issued at all. A
 single-program source declines a run filtered to other programs.
@@ -87,25 +100,27 @@ before anyone decides to spend on it. Clamp to `horizonDays` here, not inside
 as "nothing to do". A task that ran and found nothing is a different claim — it
 claims coverage.
 
-### `SourceDescriptor` without `run` is a real option
+### `SourceDescriptor` without `run` is the only shape in use
 
 seats.aero is descriptor-only. The Worker drives it through a specialised runner
-(`workers/api/src/searchRun.ts`) that streams each HTTP call to the browser as it
-lands, meters a per-request subrequest budget, and resumes across requests when
-it runs out. Expressing that through a plain `run()` would push streaming
-callbacks and call accounting into the interface and make every future source
-carry seats.aero's shape.
+(`api/src/searchRun.ts`) that streams every HTTP call to the browser as it lands,
+meters a per-request subrequest budget, and resumes across requests when it runs
+out. Expressing that through a plain `run()` would push streaming callbacks and
+call accounting into the interface and make every future source carry
+seats.aero's shape.
 
-The split is by **who drives the source**. `runnableSources()` filters on
-`isRunnable`, so a descriptor-only entry can never reach the generic loop and
-fail at the least useful moment. If you are adding a source, you almost certainly
-want `RunnableSource`.
+The split is by **who drives the source**. `isRunnable` narrows a catalogue entry
+to one a generic loop could execute, and nothing satisfies it today — the
+interface is kept as the seam a second source would implement, and because the
+docblock on `run` states the failure protocol below.
 
 ---
 
 ## 3. Three rules that keep the database honest
 
-These are not style. Each one, broken, deletes real data.
+These are not style. Each one, broken, deletes real data. **None of them is about
+source count** — they are properties of `applyTask`, and seats.aero depends on
+every one.
 
 ### Throwing is the failure protocol
 
@@ -124,20 +139,22 @@ classifies it (`classifyError` in `providers/transport.ts`), and continues with
 the next task.
 
 Only `ok` and `empty` claim coverage. `failed`, `blocked`, `challenged`,
-`timeout` and `skipped` claim nothing, which is what stops a refused task from
-destroying a real find.
+`timeout` and `skipped` claim nothing, which is what stops a refused seats.aero
+chunk deleting seats.aero's own stored finds.
 
 ### `coveredDates` is read off the payload, never off the plan
 
-Services clamp windows near today and near their own horizon. If you asked for 60
-days and the response only speaks to 30, say 30:
+Services clamp windows near today and near their own horizon, and paginated
+answers truncate. If you asked for 60 days and the response only speaks to 30,
+say 30:
 
 ```ts
 return { offers, coveredDates: datesActuallySeenInThePayload };
 ```
 
 Over-claiming hard-deletes real finds. Under-claiming costs a stale row. **When
-unsure, narrow it.**
+unsure, narrow it.** `docs/SEATS-AERO.md` §8 is this rule applied to a real
+truncating endpoint.
 
 ### Gather wide, query narrow
 
@@ -158,100 +175,79 @@ that the metadata isn't noise.
 
 Each becomes a row in `search_tasks` with its own status, timing and error. That
 is the property the design rests on: *"11 of 14 came back and three were
-refused"* has to be queryable, not a log line.
+refused"* has to be queryable, not a log line. seats.aero is a genuinely
+multi-task source — 90-day chunks, each of which can paginate — so this matters
+more for it than it ever did for an aggregator that answered in one shot.
 
 `task.key` must be **derived from the work** — never from a counter or a clock.
-`(run_id, source, task_key)` is UNIQUE, and the key is the idempotency guarantee
-when a batch POST is retried.
-
-A source is allowed to use one task for a whole run when its fan-out is genuinely
-internal. PointsYeah does: it tiles its own date sub-windows and enriches each
-result inside `search()`. The trade is stated in its docblock rather than hidden
-— one task means one status, so "6 of 6 sub-windows returned" and "1 of 6" both
-read as `ok`.
+`(run_id, source, task_key)` is UNIQUE, and the key is what makes re-applying a
+task an update rather than a duplicate.
 
 ---
 
-## 5. Registering
-
-```ts
-// packages/core/src/sources/index.ts
-registerSource(seatsAeroSource);
-registerSource(pointsYeahSource());
-```
-
-Registration is explicit rather than a directory scan: a source not named here
-(or registered by an embedder after importing this module) does not exist.
-
-The registry rejects a **duplicate id** rather than letting one source shadow
-another — two services writing under one `availability_snapshots.source` would
-make a prune delete the wrong data. Re-registering the *identical object* is a
-no-op, so a double import is harmless.
-
----
-
-## 6. Adding a source
-
-1. **Probe first, with a control.** Establish that the data exists, logged out,
-   and that you can get it from where you intend to run. Hold every variable
-   fixed but one. An unpaired "it was blocked" is a rumour —
-   `docs/HARVEST-POSTMORTEM.md` §6 is a list of what that costs.
-2. **Set `runtime` to what you measured.** `local` unless you have specifically
-   tested from a datacenter IP.
-3. **Map its programs onto `PROGRAM_SEEDS`.** A program that is not seeded is not
-   storable; add it to *both* `packages/core/src/data/programs.ts` and
-   `seed/programs.sql`, which mirror each other.
-4. **Establish `horizonDays` empirically.** Too high wastes calls on an empty
-   horizon; too low silently caps the app's reach.
-5. **Write `plan` pure and test it.** Windows past the horizon, windows straddling
-   it, a one-day window.
-6. **Write `run` against a captured fixture**, and let it throw. Redact
-   credential-ish headers before committing the fixture, and read it before you
-   do.
-7. **Register it**, and run `npm run gather -- --sources <id> --from X --to Y
-   --days 0-30 --dry` — which exercises plan, execute, classify and batch, and
-   writes nothing.
-8. **Then run it for real, twice.** The second run must write **zero** snapshots.
-   That is write-on-change working, and it is the cheapest end-to-end proof this
-   pipeline has that your ids, your hashes and your coverage claim all line up.
-
----
-
-## 7. Where a source's output goes
-
-Both runners converge on one function:
+## 5. Where a source's output goes
 
 ```
 source.run()  →  AvailabilityResult[]  →  applyTask()  →  D1
 ```
 
-`applyTask` (`packages/core/src/ingest/apply.ts`) runs per task, as work
-completes — gathering can die halfway and the successful tasks are already
-durable. Its order is the safety property: **read baseline → write changed
-snapshots → prune → record coverage last**, so a crash under-claims rather than
-over-claims.
+`applyTask` (`shared/src/ingest/apply.ts`) runs per task, as work completes —
+gathering can die halfway and the successful tasks should already be durable. Its
+order is the safety property: **read baseline → write changed snapshots → prune →
+record coverage last**, so a crash under-claims rather than over-claims.
 
-Two things worth knowing because they constrain what a source may return:
+Four things worth knowing because they constrain what a source may return:
 
 - **`collapseBy`/`collapseBest` is required, not an optimisation.** The snapshot
   row is keyed (route, date, program, cabin); two itineraries for one slot would
   collide non-deterministically and the diff would report phantom changes every
   run.
-- **Co-terminal answers are real and supported.** `AvailabilityResult` carries
-  optional `origin`/`destination`, and one task may touch several route keys.
-  The route is therefore part of the collapse key, the baseline read *and* the
-  coverage claim.
+- **Co-terminal answers are real and supported.** A source can return SFO→**HND**
+  itineraries for an SFO→NRT search, and the good space is often on the airport
+  nobody asked for. `AvailabilityResult` carries optional `origin`/`destination`,
+  and one task may touch several route keys. The route is therefore part of the
+  collapse key, the baseline read *and* the coverage claim — miss any one and you
+  either merge two real finds into one, rewrite rows every run, or leave rows
+  prunable-but-never-marked-checked.
+- **Write-on-change is keyed off the STORED `raw_hash`, not a recomputed one.**
+  Enrichment replaces a summary's synthetic segment with real legs, and
+  `hashResult` folds segments in — so a recomputed baseline would differ from the
+  identical summary arriving next and throw the enrichment away on every search,
+  forever.
+- **A re-run that changes nothing upstream writes ZERO rows.** That is the
+  cheapest end-to-end proof this pipeline has that a source's ids, hashes and
+  coverage claim all line up.
 
-The local runner adds the transport around that: `packages/local-sources/src/
-runner.ts` plans, paces, batches and POSTs to `/api/ingest/*` with an
-`X-Ingest-Token`; `cli.ts` is `npm run gather`.
+---
+
+## 6. Adding a source
+
+1. **Probe first, from the edge, with a control.** Establish that the data
+   exists, logged out, and that a Cloudflare IP can get it. Hold every variable
+   fixed but one. An unpaired "it was blocked" is a rumour —
+   `docs/HARVEST-POSTMORTEM.md` §6 is a list of what that costs. There is no
+   `runtime: "local"` to fall back on any more; see §1.
+2. **Map its programs onto `PROGRAM_SEEDS`.** A program that is not seeded is not
+   storable; add it to *both* `shared/src/data/programs.ts` and
+   `seed/programs.sql`, which mirror each other.
+3. **Establish `horizonDays` empirically.** Too high wastes calls on an empty
+   horizon; too low silently caps the app's reach.
+4. **Write `plan` pure and test it.** Windows past the horizon, windows
+   straddling it, a one-day window.
+5. **Write `run` against a captured fixture**, and let it throw. Redact
+   credential-ish headers before committing the fixture, and read it before you
+   do.
+6. **Register it** in `shared/src/sources/index.ts`.
+7. **Then run it for real, twice.** The second run must write **zero** snapshots
+   (§5).
+8. **Plan its removal before you need it.** A source is a permanent value in two
+   tables. Whatever adds one should know what deleting its rows would look like.
 
 ---
 
 ## See also
 
-- `docs/SEATS-AERO.md` — the Worker-side source, in full.
-- `docs/POINTSYEAH.md` — the local source, in full.
-- `docs/ALERTS.md` — the scheduled sweep, which drives the Worker source with
-  nobody at the keyboard.
+- `docs/SEATS-AERO.md` — the one source, in full.
+- `docs/ALERTS.md` — the scheduled sweep, which drives it with nobody at the
+  keyboard.
 - `docs/HARVEST-POSTMORTEM.md` — the sources that are gone, and why.

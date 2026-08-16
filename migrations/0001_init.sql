@@ -15,7 +15,7 @@
 -- ===========================================================================
 
 -- Loyalty programs and how the couple's currencies feed them.
--- Mirrors packages/core/src/data/programs.ts — keep the two in sync.
+-- Mirrors shared/src/data/programs.ts — keep the two in sync.
 CREATE TABLE IF NOT EXISTS programs (
   code              TEXT PRIMARY KEY,
   name              TEXT NOT NULL,
@@ -49,7 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_airports_city ON airports(city);
 -- The two people using the app. There is no Cloudflare Access in front of this
 -- worker, so identity is the single shared `APP_USER_EMAIL` behind the password
 -- gate — `Cf-Access-Authenticated-User-Email` is deliberately ignored
--- (workers/api/src/identity.ts).
+-- (api/src/identity.ts).
 CREATE TABLE IF NOT EXISTS users (
   email        TEXT PRIMARY KEY,
   display_name TEXT,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- route expands into a pair list, and everything downstream — the search plan,
 -- the coverage claim, the prune — already works per pair because co-terminal
 -- answers forced it to (see `routesTouched` in
--- packages/core/src/ingest/apply.ts). packages/core/src/routing.ts turns this
+-- shared/src/ingest/apply.ts). shared/src/routing.ts turns this
 -- into pair groups; ONE group is ONE seats.aero call however many pairs it
 -- holds, because the API takes comma-delimited airports.
 CREATE TABLE IF NOT EXISTS tracked_routes (
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS tracked_routes (
   -- `origin_airport=HND,SEA&destination_airport=HND,SEA` returns SEA->HND and
   -- HND->SEA together, with the self-pairs dropped by `routePairs`. Same chunks,
   -- same call count, same quota as the one-way search it replaces. See
-  -- `roundTripSpec` in packages/core/src/routing.ts.
+  -- `roundTripSpec` in shared/src/routing.ts.
   --
   -- Two consequences worth knowing:
   --   * The DASHBOARD JOIN must match both directions for these routes, or the
@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS tracked_routes (
   round_trip      INTEGER NOT NULL DEFAULT 0,
 
   -- -------------------------------------------------------------------------
-  -- Alerts (workers/api/src/alerts/, docs/ALERTS.md)
+  -- Alerts (api/src/alerts/, docs/ALERTS.md)
   -- -------------------------------------------------------------------------
 
   -- Off by default, so a newly created route schedules nothing.
@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS tracked_routes (
   -- typo should be able to spend.
   alert_email     TEXT,
 
-  -- JSON array of ChangeType (packages/core/src/diff.ts): new | more_seats |
+  -- JSON array of ChangeType (shared/src/diff.ts): new | more_seats |
   -- price_drop | gone. NULL = the default set, ["new","price_drop"].
   --
   -- READ THIS BEFORE COPYING THE NEIGHBOURING COLUMNS' CONVENTION. `cabins` and
@@ -218,10 +218,13 @@ CREATE INDEX IF NOT EXISTS idx_tracked_routes_alerts
 --
 -- Rows are current PER SOURCE rather than merged before write. Reads take the
 -- latest per (route_key, program, cabin, source) and then collapse across
--- sources by source_fetched_at (see workers/api/src/finds.ts). That keeps both
--- sources' claims on the record — cross-source disagreement becomes a query
--- instead of a log line that discarded one side — and it is what makes
--- per-source pruning safe.
+-- sources by source_fetched_at (see api/src/finds.ts). That keeps every
+-- source's claim on the record — disagreement becomes a query instead of a log
+-- line that discarded one side — and it is what makes per-source pruning safe.
+--
+-- There is one source now, so the collapse resolves trivially. The scoping is
+-- kept anyway: it is what makes retiring a source a data question with a right
+-- answer (delete its rows — see 0002) rather than a silent corruption.
 CREATE TABLE IF NOT EXISTS availability_snapshots (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   route_key           TEXT NOT NULL,   -- 'JFK-DXB-2026-11-14'
@@ -238,9 +241,11 @@ CREATE TABLE IF NOT EXISTS availability_snapshots (
   fees_currency       TEXT NOT NULL DEFAULT 'USD',
   is_direct           INTEGER NOT NULL DEFAULT 0,
   segments_json       TEXT NOT NULL DEFAULT '[]',
-  -- The source plug-in id (packages/core/src/sources/): 'seatsaero' |
-  -- 'pointsyeah'. A PERMANENT STORED VALUE — it is what a prune is scoped to and
-  -- what a read collapses on, so renaming one orphans every row that carries it.
+  -- The source plug-in id (shared/src/sources/). 'seatsaero' is the only value
+  -- written today; 'pointsyeah' was the other, and 0002 deleted its rows. A
+  -- PERMANENT STORED VALUE — it is what a prune is scoped to and what a read
+  -- collapses on, so renaming one orphans every row that carries it, and
+  -- RETIRING one without deleting its rows leaves them current forever.
   source              TEXT NOT NULL,
   -- When the SOURCE observed it. For seats.aero this is their `UpdatedAt` cache
   -- stamp, not our fetch time: findsCte picks winners by freshest
@@ -337,12 +342,13 @@ CREATE INDEX IF NOT EXISTS idx_snap_enrich
 -- anyone actually look at (route, date, program)?" needs a table — or every
 -- absence becomes ambiguous again, and an ambiguous absence deletes real finds.
 --
--- These four tables are named for the SEARCH, not for any one runner. A
--- Worker-side seats.aero search, a local `npm run gather`, and a scheduled alert
--- sweep are structurally the same thing: each opens a run, records tasks against
--- it and claims coverage.
+-- These tables are named for the SEARCH, not for any one runner. A search a
+-- human pressed for and a scheduled alert sweep are structurally the same thing:
+-- each opens a run, records tasks against it and claims coverage. A third kind
+-- of runner used to write here too, from outside Cloudflare; 0002 deleted its
+-- rows. (`search_logs` was the fourth table in this group, dropped by 0002.)
 
--- One search: a Worker-side run, a local gather, or one alert sweep's share.
+-- One search: a Worker-side run, or one alert sweep's share.
 CREATE TABLE IF NOT EXISTS search_runs (
   id             TEXT PRIMARY KEY,        -- uuid minted by the caller, not the server
   user_email     TEXT NOT NULL,
@@ -370,8 +376,8 @@ CREATE TABLE IF NOT EXISTS search_runs (
   changes_json   TEXT,                    -- bounded diff summary; display only
   error          TEXT,
   host           TEXT,                    -- machine that ran it
-  -- Which build of the local runner produced this run. Only ever populated by
-  -- `npm run gather`; the Worker leaves it NULL.
+  -- Which build of the runner produced this run. Only the local gatherer ever
+  -- populated it, and 0002 deleted its rows; the Worker leaves it NULL.
   runner_version TEXT,
   created_at     INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
 
@@ -430,7 +436,7 @@ CREATE INDEX IF NOT EXISTS idx_srun_route_id ON search_runs (route_id, started_a
 CREATE TABLE IF NOT EXISTS search_tasks (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id         TEXT NOT NULL REFERENCES search_runs(id) ON DELETE CASCADE,
-  source         TEXT NOT NULL,              -- 'seatsaero' | 'pointsyeah'
+  source         TEXT NOT NULL,              -- 'seatsaero' (was also 'pointsyeah'; see 0002)
   task_key       TEXT NOT NULL,              -- 'seatsaero:SEA-LAX:2027-03-05'
   origin         TEXT NOT NULL,
   destination    TEXT NOT NULL,
@@ -446,17 +452,26 @@ CREATE TABLE IF NOT EXISTS search_tasks (
   final_url      TEXT,
   http_status    INTEGER,
   capture_json   TEXT,                       -- intercepted responses: url, status, bytes
-  artifact_path  TEXT,                       -- local artifact on failure
-  -- Ingest streams as the run proceeds and may retry a batch, so the same task
-  -- can arrive twice. This makes the second arrival an update, not a duplicate.
+  -- DROPPED BY 0002. A path on the local runner's disk to a failed task's dump;
+  -- meaningless from a Worker, which has no disk. Still created here because
+  -- this file is the record of what was APPLIED, and 0002 is the delta.
+  artifact_path  TEXT,
+  -- Ingest applies each task as work completes and may re-apply one, so the
+  -- same task can arrive twice. This makes the second arrival an update, not a
+  -- duplicate.
   UNIQUE (run_id, source, task_key)
 );
 CREATE INDEX IF NOT EXISTS idx_stask_run    ON search_tasks (run_id);
 CREATE INDEX IF NOT EXISTS idx_stask_source ON search_tasks (source, finished_at DESC);
 
+-- DROPPED BY 0002 — read that migration before reasoning about this table.
+--
 -- Per-source log lines, durable because the person reading them is not
--- necessarily the person who pressed the button — and for a scheduled sweep,
--- nobody pressed one.
+-- necessarily the person who pressed the button. Its only writer was the
+-- `/api/ingest/*` batch handler the local runner POSTed to; the Worker's own
+-- search streams NDJSON to the browser instead, and nothing ever read a row
+-- back out. It is still created here because this file is the record of what
+-- was applied, not a description of the live schema.
 CREATE TABLE IF NOT EXISTS search_logs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id      TEXT NOT NULL REFERENCES search_runs(id) ON DELETE CASCADE,

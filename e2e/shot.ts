@@ -2,8 +2,8 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
-import { THEMES, isThemeId, themeGroup } from "../web/src/themes.js";
-import { DEFAULT_PREFERENCES } from "../web/src/preferences.js";
+import { THEMES, isThemeId, themeGroup } from "../app/src/themes.js";
+import { DEFAULT_PREFERENCES } from "../app/src/preferences.js";
 import { BASE_URL, STATE_PATH, ensureAuthState } from "./auth-state.js";
 import { applyNetworkPolicy } from "./fixtures.js";
 

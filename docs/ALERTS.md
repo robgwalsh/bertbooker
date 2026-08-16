@@ -1,8 +1,8 @@
 # Alerts
 
-The scheduled sweep: `workers/api/src/alerts/` (the impure half — the cron tick,
-the budget guard, the read API), `packages/core/src/alerts/` (the pure half —
-pacing, selection, the digest), `workers/api/src/email.ts` (Resend), and the
+The scheduled sweep: `api/src/alerts/` (the impure half — the cron tick,
+the budget guard, the read API), `shared/src/alerts/` (the pure half —
+pacing, selection, the digest), `api/src/email.ts` (Resend), and the
 Alerts tab that reports on all of it.
 
 This is **the only unattended work in the repo**, and it reverses four rules that
@@ -15,8 +15,8 @@ changing anything here.
 
 | where | what it said |
 |---|---|
-| `workers/api/wrangler.toml` | "Nothing is scheduled: no [triggers], no cron. Adding one would recreate unattended work, and unattended work hides source failures." |
-| `workers/api/src/search.ts` | "nothing runs on a schedule… No cron, no queue, no budget guard." |
+| `api/wrangler.toml` | "Nothing is scheduled: no [triggers], no cron. Adding one would recreate unattended work, and unattended work hides source failures." |
+| `api/src/search.ts` | "nothing runs on a schedule… No cron, no queue, no budget guard." |
 | `docs/SEATS-AERO.md` §1 | "A source the server can call is exactly what makes a cron look tempting, and it is still forbidden." |
 | `migrations/0001_init.sql` (`source_quota`) | "THIS IS NOT A BUDGET GUARD… if you ever find code gating a call on this value, that is the guard coming back and it needs the argument in CLAUDE.md to survive first." |
 
@@ -66,7 +66,7 @@ drives**.
 
 What changed is that a process now spends without being watched, which is what a
 budget is for. So the guard is back, in exactly one file
-(`workers/api/src/alerts/budget.ts`) so that "who consults quota before spending"
+(`api/src/alerts/budget.ts`) so that "who consults quota before spending"
 stays a one-file answer to `grep`. Nothing else may import it.
 
 And note what it actually protects: not the quota for its own sake, but the
@@ -134,7 +134,7 @@ describes half a route as though it were the whole answer.
 
 ## 4. Pacing
 
-`packages/core/src/alerts/pace.ts`. Pure, and the Alerts tab calls the **same**
+`shared/src/alerts/pace.ts`. Pure, and the Alerts tab calls the **same**
 function the scheduler does — a page that quoted a cadence the scheduler does not
 keep would be worse than no page, because you would trust it.
 
@@ -198,7 +198,7 @@ route's full call cost to compute a diff against fresh data and throw the answer
 away — and then makes you wait another whole interval for the first email.
 
 So `PATCH` does not blindly clear the clock on 0 → 1. `baselineOnEnable`
-(`packages/core/src/alerts/pace.ts`) stamps it with `now` when
+(`shared/src/alerts/pace.ts`) stamps it with `now` when
 `last_checked_at` is within `MAX_SWEEP_MINUTES`, and `NULL` otherwise. That
 cutoff is the slowest cadence the pacer will ever claim, so anything accepted is
 no staler than what a routine sweep diffs against; older than that and the
@@ -257,7 +257,7 @@ configured. `NULL` is the only way to say "the default set".
 
 ## 7. The budget guard
 
-`workers/api/src/alerts/budget.ts`. Pure `decideSweep`, so the reasoning is
+`api/src/alerts/budget.ts`. Pure `decideSweep`, so the reasoning is
 testable without a D1.
 
 The **absent-observation** case is the one that matters. `source_quota` is
@@ -285,7 +285,7 @@ The reserve compares against what would be left **after** the sweep.
 
 ## 8. Configuration
 
-Secrets (`wrangler secret put`, or a line in `workers/api/.dev.vars` locally):
+Secrets (`wrangler secret put`, or a line in `api/.dev.vars` locally):
 
 | | |
 |---|---|
@@ -311,8 +311,8 @@ provider's own message in `alert_deliveries.error`.
 ## 9. Testing it
 
 The repo has no D1 or Worker test harness, so the logic lives in pure functions
-and is tested there — `packages/core/src/alerts/*.test.ts` and
-`workers/api/src/alerts/budget.test.ts` (following the `gate.test.ts` precedent
+and is tested there — `shared/src/alerts/*.test.ts` and
+`api/src/alerts/budget.test.ts` (following the `gate.test.ts` precedent
 of testing only pure exported functions).
 
 Everything else needs a running tick, and `wrangler dev` **never** runs crons on
@@ -322,7 +322,7 @@ their real schedule.
 
 `POST /api/alerts/run` fires one tick and answers with the whole `TickResult`. It
 **404s unless the Worker is answering on a loopback host** (`isLocalRequest` in
-`workers/api/src/security.ts`) — in production the route should be
+`api/src/security.ts`) — in production the route should be
 indistinguishable from one that was never written. `GET /api/alerts/schedule`
 reports `manualTick` off the same predicate, which is what makes the buttons on
 the Alerts tab appear at all.
@@ -380,23 +380,23 @@ Cloudflare dashboard has a Cron Triggers tab.
 
 | | |
 |---|---|
-| `packages/core/src/alerts/pace.ts` | cadence, cost, due-ness. Pure |
-| `packages/core/src/alerts/select.ts` | which changes are worth an email. Pure |
-| `packages/core/src/alerts/digest.ts` | the email as strings, and per-recipient grouping. Pure |
-| `workers/api/src/alerts/sweep.ts` | the tick: pick, guard, sweep, file, flush |
-| `workers/api/src/alerts/budget.ts` | **the only place quota is read before spending** |
-| `workers/api/src/alerts/routes.ts` | `/api/alerts/*` — what the tab reads, plus the dev-only `POST /run` |
-| `workers/api/src/security.ts` | `isLocalRequest` — the one dev-vs-prod discriminator |
-| `workers/api/src/email.ts` | Resend, and the recipient allowlist |
-| `workers/api/src/searchRun.ts` | the shared engine — two callers, one behaviour |
-| `web/src/pages/Alerts.tsx` | the tab, ordered problems-first |
-| `web/src/alerts.ts` | the SPA's reading of `AlertSchedule` — the health ladder, its colours, and the cadence format. Pure |
-| `web/src/pages/Routes.tsx` | the rail's bell and the route header's alerts chip, both off the same ladder |
+| `shared/src/alerts/pace.ts` | cadence, cost, due-ness. Pure |
+| `shared/src/alerts/select.ts` | which changes are worth an email. Pure |
+| `shared/src/alerts/digest.ts` | the email as strings, and per-recipient grouping. Pure |
+| `api/src/alerts/sweep.ts` | the tick: pick, guard, sweep, file, flush |
+| `api/src/alerts/budget.ts` | **the only place quota is read before spending** |
+| `api/src/alerts/routes.ts` | `/api/alerts/*` — what the tab reads, plus the dev-only `POST /run` |
+| `api/src/security.ts` | `isLocalRequest` — the one dev-vs-prod discriminator |
+| `api/src/email.ts` | Resend, and the recipient allowlist |
+| `api/src/searchRun.ts` | the shared engine — two callers, one behaviour |
+| `app/src/pages/Alerts.tsx` | the tab, ordered problems-first |
+| `app/src/alerts.ts` | the SPA's reading of `AlertSchedule` — the health ladder, its colours, and the cadence format. Pure |
+| `app/src/pages/Routes.tsx` | the rail's bell and the route header's alerts chip, both off the same ladder |
 | `migrations/0001_init.sql` | `search_runs.calls` and `.route_id`, the `alert_*` columns on `tracked_routes`, `alert_outbox`, `alert_deliveries` |
 
 **Three surfaces now draw alert state, and they share one ladder.** The Alerts
 tab's table, the Routes rail's per-route bell and the selected route's header
-chip all resolve through `alertHealth` / `ALERT_HEALTH` in `web/src/alerts.ts`,
+chip all resolve through `alertHealth` / `ALERT_HEALTH` in `app/src/alerts.ts`,
 which only *names and orders* what `GET /api/alerts/schedule` already decided.
 Nothing in the SPA re-derives due-ness or cadence — §4's rule that the page must
 quote the scheduler's own answer applies to every one of them, not just the tab.
@@ -431,5 +431,6 @@ Invariants worth restating, because each one fails quietly:
 
 - `CLAUDE.md` — the invariants in short form.
 - `docs/SEATS-AERO.md` — the Partner API, the chunk economics, and §9 on quota.
-- `docs/SOURCES.md` — the plug-in contract, and the other ingest path
-  (`npm run gather`), which still runs on no schedule.
+- `docs/SOURCES.md` — the source contract, and the ingest rules this sweep
+  writes under. The sweep is now the *only* unattended writer; the local
+  gatherer that used to be the other one is gone.

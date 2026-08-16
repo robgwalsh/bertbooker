@@ -3,14 +3,13 @@ name: CI
 # Deliberately offline and free. This runs the two checks that need no account,
 # no key and no browser:
 #
-#   npm test      — vitest across the workspaces, hermetic (parsers vs. committed
-#                   fixtures). No servers, no network.
-#   npm run typecheck — tsc across the workspaces plus e2e/, which is not a
-#                   workspace and so is checked explicitly.
+#   npm test      — one vitest run over shared/, api/ and app/, hermetic (parsers
+#                   vs. committed fixtures). No servers, no network.
+#   npm run typecheck — four tsc projects: shared, api, app, e2e.
 #
 # What is NOT here, on purpose:
 #   - `npm run test:ui`, which needs an installed Chrome and two live servers.
-#   - Anything that presses Search or runs `npm run gather`. Both spend a METERED
+#   - Anything that presses Search or runs `npm run probe:*`. Both spend a METERED
 #     seats.aero quota against a real key, and CI is the last place that should
 #     be able to.
 
@@ -38,8 +37,9 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Playwright is a dev dependency of the root package, and the harness uses
-      # the INSTALLED Chrome rather than a downloaded one (docs/UI-TESTING.md).
+      # Playwright is a dev dependency of the root package (the only package), and the
+      # harness uses the INSTALLED Chrome rather than a downloaded one
+      # (docs/UI-TESTING.md).
       # Skipping the download keeps this install fast; nothing in this job
       # launches a browser.
       - name: Install

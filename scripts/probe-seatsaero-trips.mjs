@@ -27,7 +27,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const FIXTURE_DIR = resolve(ROOT, "packages/core/src/providers/__fixtures__");
+const FIXTURE_DIR = resolve(ROOT, "shared/src/providers/__fixtures__");
 const BASE = "https://seats.aero/partnerapi";
 const REDACTED = "<redacted>";
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -70,21 +70,20 @@ usage: node scripts/probe-seatsaero-trips.mjs (--id <ksuid> | --from <IATA> --to
 // --- the key ---------------------------------------------------------------
 
 /**
- * The key lives in two gitignored files and neither is this script's. Read
- * whichever is present rather than making the operator export it: getting a
- * probe to run should not require reconstructing the Worker's environment.
+ * The key lives in the Worker's own gitignored `.dev.vars`, not in this
+ * script's environment. Read it from there rather than making the operator
+ * export it: getting a probe to run should not require reconstructing the
+ * Worker's environment.
  */
 function readApiKey() {
   if (process.env.SEATS_AERO_API_KEY) return process.env.SEATS_AERO_API_KEY;
-  for (const rel of ["workers/api/.dev.vars", ".env"]) {
-    const file = resolve(ROOT, rel);
-    if (!existsSync(file)) continue;
-    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-      const m = /^\s*SEATS_AERO_API_KEY\s*=\s*(.*)$/.exec(line);
-      if (m) {
-        const v = m[1].trim().replace(/^["']|["']$/g, "");
-        if (v) return v;
-      }
+  const file = resolve(ROOT, "api/.dev.vars");
+  if (!existsSync(file)) return null;
+  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+    const m = /^\s*SEATS_AERO_API_KEY\s*=\s*(.*)$/.exec(line);
+    if (m) {
+      const v = m[1].trim().replace(/^["']|["']$/g, "");
+      if (v) return v;
     }
   }
   return null;
@@ -185,7 +184,7 @@ async function main() {
   if (args.help || args.h) usage();
 
   const apiKey = readApiKey();
-  if (!apiKey) usage("no SEATS_AERO_API_KEY in the environment, workers/api/.dev.vars or .env");
+  if (!apiKey) usage("no SEATS_AERO_API_KEY in the environment or in api/.dev.vars");
 
   let id = typeof args.id === "string" ? args.id : null;
   let availability = null;

@@ -21,7 +21,7 @@ test.use({ storageState: { cookies: [], origins: [] } });
 function appPassword(): string {
   const override = process.env.BERTBOOKER_APP_PASSWORD;
   if (override) return override;
-  const path = resolve(process.cwd(), "workers/api/.dev.vars");
+  const path = resolve(process.cwd(), "api/.dev.vars");
   if (!existsSync(path)) throw new Error(`no ${path} — cannot test the login`);
   for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -31,7 +31,7 @@ function appPassword(): string {
       return trimmed.slice(eq + 1).trim().replace(/^["'](.*)["']$/, "$1");
     }
   }
-  throw new Error("no APP_PASSWORD line in workers/api/.dev.vars");
+  throw new Error("no APP_PASSWORD line in api/.dev.vars");
 }
 
 test("a fresh visit is locked, and the app is not rendered behind the dialog", async ({

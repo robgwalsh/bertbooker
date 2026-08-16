@@ -38,8 +38,9 @@ CI runs exactly those two. If you touched the SPA and have Chrome installed,
 [`docs/UI-TESTING.md`](docs/UI-TESTING.md) first, and never pass `--headed`,
 `--ui` or `--debug` (all open a window).
 
-**Never let a test or a script press Search or run `npm run gather`.** Both spend
-a metered, paid seats.aero quota against a real key.
+**Never let a test or a script press Search, fire `/__scheduled`, or run
+`npm run probe:*`.** All three spend a metered, paid seats.aero quota against a
+real key.
 
 ## House rules
 
@@ -56,14 +57,14 @@ Some specifics that are easy to trip over:
   Fixtures are committed forever, redacted and trimmed — read one before you
   commit it, and make sure it carries no credential or personal itinerary.
 - **Coverage is a stored fact, and over-claiming deletes real data.** If you
-  touch anything under `packages/core/src/ingest`, the rules in
+  touch anything under `shared/src/ingest`, the rules in
   [`docs/SOURCES.md`](docs/SOURCES.md) are load-bearing rather than stylistic.
 - **The Worker never calls an airline's own site.** See
   [`docs/HARVEST-POSTMORTEM.md`](docs/HARVEST-POSTMORTEM.md) before proposing a
   source that does — the reason is product policy, not anti-bot, and it has
   already been paid for once.
-- **Do not commit secrets.** `.dev.vars` and `.env` are gitignored; the tracked
-  templates are `.dev.vars.example` and `.env.example`.
+- **Do not commit secrets.** There is one secrets file, `api/.dev.vars`, and it
+  is gitignored; the tracked template beside it is `api/.dev.vars.example`.
 
 ## Security
 

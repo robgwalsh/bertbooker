@@ -28,7 +28,7 @@ Probably not, and it is worth being straight about that up front:
   subscription (see below). Without a key the app runs but cannot search.
 - **The card list is hardcoded to the author's** — Chase, Capital One, Bilt and
   Citi, deliberately no Amex. Changing that means editing
-  [`packages/core/src/data/programs.ts`](packages/core/src/data/programs.ts),
+  [`shared/src/data/programs.ts`](shared/src/data/programs.ts),
   which is reference data rather than a settings screen.
 - **It is a personal project.** It is shared because it may be useful, not
   because it is a product. See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -46,21 +46,19 @@ If you want award search without running anything, use
 | **Resend account** *(optional)* | Only for the alert digest, and only with a domain you have verified for SPF/DKIM. Without it, sweeps still run and still ingest; each digest is just recorded as `skipped`. |
 | **Google Chrome** *(optional)* | Only to run the UI suite (`npm run test:ui`), which uses your installed browser rather than a downloaded one. See [`docs/UI-TESTING.md`](docs/UI-TESTING.md). |
 
-> **A note on the second source.** PointsYeah (`runtime: "local"`) is *not* an
-> official API — it is an anonymous endpoint observed in the browser, called with
-> browser-shaped headers, and it may break without notice. It is the only source
-> for two programs (`cathay`, `eva`). Read the disclaimer at the top of
-> [`docs/POINTSYEAH.md`](docs/POINTSYEAH.md) before running it; removing it is
-> one line if you would rather not.
+> **There is exactly one data source, and that is a deliberate narrowing.** A
+> second one — PointsYeah, a free aggregator — was removed: it was an
+> undocumented endpoint reached with browser-shaped headers, and rather than
+> guess at whether that was within its terms, it went. Removing it also removed
+> the only reason any part of this app ran outside Cloudflare. The cost was two
+> programs (`cathay`, `eva`), which nothing reaches now.
 
 ## Documentation
 
-- [`docs/SOURCES.md`](docs/SOURCES.md) — the source plug-in contract: what a
-  source is, where it may run, and how to add one
+- [`docs/SOURCES.md`](docs/SOURCES.md) — what a source is, what may be added, and
+  the three ingest rules that keep the database honest
 - [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md) — the Partner API integration in
   full: search, enrich, quota, every payload trap
-- [`docs/POINTSYEAH.md`](docs/POINTSYEAH.md) — the local source: its server
-  limits, program map, and one gather-time deviation
 - [`docs/ALERTS.md`](docs/ALERTS.md) — the scheduled sweep: pacing, the budget
   guard, the digest
 - [`docs/UI-TESTING.md`](docs/UI-TESTING.md) — driving the SPA headless, with
@@ -72,43 +70,38 @@ If you want award search without running anything, use
 ## Architecture
 
 ```
-workers/api (Hono, Cloudflare)  ──►  D1 (bertbooker_db)
+api/ (Hono, Cloudflare)  ──►  D1 (bertbooker_db)
         ▲   │
-        │   ├──► seats.aero /partnerapi  (inbound data — the only source it calls)
+        │   ├──► seats.aero /partnerapi  (inbound data — the only source)
         │   └──► api.resend.com          (outbound — the alert digest)
         │  GET /api/dashboard · POST …/:id/search (NDJSON) · GET /api/quota
-web/ (React + Vite SPA, served by that same worker)
+app/ (React + Vite SPA, served by that same worker)
 
-packages/local-sources (your machine, residential IP)
-        │  POST /api/ingest/*   runs, tasks + offers, logs
-        ▼
-   the same worker, the same ingest pipeline, the same tables
+shared/ — imported by api/, by relative path
 ```
 
-Two things fill one database, and they are told apart by **where they may run**:
+**Everything runs in one place: that Worker.** Two things drive the one source —
+pressing Search, and the alerts cron — and both go through the same
+`searchRun.ts` and the same `applyTask`, writing the same tables. The app then
+*queries the database* they filled.
 
-- **seats.aero** runs on the Worker (`runtime: "worker"`), because it
-  authenticates the key rather than judging the client. Pressing Search, and the
-  alerts cron, both drive it.
-- **PointsYeah** runs locally (`runtime: "local"`), because its posture from a
-  datacenter IP has never been measured. `npm run gather` drives it.
+There used to be a third writer that ran on your own machine, because a second
+source could not be trusted to a datacenter IP. Removing that source removed the
+runner, the `/api/ingest/*` endpoints, a second shared secret, a second
+`.env` file and the npm workspaces that held it all. What is left is three plain
+directories under one `package.json`:
 
-Both go through `applyTask` and write the same tables. The app then *queries the
-database* they filled.
-
-- **`packages/core`** — the normalized `AvailabilityResult` contract, the source
-  registry and plug-in contract, the ingest write-pipeline, diff logic, the
-  seats.aero client, program seed data.
-- **`packages/local-sources`** — the runner for sources that must not run on
-  Cloudflare. A CLI (`npm run gather`) that plans, executes and POSTs to
-  `/api/ingest/*`.
-- **`workers/api`** — the only worker, and it serves the whole app: a Hono API
-  behind a shared-password gate (dashboard, saved routes, route search against
-  seats.aero, per-row enrichment, alerts, ingest, `GET /api/finds`), plus the
-  built SPA on every other path, from its `[assets]` binding.
-- **`web`** — SPA, three routes: Routes (the dashboard), Library (which is where
+- **`shared/`** — the normalized `AvailabilityResult` contract, the source
+  registry, the ingest write-pipeline, diff logic, the seats.aero client, program
+  seed data. Not a package: `api/` imports it by relative path, and `app/`
+  does not import it at all (it hand-mirrors the wire types).
+- **`api/`** — the only worker, and it serves the whole app: a Hono API behind a
+  shared-password gate (dashboard, saved routes, route search against seats.aero,
+  per-row enrichment, alerts), plus the built SPA on every other path, from its
+  `[assets]` binding.
+- **`app/`** — SPA, three routes: Routes (the dashboard), Library (which is where
   the airports table and map live, as one of its panes) and Alerts (the scheduled
-  sweep). Built into `web/dist` and uploaded with the worker above, so the two
+  sweep). Built into `app/dist` and uploaded with the worker above, so the two
   share one origin.
 
 ## First-time setup
@@ -121,7 +114,7 @@ npm install
 npx wrangler login              # needed for D1 and for deploys
 
 # 1. Create the D1 database. Wrangler prints an id — paste it into
-#    workers/api/wrangler.toml as `database_id`, REPLACING the one already
+#    api/wrangler.toml as `database_id`, REPLACING the one already
 #    there (that one is the author's and means nothing on your account).
 #    Nothing that touches the database works until you do; wrangler will tell
 #    you the database does not exist rather than failing quietly.
@@ -130,28 +123,24 @@ npx wrangler d1 create bertbooker_db
 # 2. Configure the worker. Every value is documented inline in the template.
 #    At minimum you need APP_PASSWORD, SESSION_SECRET and APP_USER_EMAIL, plus
 #    SEATS_AERO_API_KEY if you want search to do anything.
-cp workers/api/.dev.vars.example workers/api/.dev.vars
+cp api/.dev.vars.example api/.dev.vars
 
 #    SESSION_SECRET wants 32 random bytes:
 node -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'))"
 
-# 3. Optional, and only if you plan to run `npm run gather`:
-cp .env.example .env
-
-# 4. Apply schema + seed programs to the LOCAL dev database.
+# 3. Apply schema + seed programs to the LOCAL dev database.
 npm run db:apply:local
 npm run db:seed:local
 
-# 5. Optional: airport reference data (~72k rows) for the Airports tab, the
+# 4. Optional: airport reference data (~72k rows) for the Airports tab, the
 #    origin/destination autocompletes and the trip list's route maps.
 npm run build:airports
 npm run db:seed:airports:local
 ```
 
-Both `.dev.vars` and `.env` are gitignored. They are **different environments** —
-the first is the Worker's, the second is the local gatherer's, and workerd never
-reads the latter. They overlap on exactly one key, `INGEST_TOKEN`, because two
-processes genuinely need it.
+`api/.dev.vars` is gitignored and is the **only** environment file — it is the
+Worker's, sitting beside the `wrangler.toml` that loads it. There was a second at
+the repo root for the local gatherer; both are gone.
 
 If `APP_PASSWORD` or `SESSION_SECRET` is unset, every `/api/*` route answers
 **503** with a named reason rather than letting traffic through, and the SPA
@@ -165,7 +154,7 @@ Two terminals (or your own task runner):
 
 ```sh
 npm run dev:api        # API worker → http://127.0.0.1:8787
-npm run dev:web        # SPA        → http://localhost:5173
+npm run dev:app        # SPA        → http://localhost:5173
 ```
 
 Open <http://localhost:5173> and sign in with the `APP_PASSWORD` you set.
@@ -173,13 +162,8 @@ Open <http://localhost:5173> and sign in with the `APP_PASSWORD` you set.
 Note `wrangler dev` does **not** reload `.dev.vars` — edit a value and the old
 one keeps working until you restart the API.
 
-Gathering from a local source is a shell command, not a page:
-
-```sh
-npm run gather -- --from SEA --to LAX --days 0-30 --dry   # writes nothing
-npm run gather -- --from SEA --to LAX --days 0-30
-npm run gather -- --route 1                               # a saved route's window
-```
+There is nothing else to start. Gathering happens inside the Worker, either
+because you pressed Search or because the cron fired.
 
 ### Local-dev notes
 
@@ -188,11 +172,8 @@ npm run gather -- --route 1                               # a saved route's wind
   binds IPv6, so use `localhost:5173` (`127.0.0.1` is refused).
 - The local D1 lives under `--persist-to .wrangler-local` at the repo root. Every
   script that touches it — `dev:api` and the `db:*` ones — runs wrangler from the
-  root with `--config workers/api/wrangler.toml`; don't change one without the
+  root with `--config api/wrangler.toml`; don't change one without the
   others.
-- **`INGEST_TOKEN` must be in two files** — `workers/api/.dev.vars` (the Worker's
-  copy) and the repo-root `.env` (the gatherer's). Both gitignored. The repo-root
-  `.env` is *not* the Worker's environment; workerd never reads it.
 - **If the API seems to "hang"** — spinners in the SPA, nothing in the network tab
   or console — the port is wedged, not the code. Ctrl+C doesn't kill
   `wrangler dev` cleanly on Windows: the `workerd` grandchildren survive holding
@@ -206,23 +187,24 @@ npm run gather -- --route 1                               # a saved route's wind
 Narrowest scope first — *which* tool fails is the diagnosis.
 
 ```sh
-# 1. Parsers vs. saved fixtures. Offline, hermetic.
+# 1. Parsers vs. saved fixtures. Offline, hermetic, free.
 npm test
 
-# 2. The whole source, live, writing nothing. Exercises plan → run → classify →
-#    batch; only the three HTTP ingest calls are stubbed.
-npm run gather -- --from SEA --to LAX --days 0-30 --sources pointsyeah --dry
+# 2. The live payload, captured. THESE SPEND METERED CALLS — read
+#    docs/SEATS-AERO.md §11 before either.
+npm run probe:seatsaero-search -- --from SFO,OAK --to NRT,HND --days 120
+npm run probe:seatsaero-trips  -- --from SFO --to NRT --days 120
 
-# 3. For real, twice. The SECOND run must write zero snapshots — that is
-#    write-on-change, and the cheapest end-to-end proof this pipeline has.
-npm run gather -- --from SEA --to LAX --days 0-30
+# 3. Then press Search in the app, twice. The SECOND run must write zero
+#    snapshots — that is write-on-change, and the cheapest end-to-end proof this
+#    pipeline has that ids, hashes and coverage claims line up.
 ```
 
-If `npm test` passes but a live run doesn't, the **service** changed —
+If `npm test` passes but a live search doesn't, the **service** changed —
 re-capture the fixture.
 
 **Never write a parser against a guessed payload.** Probing at both a near and a
-far date is also how each source's `horizonDays` gets established. Fixtures are
+far date is also how a source's `horizonDays` gets established. Fixtures are
 committed forever, redacted and trimmed — read one before you commit it.
 
 Full guidance is in [`docs/SOURCES.md`](docs/SOURCES.md), and
@@ -232,7 +214,7 @@ probing mistakes this repo has already paid for.
 ## Test & typecheck
 
 ```sh
-npm test         # vitest across workspaces — offline and hermetic
+npm test         # one vitest run over shared/, api/, app/ — offline and hermetic
 npm run typecheck
 npm run test:ui  # the browser suite, headless — see docs/UI-TESTING.md
 ```
@@ -241,31 +223,30 @@ npm run test:ui  # the browser suite, headless — see docs/UI-TESTING.md
 
 **One worker serves everything.** The
 Hono API answers `/api/*`; every other path is the built SPA, uploaded as the
-worker's static assets from `web/dist` (`[assets]` in `workers/api/wrangler.toml`).
-That single origin is the reason `web/src/api.ts` can fetch relative `/api/…`
+worker's static assets from `app/dist` (`[assets]` in `api/wrangler.toml`).
+That single origin is the reason `app/src/api.ts` can fetch relative `/api/…`
 paths deployed exactly as it does in dev, with no base URL and no CORS — and the
 reason a hard refresh on `/library` works, via
 `not_found_handling = "single-page-application"`.
 
 Deploying gives you a `bertbooker.<your-subdomain>.workers.dev` URL for free.
 A custom domain is optional: uncomment the `[[routes]]` block in
-`workers/api/wrangler.toml` once the zone is active on your Cloudflare account.
+`api/wrangler.toml` once the zone is active on your Cloudflare account.
 Leaving a route in that names a zone you do not hold **fails the deploy**, which
 is why it ships commented out.
 
 Nothing is configured in the repo — set every value on your own account. The
 first three are required; the rest match the sections in
-`workers/api/.dev.vars.example`.
+`api/.dev.vars.example`.
 
 ```sh
-cfg="--config workers/api/wrangler.toml"
+cfg="--config api/wrangler.toml"
 
 npx wrangler secret put APP_PASSWORD        $cfg   # required
 npx wrangler secret put SESSION_SECRET      $cfg   # required
 npx wrangler secret put APP_USER_EMAIL      $cfg   # required — the cron fails closed without it
 npx wrangler secret put SEATS_AERO_API_KEY  $cfg   # required to search
 
-npx wrangler secret put INGEST_TOKEN        $cfg   # only if you run `npm run gather`
 npx wrangler secret put RESEND_API_KEY      $cfg   # only for alert emails
 npx wrangler secret put ALERT_FROM          $cfg   #   "
 npx wrangler secret put APP_URL             $cfg   #   " — base URL for the digest's link
@@ -275,7 +256,7 @@ npm run db:apply:remote
 npm run db:seed:remote
 
 npm run deploy    # vite build → wrangler deploy. The build is not optional:
-                  # wrangler uploads web/dist as-is, so skipping it ships a
+                  # wrangler uploads app/dist as-is, so skipping it ships a
                   # stale bundle without failing.
 ```
 
@@ -284,22 +265,17 @@ secrets only so that no personal value lives in a public repo. If you would
 rather keep them in `wrangler.toml` on your own fork, a `[vars]` block works and
 secrets override vars of the same name.
 
-**Point `BERTBOOKER_API_URL` at the workers.dev host, not the custom domain.** A
-zone with bot protection challenges non-browser traffic before it reaches the
-Worker, so ingest POSTs from Node get a 403 challenge page rather than an answer
-— after the gathering has already been paid for.
+If you had `INGEST_TOKEN` set from an earlier version, remove it — nothing reads
+it now:
 
 ```sh
-BERTBOOKER_API_URL=https://bertbooker.<your-subdomain>.workers.dev npm run gather -- --from SEA --to LAX --days 0-30
+npx wrangler secret delete INGEST_TOKEN $cfg
 ```
 
 ## Third-party data and services
 
 - **seats.aero** — a paid Partner API, used as documented. Not affiliated with
   this project. See [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md).
-- **PointsYeah** — **not** an official or documented API, and not affiliated with
-  this project. Read the disclaimer at the top of
-  [`docs/POINTSYEAH.md`](docs/POINTSYEAH.md) before enabling it.
 - **Airport data** — [OurAirports](https://ourairports.com/data/), public domain.
   Regenerate with `npm run build:airports`.
 - **Map geometry** — [Natural Earth](https://www.naturalearthdata.com/), public

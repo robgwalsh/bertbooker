@@ -84,9 +84,9 @@ export default defineConfig({
   },
 
   // The standard dev pair, started through the SAME root scripts a human uses.
-  // Never an inlined `wrangler dev`: `workers/api` deliberately has no `dev`
-  // script because a second launch path would duplicate the port and the persist
-  // path, and this would be that second path.
+  // Never an inlined `wrangler dev` or `vite`: the port, the persist path and
+  // the config path all live in those scripts, and a second launch path here
+  // would be a second copy of all three, drifting silently.
   //
   // `reuseExistingServer` is what makes a run safe to fire while somebody is
   // working: if these are already up, Playwright starts nothing and kills
@@ -104,7 +104,7 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: "npm run dev:web",
+      command: "npm run dev:app",
       url: "http://localhost:5173",
       reuseExistingServer: true,
       timeout: 120_000,

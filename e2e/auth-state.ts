@@ -5,7 +5,7 @@ import { chromium } from "@playwright/test";
 /**
  * Getting the harness past the front door, once.
  *
- * The app is behind a shared-password gate (`workers/api/src/gate.ts`), so every
+ * The app is behind a shared-password gate (`api/src/gate.ts`), so every
  * page a test looks at is eight hours of session cookie away from existing. This
  * module performs that login exactly once per run and leaves the result in a
  * `storageState` file the browser contexts are seeded from.
@@ -41,14 +41,14 @@ export const BASE_URL = "http://localhost:5173";
 
 /** The Worker's copy of the secrets. NOT the repo-root `.env`, which is the
  *  local runner's and which `workerd` never sees. */
-const DEV_VARS = resolve(process.cwd(), "workers/api/.dev.vars");
+const DEV_VARS = resolve(process.cwd(), "api/.dev.vars");
 
 /** Re-login rather than reuse a session with less than this left on it, so a
  *  long suite can't lapse halfway through. */
 const MIN_REMAINING_SECONDS = 30 * 60;
 
 /**
- * Read `workers/api/.dev.vars` into a plain map.
+ * Read `api/.dev.vars` into a plain map.
  *
  * Split on the FIRST `=` only — a base64url `SESSION_SECRET` can contain one —
  * and drop comments and blanks, because the real file interleaves both.
@@ -81,7 +81,7 @@ function parseDevVars(): Record<string, string> {
  * Vite has no `strictPort`, so it hops to 5174 without saying so when something
  * else owns the port. Without this probe the symptom is a suite that fails on
  * every selector against a stranger's app, which reads as "the UI is broken".
- * `/api/health` is outside the gate (`workers/api/src/index.ts`) and its body
+ * `/api/health` is outside the gate (`api/src/index.ts`) and its body
  * names the service, so one request answers both "is anything there" and "is it
  * ours".
  */
@@ -92,7 +92,7 @@ async function assertBertBookerIsServing(): Promise<void> {
   } catch (err) {
     throw new Error(
       `nothing answered ${BASE_URL}/api/health (${err instanceof Error ? err.message : String(err)}).\n` +
-        `Start the app first:  npm run dev:api   and   npm run dev:web\n` +
+        `Start the app first:  npm run dev:api   and   npm run dev:app\n` +
         `If both ARE running, :8787 is probably wedged — that looks like a hang rather\n` +
         `than a refusal on Windows. Fix with:  npm run dev:api:stop`,
     );
@@ -145,7 +145,7 @@ export async function ensureAuthState(opts: EnsureAuthOptions = {}): Promise<str
   if (!session.configured) {
     throw new Error(
       `the API has no ${session.reason === "no_session_secret" ? "SESSION_SECRET" : "APP_PASSWORD"} configured, ` +
-        `so no password can work.\nAdd it as a line in workers/api/.dev.vars and restart ` +
+        `so no password can work.\nAdd it as a line in api/.dev.vars and restart ` +
         `npm run dev:api (wrangler does not reload that file).`,
     );
   }
@@ -173,7 +173,7 @@ export async function ensureAuthState(opts: EnsureAuthOptions = {}): Promise<str
     // password.
     //
     // `Origin` is set explicitly because an APIRequestContext sends none, and
-    // it is the `DEV_ORIGIN` in workers/api/src/security.ts. Belt to the braces
+    // it is the `DEV_ORIGIN` in api/src/security.ts. Belt to the braces
     // above: with it, the content-type no longer matters.
     const res = await context.request.post("/api/auth/login", {
       data: { password },
@@ -193,7 +193,7 @@ export async function ensureAuthState(opts: EnsureAuthOptions = {}): Promise<str
 
     // The cookie alone is NOT enough, and this is the single least obvious thing
     // in the harness. `PasswordGate` seeds its `session` state only from
-    // `localStorage["bertbooker.auth.expiresAt"]` (web/src/auth.ts), and its one
+    // `localStorage["bertbooker.auth.expiresAt"]` (app/src/auth.ts), and its one
     // correcting effect handles the server answering `authenticated: false` —
     // there is no branch for `true`. So a browser holding a perfectly valid
     // cookie and no hint falls all the way through to the login dialog. Seeding

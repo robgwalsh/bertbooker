@@ -40,7 +40,7 @@ closed. One aggregator and one keyed vendor API were found to work and still do.
 | **Delta** | Worked, worthless | Award search *is* offered logged out, the form drive worked, and it returned ~357 KB of real award itineraries every time. But SkyMiles takes **none** of the couple's four currencies, so nothing it found was ever bookable. |
 | **United** | Closed — login | Award results are gated behind sign-in. Evidence in §3. |
 | **Flying Blue** | Closed — login | The highest-value target (the only program all four currencies transfer to) and the most dangerous failure mode we found. Evidence in §4. |
-| **PointsYeah** | Works, kept | An aggregator, not a carrier. Survives as a local source — see §7. |
+| **PointsYeah** | Worked; removed later | An aggregator, not a carrier, so nothing here closed it. It survived this cull as a local source and was removed shortly afterwards on terms-of-service grounds — see the note in §7. |
 | **seats.aero** | Works, kept | A keyed vendor API. Always ran on the Worker and still does. |
 
 Alaska plus Delta is the whole return on the investment: one program that
@@ -189,6 +189,9 @@ Worth separating, because the mistakes are repeatable and the findings are not.
 
 ## 7. What survived, and why
 
+*This section was written when the scrapers were removed, in August 2026, and it
+has been overtaken once — see the note at the end of it.*
+
 The scrapers are gone. The *abstraction* is not, because two sources still work
 and they work in two different places:
 
@@ -197,12 +200,25 @@ and they work in two different places:
   it is Alerts. `docs/SEATS-AERO.md`.
 - **PointsYeah** — an aggregator, and the only source this app has for `cathay`
   and `eva`. Its posture from a datacenter IP has never been measured, so it is
-  pinned to `runtime: "local"` and run by `npm run gather`. `docs/POINTSYEAH.md`.
+  pinned to `runtime: "local"` and run by `npm run gather`.
 
 That split is now a first-class part of the design rather than an accident of
 history: a source declares **where it may run**, and neither runner can pick up
 the other's. See **`docs/SOURCES.md`** for the plug-in contract, which is also
 what a third party would implement if this were ever opened up.
+
+> **Overtaken, shortly afterwards.** PointsYeah was removed too — not for
+> anything measured about it, but because it was an undocumented endpoint of a
+> service whose terms nobody had a good answer about, and the same discomfort
+> that closed this section's scrapers applied to it. **seats.aero is the only
+> source now, and the two-runtimes split described above no longer exists:** the
+> `runtime` field, `packages/local-sources`, `npm run gather` and the
+> `/api/ingest/*` endpoints all went with it, and the repo collapsed to
+> `api/` + `app/` + `shared/` under one `package.json` in the same pass.
+> `migrations/0002_drop_pointsyeah.sql` deleted its rows, for exactly the reason
+> the migration below deleted the scrapers'. What did NOT change is everything in
+> §3–§6 of this document, and the ingest rules in `docs/SOURCES.md` §3 — those
+> were never about source count.
 
 The ingest machinery survived under new names, because a seats.aero search is
 structurally the same thing a harvest was — it opens a run, records tasks, claims
@@ -216,6 +232,10 @@ coverage:
 | `packages/harvest` | `packages/local-sources` |
 | `npm run harvest` | `npm run gather` |
 | `api:seatsaero`, `freetool:pointsyeah` | `seatsaero`, `pointsyeah` |
+
+(Read that right-hand column as of August 2026. Everything in it but
+`search_runs` / `_tasks` / `_coverage` and `seatsaero` has since been deleted —
+see the note in §7. `search_logs` went with `/api/ingest/*`, in `0002`.)
 
 A migration did that, and also deleted every row written by `scraper:alaska`,
 `browser:delta` and `mock` — with no writer left, nothing would ever have

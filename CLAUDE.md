@@ -9,28 +9,38 @@ seats.aero) for two users. A dashboard of monitored routes and a browsable fligh
 database, each result tagged with which of the couple's cards can book it (Chase /
 Capital One / Bilt / Citi — **no Amex**).
 
-**Gathering fills one database from two sources, and what separates them is
-WHERE each may run.** That is a first-class property of a source
-(`runtime: "worker" | "local"`), not a deployment accident. **`docs/SOURCES.md`
-is the plug-in contract in full** — the interface, the registry, the runtime
-rule, the three ingest rules that keep the database honest, and how to add a
-source. Read it before touching anything under `packages/core/src/sources` or
-`packages/local-sources`.
+**There is ONE source and ONE place code runs.**
 
-- **seats.aero** (`runtime: "worker"`) — pressing Search on a tracked route makes
-  the Worker call the **Partner API**, streaming progress back per 90-day chunk.
-  Breadth (~20 programs, a year of dates) for a handful of calls.
+- **seats.aero** — pressing Search on a tracked route makes the Worker call the
+  **Partner API**, streaming progress back per 90-day chunk. Breadth (~20
+  programs, a year of dates) for a handful of calls.
   **`docs/SEATS-AERO.md` is that integration in full** — the endpoints, the call
   economics, the payload traps, coverage, enrichment, quota. Read it before
-  touching `workers/api/src/search.ts`, `src/enrich.ts` or
-  `packages/core/src/providers/seatsaero.ts`; none of that detail is repeated
-  here.
-- **PointsYeah** (`runtime: "local"`) — an aggregator, and the only source this
-  app has for `cathay` and `eva`. Run by `npm run gather` on this machine,
-  POSTing to `/api/ingest/*`. **`docs/POINTSYEAH.md` is that source in full.**
+  touching `api/src/search.ts`, `src/enrich.ts` or
+  `shared/src/providers/seatsaero.ts`; none of that detail is repeated here.
 
-Both go through the same ingest pipeline (`applyTask`) and write the same tables.
-The app then *queries the database* they filled.
+Everything reaches the database through one ingest pipeline (`applyTask`) and
+writes the same tables. The app then *queries the database* it filled.
+**`docs/SOURCES.md` is the source contract in full** — what may be added, the
+three ingest rules that keep the database honest, and how to add one. Read it
+before touching anything under `shared/src/sources` or `shared/src/ingest`.
+
+**A second source was removed, and it took a whole architecture with it.**
+PointsYeah was a free aggregator reached at an undocumented endpoint with
+browser-shaped headers; it went on terms-of-service grounds rather than anything
+measured. Because it could not be trusted to a datacenter IP, it had needed:
+a `runtime: "worker" | "local"` field on every source, a registry that
+partitioned two runners, a `packages/local-sources` workspace, `npm run gather`,
+three `/api/ingest/*` endpoints, an `INGEST_TOKEN` living in two files, a
+repo-root `.env`, and a rule that `@bertbooker/core`'s root export stay DOM-safe
+so plain Node could import it. **All of that is gone**, and the repo collapsed to
+`api/` + `app/` + `shared/` under one `package.json` in the same pass. If you
+find a comment describing any of it, it is stale — say so.
+
+Two things did NOT go with it, and they are the ones worth knowing:
+`availability_snapshots.source` and the per-source scoping around it (see
+*Coverage is a stored fact* below), and the three ingest rules. Neither was ever
+about having two sources.
 
 **There used to be a third way, and it is gone.** For two weeks this repo drove
 airlines' own booking forms in a real off-screen Chrome — Alaska and Delta
@@ -41,18 +51,18 @@ somebody rediscovering it in a year. Read it before proposing a source that read
 a carrier's own site, and before re-litigating a dropped airline.
 
 There is one more writer, and it finds nothing. **Enrich**
-(`workers/api/src/enrich.ts`) buys the itinerary behind a row, on a click. It
+(`api/src/enrich.ts`) buys the itinerary behind a row, on a click. It
 claims no coverage and prunes nothing, which is what keeps it out of the sentence
 above.
 
 **And one thing does now run on a schedule.** **Alerts**
-(`workers/api/src/alerts/`) is a Cron Trigger that re-searches the routes marked
+(`api/src/alerts/`) is a Cron Trigger that re-searches the routes marked
 for alerts and emails a digest when something changes. It is the same Search
 engine (`searchRun.ts`, two callers and one behaviour) and the same ingest
 pipeline — the only new thing is that nobody pressed a button.
 **`docs/ALERTS.md` is that process in full**, and §1 of it is the argument
 against the four comments in this repo that forbade exactly this. Read it before
-touching anything under `workers/api/src/alerts`, `src/email.ts` or the cron in
+touching anything under `api/src/alerts`, `src/email.ts` or the cron in
 `wrangler.toml`. Two rules from it that constrain code elsewhere:
 
 - **Unattended work must never fail invisibly.** No email is sent when a sweep
@@ -72,61 +82,57 @@ One more consequence constrains almost every change here:
   a real browser session replayed verbatim, valid `_abck` and all. (That replay
   was run against Delta only; United is not anti-bot blocked in a browser at all
   — what closes it is a login wall.) If you are adding a `fetch` to an airline in
-  `workers/api`, stop.
+  `api`, stop.
   It reaches exactly two hosts, and the split is the rule rather than an
   exception list: **inbound data — seats.aero**, allowed because it is a keyed
   vendor API that authenticates the *key*, not the client; **outbound
   notification — Resend**, which is not a data source at all but a delivery
-  channel on the same footing. A source that must run somewhere else declares
-  `runtime: "local"` and is run by `npm run gather`.
+  channel on the same footing. There is no longer a `runtime: "local"` escape
+  hatch for a source that fails this test — it simply does not get added.
 
 This file is orientation and invariants. The depth lives in `docs/`:
-`SOURCES.md` (**the plug-in contract** — what a source is, where it may run, the
+`SOURCES.md` (**the source contract** — what a source is, what may be added, the
 ingest rules, adding one; the one place any of that is written down),
 `SEATS-AERO.md` (**the whole Partner API integration** — search, enrich, quota,
 every payload trap; likewise the one place),
 `ALERTS.md` (**the whole scheduled sweep** — the argument for having a cron at
 all, the pacing model, the reinstated budget guard, the outbox and the digest;
 the one place any of that is written down),
-`POINTSYEAH.md` (the local source — its server limits, program map and one
-gather-time deviation; the one place any of that is written down),
 `UI-TESTING.md` (**how to run and look at the SPA with nobody at the keyboard** —
 the headless harness, the session seeding, and the things it must never touch;
 the one place any of that is written down),
 `HARVEST-POSTMORTEM.md` (**the scrapers that used to be here** — what was tried,
-what each probe measured, and why it was abandoned while the source abstraction
-was kept).
+what each probe measured, and why it was abandoned; §7 also carries the note
+about PointsYeah going afterwards).
 
 ## Commands
 
 ```sh
-npm install                 # workspaces: packages/core, packages/local-sources,
-                            #             workers/api, web
+npm install                 # ONE package.json at the root. No workspaces.
 
 # Local D1 (--persist-to .wrangler-local, wired into the dev script):
-npx wrangler d1 create bertbooker_db   # then paste id into workers/api/wrangler.toml
+npx wrangler d1 create bertbooker_db   # then paste id into api/wrangler.toml
 npm run db:apply:local      # apply migrations/  (schema only)
 npm run db:seed:local       # seed/programs.sql (idempotent, re-runnable)
 
 # Run locally (127.0.0.1 for the API, localhost for Vite — see gotchas):
-                            # workers/api/.dev.vars (gitignored) needs four lines:
+                            # api/.dev.vars (gitignored) is the ONLY env file and
+                            # needs four lines:
                             #   SEATS_AERO_API_KEY=…   what Search spends
                             #   APP_PASSWORD=…         the shared password; UNSET => every
                             #                          /api/* route answers 503, on purpose
                             #   SESSION_SECRET=…       32 random bytes (base64url) signing the
                             #                          session cookie; UNSET => 503 as well
-                            #   INGEST_TOKEN=…         must match the repo-root .env copy, or
-                            #                          the gate refuses `npm run gather`
+                            #   APP_USER_EMAIL=…       the single shared identity; UNSET =>
+                            #                          `identity` 401s every route and the
+                            #                          cron fails closed
 npm run dev:api             # Hono API → 127.0.0.1:8787 (clears a wedged port first)
-npm run dev:web             # Vite SPA → localhost:5173 (proxies /api → :8787)
+npm run dev:app             # Vite SPA → localhost:5173 (proxies /api → :8787)
 npm run dev:api:stop        # when Ctrl+C left workerd behind — see gotchas
 
-# Gathering from the sources that declare runtime: "local" (today: PointsYeah
-# only). Everything else runs on the Worker and is reached by pressing Search.
-# The flags and the ladder for adding a source are in docs/SOURCES.md. Do not
-# guess a payload.
-npm run gather -- --from SEA --to LAX --days 0-30 --dry      # live, writes nothing
-npm run gather -- --from SEA --to LAX --days 0-30            # needs dev:api / BERTBOOKER_API_URL
+# There is no gather step. All gathering happens inside the Worker, driven by
+# pressing Search or by the cron. The ladder for adding a source is in
+# docs/SOURCES.md. Do not guess a payload.
 
 npm run probe:seatsaero-trips -- --from SFO --to NRT --days 120
 npm run probe:seatsaero-search -- --from SFO,OAK --to NRT,HND --days 120
@@ -136,15 +142,16 @@ npm run probe:seatsaero-search -- --from SFO,OAK --to NRT,HND --days 120
 # Airport reference data (~72k rows, public-domain OurAirports):
 npm run build:airports          # regenerates seed/airports.sql (needs internet)
 npm run db:seed:airports:local
-npm run build:world             # regenerates web/src/data/worldGeometry.ts, the
+npm run build:world             # regenerates app/src/data/worldGeometry.ts, the
                                 # basemap the trip list's route maps draw
                                 # (needs internet)
 
-npm test                    # vitest across workspaces — offline, no servers, no browser
-npm run typecheck           # tsc across workspaces, plus e2e/ (not a workspace)
+npm test                    # ONE vitest run over shared/ api/ app/ (vitest.config.ts)
+                            # — offline, no servers, no browser
+npm run typecheck           # four tsc projects: shared, api, app, e2e
 
 # Seeing the app. HEADLESS: no window opens, so a run cannot be disturbed by —
-# or disturb — whoever is using the machine. Reuses dev:api/dev:web if they are
+# or disturb — whoever is using the machine. Reuses dev:api/dev:app if they are
 # already up and starts them if not, killing neither. docs/UI-TESTING.md first.
 npm run test:ui             # the browser suite (e2e/*.spec.ts)
 npm run ui:shot -- --path /library --theme review
@@ -156,10 +163,10 @@ npm run ui:shot -- --path /library --theme review
                             # NEVER pass --show (or `playwright test --headed`,
                             # `--ui`, `--debug`, `show-report`): all open a window.
 npm run deploy               # ONE artifact: vite build → wrangler deploy, which
-                             # uploads the worker AND web/dist as its assets
+                             # uploads the worker AND app/dist as its assets
 ```
 
-Single test file / test: `npm -w @bertbooker/core exec vitest run src/providers/pointsyeah.test.ts`
+Single test file / test: `npx vitest run shared/src/providers/seatsaero.test.ts`
 (`-t "<name>"` to filter). Tests live next to sources as `*.test.ts`.
 
 ## Layout
@@ -171,24 +178,28 @@ shared-password gate (`src/gate.ts`) and nothing else — there is no Cloudflare
 Access in front of it, so `APP_USER_EMAIL` is the single shared identity everyone
 who knows the password signs in as.
 
-- **`packages/core`** — source-agnostic domain: the normalized
-  `AvailabilityResult` contract (`src/types.ts`), the **source plug-in contract
-  and registry** (`src/sources/`), the ingest write-pipeline (`src/ingest/`),
-  diff (`src/diff.ts`), the shared collapse rule (`src/collapse.ts`), the
-  seats.aero and PointsYeah wire handling (`src/providers/`), loyalty-program
-  reference data (`src/data/programs.ts`).
-- **`packages/local-sources`** (`@bertbooker/local-sources`) — **runs only on your
-  machine**, and holds exactly what Cloudflare must not do: the runner for
-  sources declaring `runtime: "local"`, plus the `/api/ingest/*` client. A
-  workspace so it joins `npm test` and `npm run typecheck`. See
-  `docs/SOURCES.md`.
-- **`workers/api`** (`@bertbooker/api`) — the only worker. Identity is
+**Three directories, one `package.json`, no workspaces and no path aliases.**
+The thing that makes that work is that **`app/` imports nothing from `shared/`**
+— the SPA hand-mirrors the Worker's wire types (`app/src/api.ts`) — so `api/` is
+the only thing crossing a directory boundary, and it does it with plain relative
+specifiers (`../../shared/src/index.js`). Those resolve identically in `tsc`,
+wrangler's esbuild and vitest, which is why no alias is configured anywhere.
+Keep the `.js` suffix.
+
+- **`shared/`** — source-agnostic domain: the normalized `AvailabilityResult`
+  contract (`src/types.ts`), the source contract and registry (`src/sources/`),
+  the ingest write-pipeline (`src/ingest/`), diff (`src/diff.ts`), the shared
+  collapse rule (`src/collapse.ts`), the seats.aero wire handling
+  (`src/providers/`), loyalty-program reference data (`src/data/programs.ts`).
+  **Not a package** — no `package.json`, no `exports` map, nothing emitted.
+- **`api/`** — the only worker, and its `wrangler.toml`. Identity is
   `APP_USER_EMAIL` and it *deliberately ignores*
   `Cf-Access-Authenticated-User-Email` — with no Access in front and no JWT
-  verification, that header is a string the client picked. Ingest POSTs present
-  `X-Ingest-Token` instead of a password session, and that secret is checked on
-  all three of them.
-- **`web`** — the SPA, three routes: Routes, Library, Alerts.
+  verification, that header is a string the client picked. The password session
+  is now the only credential: `X-Ingest-Token` and its three POST routes are
+  gone.
+- **`app/`** — the SPA and its `vite.config.ts`, three routes: Routes, Library,
+  Alerts.
 
 ### Coverage is a stored fact
 
@@ -204,16 +215,21 @@ upserted by every coverage-claiming task.
   finds; under-claiming costs a stale row. When unsure, narrow it.
 - **Snapshots are per-source**, so a prune is scoped to the source that claimed
   the slice — one source's failure can't destroy another's data. Reads collapse
-  across sources at query time by freshest `source_fetched_at`.
+  across sources at query time by freshest `source_fetched_at`. With one source
+  that collapse resolves trivially, and it is kept anyway, because it is what
+  makes **retiring** a source a data question with a right answer: delete the
+  code and nothing is left with authority to prune what it wrote, so its rows
+  read as current forever. `migrations/0002_drop_pointsyeah.sql` is that delete;
+  migration 0009 was the same delete for the scrapers.
 
-### Ingest (`packages/core/src/ingest/apply.ts`)
+### Ingest (`shared/src/ingest/apply.ts`)
 
 `applyTask` runs on the Worker, per task, as work completes **during** a run —
 gathering can die halfway and the successful tasks should already be durable. It
-has **two callers and one behaviour**: `ingest.ts` applies batches POSTed by the
-local runner, `search.ts` applies each seats.aero chunk inline. Order is the
-safety property: read baseline → write changed snapshots → prune → **record
-coverage last**, so a crash under-claims rather than over-claims.
+is reached through `searchRun.ts`, which has **two callers and one behaviour**:
+the Search endpoint and the alert sweep. Order is the safety property: read
+baseline → write changed snapshots → prune → **record coverage last**, so a crash
+under-claims rather than over-claims.
 
 - **Write-on-change only:** an `fnv1a` hash per key; identical rows are skipped.
   A re-run with nothing changed upstream writes **zero** rows — the cheapest
@@ -238,13 +254,16 @@ coverage last**, so a crash under-claims rather than over-claims.
   **coverage claim** — miss any one and you either merge two real finds into one,
   rewrite rows every run, or leave rows prunable-but-never-marked-checked.
 
-### Reading (`workers/api/src/finds.ts`)
+### Reading (`api/src/finds.ts`)
 
 Every read of a stored find goes through **one CTE** (`findsCte`), so no two
-surfaces can disagree about what a current find is. There used to be two — the
-dashboard and a general database browser — and the browser is gone, leaving the
-dashboard as the SPA's only reader and `GET /api/finds` as an endpoint with no
-client. The CTE is the shape either way: `per_source` (latest per
+surfaces can disagree about what a current find is. There used to be three
+readers — the dashboard, a general database browser, and `GET /api/finds`. The
+browser went first; `GET /api/finds` and `GET /api/finds/sources` followed it,
+having sat with no client and no test for long enough that nothing would have
+noticed either breaking. **The dashboard is the only reader now**, which is the
+better arrangement: a change to this CTE is exercised by the surface that
+matters. The CTE is the same shape: `per_source` (latest per
 route/program/cabin/**source**) → `cash_any` (freshest known fare, any source) →
 `coverage` (MAX `checked_at`) → `finds` (winner by freshest `source_fetched_at`,
 cash price `COALESCE`d forward). A cash fare is an attribute of the itinerary,
@@ -255,8 +274,11 @@ price would blink in and out as sources take turns being freshest.
 say which currencies can *become* the program's miles; a known **cash fare** says
 the seat can be *bought* through any card's travel portal regardless.
 `bookableCurrencies` (`providers/filter.ts`) is the union, and the SQL mirrors it
-(`BOOKABLE_WITH_CLAUSE` with `PORTAL_CURRENCIES` bound as a parameter, plus the
-same clause hand-written into the dashboard's join — keep them in step).
+in `ROUTE_FINDS_MATCH`'s currency clause — **keep the two in step.** It was three
+expressions until `GET /api/finds` went and took `BOOKABLE_WITH_CLAUSE` with it.
+Note that nothing calls `bookableCurrencies` at runtime any more (every filtering
+caller is on the read side and speaks SQL); it is kept as the testable statement
+of the rule, which is why `filter.test.ts` is the thing that pins it.
 Filtering on `bookableWith` alone hides exactly what cash pricing exists to
 surface: Alaska is Bilt-only, so a Chase-filtered route showed *nothing* from it
 until the fare counted. Delta is the extreme case — SkyMiles takes none of the
@@ -280,20 +302,24 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   here than anywhere, because no email reports it.
 - **`SearchKind` vs `ProgramKind`** (`types.ts`): a *search* is `flight | hotel`;
   a *program* is `airline | hotel`. Different types — don't conflate.
-- **`.js` import specifiers resolve to `.ts`**: core uses ESM `./foo.js` imports
-  pointing at `foo.ts`. esbuild (wrangler) and Vite (vitest) rewrite the
-  extension. Keep the `.js` suffix on relative imports.
-- **`@bertbooker/core`'s root export must stay DOM-safe.** `ingest/apply.ts`
-  references `D1Database` at module scope, so it is a subpath export
-  (`@bertbooker/core/ingest`) and the root exports only the ingest *wire* types.
-  Importing the D1 half from the root breaks `@bertbooker/local-sources`'s typecheck.
-- **`seed/programs.sql` mirrors `packages/core/src/data/programs.ts`** — keep
+- **`.js` import specifiers resolve to `.ts`**: `shared/` and `api/` use ESM
+  `./foo.js` imports pointing at `foo.ts`, and `api/` reaches `shared/` the same
+  way (`../../shared/src/index.js`). esbuild (wrangler) and Vite (vitest) rewrite
+  the extension. Keep the `.js` suffix on relative imports.
+- **`shared/src/index.ts` is one barrel, including `applyTask`.** It used to be
+  split — `ingest/apply.ts` names `D1Database` at module scope, and a subpath
+  export kept Cloudflare's ambient types out of a plain-Node consumer's
+  typecheck. That consumer was the local runner. With the Worker as the only
+  importer there is nothing left to protect, and `@bertbooker/core/ingest` no
+  longer exists as a specifier. **If you see the DOM-safety rule cited anywhere,
+  it is stale.**
+- **`seed/programs.sql` mirrors `shared/src/data/programs.ts`** — keep
   them in sync when adding or editing programs. The seed lives OUTSIDE
   `migrations/` so it stays re-runnable.
 - **`seed/airports.sql` is GENERATED — do not hand-edit.** Re-run
   `npm run build:airports`. The `airports` table is standalone reference data
   behind the Airports pane, the origin/destination autocompletes and the map.
-- **`web/src/data/worldGeometry.ts` is GENERATED — do not hand-edit.** Re-run
+- **`app/src/data/worldGeometry.ts` is GENERATED — do not hand-edit.** Re-run
   `npm run build:world`. It is the vector basemap `RouteMap` draws (Natural
   Earth, public domain, simplified to ~54KB) and it is committed so the build
   needs no network. It is *not* interchangeable with the Airports pane's
@@ -312,18 +338,26 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   filter). Get the order wrong and the query silently filters on wrong values.
 - **The local D1 lives under `--persist-to .wrangler-local`** (repo root). Every
   script that touches it — `dev:api` and all the `db:*` ones — runs wrangler from
-  the root with `--config workers/api/wrangler.toml`; change one without the
-  others and you orphan the database. `workers/api` deliberately has **no `dev`
-  script**: a second launch path would duplicate the port and persist path.
+  the root with `--config api/wrangler.toml`; change one without the
+  others and you orphan the database. There is only one launch path, and that is
+  the point: with a single root `package.json` there is nowhere else to put a
+  second one that would duplicate the port and the persist path.
 - **`migrations_dir` is a property of the `[[d1_databases]]` binding**, not a
   top-level wrangler key.
-- **The schema is one applied file, and migrations are one-time and tracked.**
-  `migrations/0001_init.sql` is the whole schema. To drop or alter something add
-  a new `migrations/000N_*.sql`; never edit an applied one. It was collapsed back
-  to a single file at the BertBooker rename, when both databases were recreated
-  empty — the eight follow-on migrations that had accumulated are folded into it
-  and gone from git. That is a one-off licensed by having no data to preserve,
-  not a maintenance habit; the next `000N` is a real migration again.
+- **Migrations are one-time and tracked; never edit an applied one.**
+  `migrations/0001_init.sql` is the base schema and `0002_drop_pointsyeah.sql` is
+  the first real delta on top of it. 0001 was collapsed back to a single file at
+  the BertBooker rename, when both databases were recreated empty — the eight
+  follow-on migrations that had accumulated are folded into it and gone from git.
+  That was a one-off licensed by having no data to preserve, not a habit.
+  **0001 is the record of what was APPLIED, not a description of the live
+  schema**: it still creates `search_logs` and `search_tasks.artifact_path`,
+  which 0002 drops. Both are annotated `DROPPED BY 0002` in place — annotate,
+  don't delete, or a fresh database and a migrated one stop agreeing.
+- **Retiring a source is a migration, not just a deletion.** Prunes are scoped
+  per source, so deleting a source's code leaves nothing with the authority to
+  clean up its rows and they read as current forever. `0002` is that cleanup for
+  `pointsyeah`; migration 0009 was it for the scrapers.
 - **Local dev addressing on Windows differs per server.** Wrangler binds IPv4, so
   use `127.0.0.1:8787` (`localhost` → IPv6 `::1` hangs). Vite binds IPv6, so use
   `localhost:5173` (`127.0.0.1` is refused). Opposite, and both right.
@@ -340,14 +374,19 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   used to be a `/daemon` proxy to a local process, deliberately NOT named
   `/harvest` — the SPA had a page at that path, and a proxy prefix that shadows a
   client route makes the page unreachable. Both are gone; if you add a proxy,
-  check its prefix against `routeTree` in `web/src/router.tsx` first.
+  check its prefix against `routeTree` in `app/src/router.tsx` first.
 - **The password gate fails closed, and that is the point** (`src/gate.ts`). An
   unset `APP_PASSWORD` answers **503 `no_app_password`** on every `/api/*` route
-  rather than waving traffic through, which is the opposite of `INGEST_TOKEN`'s
-  "unset = no check". The asymmetry is deliberate: a forgotten `INGEST_TOKEN`
-  relaxes one check on ingest, whereas a gate that evaporated when unconfigured
+  rather than waving traffic through: a gate that evaporated when unconfigured
   would publish the entire app on one missed `wrangler secret put`. The SPA
-  renders that 503 as a named misconfiguration, never as a password prompt.
+  renders that 503 as a named misconfiguration, never as a password prompt. It is
+  also now the **only** credential — `INGEST_TOKEN`, which took the opposite
+  "unset = no check" posture because it guarded one endpoint rather than the
+  whole app, went with `/api/ingest/*`.
+- **`identity` refuses everything when `APP_USER_EMAIL` is unset**, and the
+  symptom is every page rendering its shell over a wall of `401 unauthenticated`
+  — not a password prompt, because the gate already passed. It is required in
+  `api/.dev.vars` for local dev, not just in production.
 - **The session key is HKDF over `SESSION_SECRET`, SALTED WITH THE PASSWORD**,
   and both halves of that are load-bearing. The random secret is what stops a
   leaked token being an offline cracking oracle on `APP_PASSWORD` — which is
@@ -367,15 +406,12 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   order and stops at the first that responds; move the `app.route("/", authRoutes)`
   line below `app.use("/api/*", gate)` and login becomes unreachable — you
   would need the password to ask for the password.
-- **The repo-root `.env` is not the Worker's environment.** It is read by
-  `packages/local-sources/src/env.ts` into the *gatherer's* `process.env` and by
-  nothing else — workerd never sees it. Putting `APP_PASSWORD` there sets it for
-  nobody, and the symptom is a password that is definitely correct being rejected
-  as `bad_password`. The Worker's copies are `workers/api/.dev.vars` locally and
-  `wrangler secret put` in production; the two files overlap on exactly one key,
-  `INGEST_TOKEN`, and that is because both processes genuinely need it.
-- **`INGEST_TOKEN` must be in two files** — `workers/api/.dev.vars` and the
-  repo-root `.env` — because two processes need it. Both gitignored.
+- **`api/.dev.vars` is the only environment file**, and it sits beside the
+  `wrangler.toml` that loads it. There used to be a repo-root `.env` too — the
+  *gatherer's*, which workerd never saw — and the classic symptom was putting
+  `APP_PASSWORD` in it, setting it for nobody, and watching a definitely-correct
+  password be rejected as `bad_password`. Both that file and its `.env.example`
+  are gone. Production's copies are `wrangler secret put`.
 - **`wrangler dev` does not reload `.dev.vars`.** Editing a secret and watching
   the old value still work is not a caching bug in the gate — restart the API.
 - **Two things stream NDJSON** — the Worker's search
@@ -385,7 +421,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   Search has **three** terminal frames, not two: `run_done`, `error`, and
   `run_continue`, which means "I stopped inside my subrequest budget, ask again
   from here". `searchRoute` hides that from its consumers by looping, so callers
-  still see one continuous stream ending in `run_done` or `error`. `readNdjson` in `web/src/api.ts` is shared; the terminal-frame
+  still see one continuous stream ending in `run_done` or `error`. `readNdjson` in `app/src/api.ts` is shared; the terminal-frame
   check belongs to each caller. `X-Accel-Buffering: no` is set on every side
   because a buffering proxy defeats the point.
 - **The Worker does everything fallible BEFORE opening a stream.** Once the first
@@ -394,7 +430,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   the chunk plan all run first, as real status codes — a missing
   `SEATS_AERO_API_KEY` is a **503**, never an empty result that would read as "no
   award space".
-- **`web/src/api.ts` hand-mirrors the worker's wire types.** Core
+- **`app/src/api.ts` hand-mirrors the worker's wire types.** Core
   references `D1Database` at module scope and fights a DOM tsconfig, so there is
   no shared import; each mirrored type names its source file. They drift if you
   let them.
@@ -410,7 +446,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   `STICKY_NAV_TOP` no longer adds `APP_BAR_HEIGHT`: a sticky child is offset
   from its own scroller, which already starts below the bar.
 - **The app has TWO named viewport seams and no other media queries**
-  (`useIsPhone` = below `sm`, `useIsNarrow` = below `md`, both in `web/src/ui.tsx`).
+  (`useIsPhone` = below `sm`, `useIsNarrow` = below `md`, both in `app/src/ui.tsx`).
   Prefer an `sx` breakpoint object; reach for a hook only when the **DOM** has to
   change, which is a smaller set than it looks. It has to change in four places:
   the two finds tables become **cards** below `sm` (a CSS-only `display: block`
@@ -437,9 +473,11 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   went, and the one that went was the only one that had ever been dev-only.
 - **The card layouts must not drift from the columns they replace.** The cell
   bodies that encode decisions — cash quoted beside miles and never ranked
-  against it, "never checked" told apart from "checked and empty", a round trip's
-  total split by direction — live in `web/src/findCells.tsx` and are rendered by
-  both. `web/src/findKey.ts` is the shared React key for the same reason: each
+  against it, a round trip's total split by direction — live in
+  `app/src/findCells.tsx` and are rendered by both. ("Never checked" told apart
+  from "checked and empty" was a third; it lived in `FindProvenance`, which went
+  with the Source / checked column. If that column returns, that distinction is
+  the part to bring back with it.) `app/src/findKey.ts` is the shared React key for the same reason: each
   table now has two call sites, and a key that drifts silently reuses the wrong
   element across the breakpoint. The **Map** is the one column with no card
   equivalent; `showMap` is forced off there, which also drops the
@@ -449,8 +487,8 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   controls the app is drawn at; a phone at that width cannot hit them. Only hit
   areas move — the 13px type ramp is the same on every device. Note `ui:shot`
   makes a plain desktop context, so this is invisible in a screenshot.
-- **A theme is a palette, not a stylesheet.** `web/src/themes.ts` is twenty-one
-  `ThemeSpec`s — no CSS — and `buildTheme` in `web/src/theme.ts` is the only
+- **A theme is a palette, not a stylesheet.** `app/src/themes.ts` is twenty-one
+  `ThemeSpec`s — no CSS — and `buildTheme` in `app/src/theme.ts` is the only
   place the app's *shape* is decided (square corners, solid rules, 13px density,
   a chrome colour distinct from the page). Adding a theme is adding a spec and
   nothing else; no theme can restyle a component.
@@ -494,31 +532,33 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   is also how the file browser draws its own tree. `selected`/`onSelected` are
   spent on `::selection` and the picker's swatches.
 - **User preferences are client-only, and deliberately not a table.**
-  `web/src/preferences.ts` keeps one versioned JSON blob under
+  `app/src/preferences.ts` keeps one versioned JSON blob under
   `bertbooker.prefs.v1`, read through `useSyncExternalStore` over the same
   listener-set pattern `auth.ts` uses (there is no React context anywhere in
-  `web/src`). Not D1, because the password gate means **one shared identity** —
+  `app/src`). Not D1, because the password gate means **one shared identity** —
   a stored preference would be one setting for both users, and the first
   disagreement would be a bug with no fix. Not the URL either, which is where
   the Routes page keeps state you would want to *link* (`route`,
   `minNights`/`maxNights`); a preference should appear in no link and survive
   every navigation. `getSnapshot` must keep returning the **cached** object —
   a freshly parsed one per call re-renders forever. `parsePreferences` takes the
-  raw string rather than reading storage so it is testable: the web workspace
-  runs vitest in Node, with no DOM and no `localStorage`.
-- **`FindsTable`'s `showMap` defaults ON while its other options default off.**
-  The Map column is a *removal*, so its absent value has to mean "as before",
-  while an added column's has to mean "as before" the other way round — the two
-  cannot share a default. The caller that made that bite was a general database
-  browser, which passed nothing and kept its map; **that pane is gone
-  and the Routes page is the only caller left**, so `showRoute` and
-  `showProvenance` now have no call site at all. They are kept, not dead weight:
-  they name columns the table can genuinely draw and a second multi-route caller
-  would need them back. `showMap` is still a prop rather than a preference read
-  inside the table, which is the separation that let two callers differ, and
-  `RoundTripTable` takes the same prop because the two tables share a column
-  order. Hiding it also skips `useAirportNames` — those coordinates feed nothing
-  but the maps.
+  raw string rather than reading storage so it is testable: **the whole vitest
+  run is Node**, with no DOM and no `localStorage` (`vitest.config.ts` is one
+  flat project over `shared/`, `api/` and `app/`).
+- **`FindsTable`'s `showMap` defaults ON while an added option would default
+  off.** The Map column is a *removal*, so its absent value has to mean "as
+  before", while an added column's has to mean "as before" the other way round —
+  the two cannot share a default. That asymmetry is the rule to keep when adding
+  the next option. The caller that made it bite was a general database browser,
+  which passed nothing and kept its map; that pane is gone and the Routes page is
+  the only caller left. `showRoute` and `showProvenance` went with the pane —
+  they had had no call site for a while, and a column nobody renders is a column
+  nobody notices breaking (`showProvenance` had also stopped meaning anything,
+  since its source half is a constant now). `showMap` is still a prop rather than
+  a preference read inside the table, which is the separation that let two
+  callers differ, and `RoundTripTable` takes the same prop because the two tables
+  share a column order. Hiding it also skips `useAirportNames` — those
+  coordinates feed nothing but the maps.
 - **There is exactly ONE browser here now, and it is headless and ephemeral.**
   The UI harness (`e2e/`) uses `chromium.launch()` + `newContext()` because
   localhost has no anti-bot and a window that does not exist cannot interrupt
@@ -533,7 +573,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   install Chrome, not `npx playwright install`. See `docs/UI-TESTING.md`.
 - **A valid session cookie with no `localStorage` hint still shows the login
   dialog.** `PasswordGate` seeds its `session` state only from
-  `bertbooker.auth.expiresAt` (`web/src/auth.ts`), and its one correcting effect
+  `bertbooker.auth.expiresAt` (`app/src/auth.ts`), and its one correcting effect
   handles the Worker answering `authenticated: false` — there is no branch for
   `true`. So a cleared-storage-but-kept-cookies browser is asked for a password
   the server has already accepted. It is a known bug rather than a design, which

@@ -2,18 +2,17 @@ node_modules/
 dist/
 .wrangler/
 .wrangler-local/
+# The Worker's secrets, and the only environment file left. The tracked template
+# beside it needs no negation — this pattern is an exact name, not a prefix — but
+# `git check-ignore` is the only way to be sure of that, so check before adding
+# another template.
 .dev.vars
 *.local
 .DS_Store
+# There is no longer a repo-root `.env`; these stay so that reintroducing one by
+# accident cannot commit it.
 .env
 .env.*
-
-# ...but the templates ARE tracked. This negation is load-bearing: `.env.*` above
-# matches `.env.example`, so without it the setup docs point at a file that
-# silently never gets committed. (`.dev.vars.example` needs no negation — the
-# `.dev.vars` pattern is an exact name, not a prefix — but `git check-ignore` is
-# the only way to be sure of that, so check before adding a template here.)
-!.env.example
 coverage/
 *.log
 

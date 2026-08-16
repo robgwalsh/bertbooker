@@ -1,6 +1,6 @@
 -- Seed/refresh the loyalty-program reference table. Idempotent (INSERT OR
 -- REPLACE) so it can be re-run after edits. Mirrors
--- packages/core/src/data/programs.ts — keep the two in sync.
+-- shared/src/data/programs.ts — keep the two in sync.
 -- Run: npm run db:seed:local  (or db:seed:remote)
 
 INSERT OR REPLACE INTO programs (code, name, kind, alliance, transfer_partners, is_active) VALUES

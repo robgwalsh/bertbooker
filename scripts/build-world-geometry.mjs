@@ -1,4 +1,4 @@
-// Generates web/src/data/worldGeometry.ts — the basemap the route widget draws.
+// Generates app/src/data/worldGeometry.ts — the basemap the route widget draws.
 //
 //   npm run build:world
 //
@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 
 const BASE = "https://raw.githubusercontent.com/martynafford/natural-earth-geojson/master";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = resolve(ROOT, "web/src/data/worldGeometry.ts");
+const OUT = resolve(ROOT, "app/src/data/worldGeometry.ts");
 
 // Coordinates are stored in tenths of a degree (~11km) — one pixel at the
 // widest view this widget ever shows, so nothing visible is lost.

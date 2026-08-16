@@ -19,10 +19,9 @@ about an environment I control.
 
 Worth a report:
 
-- Anything that lets a request past the password gate (`workers/api/src/gate.ts`)
-  or forges a session cookie.
-- Anything that lets `/api/ingest/*` be written to without a valid
-  `INGEST_TOKEN`.
+- Anything that lets a request past the password gate (`api/src/gate.ts`)
+  or forges a session cookie. That gate is now the only credential the app has;
+  the second one, `INGEST_TOKEN`, went with the `/api/ingest/*` endpoints.
 - SQL injection, XSS, or a way to read another deployment's data.
 - A secret being logged, echoed in a response, or written somewhere tracked.
 

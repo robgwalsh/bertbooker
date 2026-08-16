@@ -1,14 +1,14 @@
 # seats.aero
 
-The Partner API integration: `packages/core/src/providers/seatsaero.ts` (pure
-wire handling plus the chunk loop), `workers/api/src/search.ts` (Search),
-`workers/api/src/enrich.ts` (the itinerary behind a row), and the SPA controls
+The Partner API integration: `shared/src/providers/seatsaero.ts` (pure
+wire handling plus the chunk loop), `api/src/search.ts` (Search),
+`api/src/enrich.ts` (the itinerary behind a row), and the SPA controls
 that drive both.
 
-This is the only authenticated, metered source in the repo, and **the only source
-the Cloudflare Worker calls** — the only one declaring `runtime: "worker"` (see
-`docs/SOURCES.md`). The other source, PointsYeah, runs from a residential
-connection in `packages/local-sources`.
+This is the only authenticated, metered source in the repo, and now **the only
+source at all**: the aggregator that used to run from a residential connection
+was removed, and with it the whole idea of a source running anywhere but this
+Worker. See `docs/SOURCES.md` §1 for what may be added in its place.
 
 ---
 
@@ -25,7 +25,7 @@ seats.aero is not an airline. It is a keyed vendor API that authenticates the
 request. The probe verdict, 2026-08-09, was "no anti-bot question here at all —
 it wants the key, not a browser." That is the whole of the exception, and it is
 evidence rather than convenience. If you are adding a `fetch` to an airline in
-`workers/api`, stop.
+`api`, stop.
 
 This used to say: *"nothing runs on a schedule. The endpoint fires because a
 human pressed Search. A source the server can call is exactly what makes a cron
@@ -61,8 +61,10 @@ code that does is the deleted budget guard coming back (§9).
 | `POST /partnerapi/live` | 1 call per (route, date, program), 5–15s | a real-time query against the airline | **no** |
 
 Cached Search is by far the best value the API offers, which is why a year-long
-window costs a handful of calls rather than a few hundred. `/live` is rejected
-because the local sources answer that question for free.
+window costs a handful of calls rather than a few hundred. `/live` is rejected on
+its price: one call per (route, date, program) and 5–15 seconds each would spend
+the day's whole allowance on a single route's single week, to refresh a cache
+that is usually hours old at worst.
 
 Get Trips is affordable exactly once the choice is a person's — one click, one
 row, one call — so it is never part of a search. A 200-row chunk enriched
@@ -153,9 +155,9 @@ that is left: the route lookup (404), the missing key (**503
 `window_outside_horizon`), and the route spec (400 `bad_route_spec`).
 
 Then, per chunk: `runSeatsAeroChunk` → build a `SourceTaskReport` → `recordTask`
-→ `applyTask`. **The same ingest pipeline `npm run gather` uses**, so both
-writers fill one database under one set of coverage rules, and a search that dies
-halfway has already stored what it found. A search is recorded as a `search_runs`
+→ `applyTask`. **The same ingest pipeline the alert sweep uses**, so both callers
+fill one database under one set of coverage rules, and a search that dies halfway
+has already stored what it found. A search is recorded as a `search_runs`
 row like any other gathering run, distinguished only by `trigger = 'search'` —
 which is also how the Alerts tab lists sweeps (`trigger = 'alert'`) without
 listing hand-pressed searches.
@@ -192,7 +194,7 @@ nothing — and emits `run_continue` with the next index. The run row stays
 rather than overwriting.
 
 `run_continue` is a **third terminal frame**, not an exception to the terminal
-frame rule. `searchRoute` in `web/src/api.ts` hides it by re-issuing with
+frame rule. `searchRoute` in `app/src/api.ts` hides it by re-issuing with
 `?runId=&from=` until `run_done` or `error`, so consumers see one continuous
 stream — but it still yields the frame so the UI can show the pause. The loop is
 bounded at 64 requests so a Worker that somehow always pauses cannot spin.
@@ -306,7 +308,7 @@ rather than asserting either state.
 
 ## 7. Get Trips, and enrichment
 
-`workers/api/src/enrich.ts`. Two entry points: one find
+`api/src/enrich.ts`. Two entry points: one find
 (`POST /api/finds/enrich`) and a whole route
 (`POST /api/tracked-routes/:id/enrich`, NDJSON, same stream contract as search).
 
@@ -439,7 +441,7 @@ honest, where a guessed 1000 would read as "plenty left" on the one day you'd
 want to know otherwise. The explicit null check exists because `Number(null)` is
 0, which would turn a missing header into an exhausted quota that never happened.
 
-`recordQuota` (shared with the `/api/ingest/*` path) writes it to `source_quota`,
+`recordQuota` (shared with `enrich.ts` and the alert sweep) writes it to `source_quota`,
 keyed by source and **UTC day** derived from `observedAt` — because that is when
 the allowance resets. The upsert's `WHERE excluded.observed_at >=
 source_quota.observed_at` is what stops a late older observation rolling
@@ -458,7 +460,7 @@ asked for — that was, and remains, the whole of the argument for deleting the
 old budget guard.
 
 There is now exactly one reader that consults it *before* spending:
-`workers/api/src/alerts/budget.ts`, the scheduled sweep. It spends with nobody
+`api/src/alerts/budget.ts`, the scheduled sweep. It spends with nobody
 watching, which is the case a budget was always for, and it is in its own file so
 that "who checks quota first" stays a one-file answer to `grep`. It extends the
 `undefined`-not-1000 reasoning above rather than contradicting it: on a day
@@ -474,7 +476,7 @@ that overspends), but **self-accounts** from `SUM(search_runs.calls)` since
 
 `makeTransport` turns 401/403/429/451/503, Akamai 428, edge-deny 444 and
 challenge-shaped bodies into `BlockedError` before they can reach a parser as
-data. `classifyError` — shared with the local runner so the two processes
+data. `classifyError` — shared by search, enrich and the sweep so the three
 cannot disagree about what `blocked` means — sorts throws into `blocked` /
 `challenged` / `timeout` / `failed`.
 
@@ -529,14 +531,14 @@ file before committing it.
 
 | | |
 |---|---|
-| `packages/core/src/providers/seatsaero.ts` | everything above the Worker: pure `buildSearchUrl` / `normalizeSeatsAero` / `parseQuotaHeaders` / `parseSeatsAeroTrips`, plus `planSeatsAeroChunks` / `runSeatsAeroChunk` / `runSeatsAeroTrips` |
-| `packages/core/src/routing.ts` | a route as a set of pairs; round-trip spec; the call estimate |
-| `workers/api/src/search.ts` | the Search endpoint, the stream, resumption |
-| `workers/api/src/enrich.ts` | Get Trips, one find and one route |
-| `workers/api/src/searchRun.ts` | the shared run/task/quota writers — `recordTask`, `recordQuota`, `MAX_STORED_CHANGES` |
-| `workers/api/src/quota.ts` | `GET /api/quota`, the chip's endpoint |
-| `web/src/api.ts` | `searchRoute` / `enrichRoute` — hand-mirrored wire types, the resume loop |
-| `web/src/useRouteSearch.ts`, `useRouteEnrich.ts` | the two stream hooks, owned by the **page** so a search survives navigating away |
+| `shared/src/providers/seatsaero.ts` | everything above the Worker: pure `buildSearchUrl` / `normalizeSeatsAero` / `parseQuotaHeaders` / `parseSeatsAeroTrips`, plus `planSeatsAeroChunks` / `runSeatsAeroChunk` / `runSeatsAeroTrips` |
+| `shared/src/routing.ts` | a route as a set of pairs; round-trip spec; the call estimate |
+| `api/src/search.ts` | the Search endpoint, the stream, resumption |
+| `api/src/enrich.ts` | Get Trips, one find and one route |
+| `api/src/searchRun.ts` | the shared run/task/quota writers — `recordTask`, `recordQuota`, `MAX_STORED_CHANGES` |
+| `api/src/quota.ts` | `GET /api/quota`, the chip's endpoint |
+| `app/src/api.ts` | `searchRoute` / `enrichRoute` — hand-mirrored wire types, the resume loop |
+| `app/src/useRouteSearch.ts`, `useRouteEnrich.ts` | the two stream hooks, owned by the **page** so a search survives navigating away |
 
 Invariants worth restating, because each one silently corrupts data rather than
 failing:
@@ -545,7 +547,12 @@ failing:
   permanent database value: every row it ever wrote carries it and pruning is
   scoped by it. A new name orphans all of them, and nothing would ever prune rows
   that would sit there looking current forever. It *was* renamed once, from
-  `api:seatsaero`, and that took a migration (`0009`) touching four tables.
+  `api:seatsaero`, and that took a migration (`0009`, since folded into
+  `0001_init.sql` — see `docs/HARVEST-POSTMORTEM.md` §7) touching four tables.
+  The SPA then kept comparing against the OLD id for months: `quotaLeft` matched
+  nothing, so the app-bar chip silently showed a raw string instead of a number.
+  If you rename it, `PRIMARY_METERED_SOURCE` in `app/src/QuotaIndicator.tsx` is
+  the hand-mirrored copy that has to move with it.
 - **`UpdatedAt` → `sourceFetchedAt`.** Never the fetch time.
 - **`raw_hash` is never touched by enrichment.**
 - **The program map is verified live**, and unmapped sources are dropped.

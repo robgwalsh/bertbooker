@@ -81,8 +81,8 @@ which downloads precisely the browser this config declines to use.
 ## 3. The two servers
 
 `playwright.config.ts` declares both as `webServer` entries running the **same
-root scripts a human runs** — `npm run dev:api` and `npm run dev:web`. Never an
-inlined `wrangler dev`: `workers/api` deliberately has no `dev` script because a
+root scripts a human runs** — `npm run dev:api` and `npm run dev:app`. Never an
+inlined `wrangler dev`: `api` deliberately has no `dev` script because a
 second launch path would duplicate the port and the persist path, and that would
 be the second path.
 
@@ -121,13 +121,13 @@ counts. An `APIRequestContext` sends no `Origin` and no `Sec-Fetch-Site`. So
 `data: JSON.stringify(...)` — a string — gets a bare **403** that reads exactly
 like a wrong password. Passing an object makes Playwright set
 `application/json`; setting `Origin` to the `DEV_ORIGIN` from
-`workers/api/src/security.ts` makes it moot either way.
+`api/src/security.ts` makes it moot either way.
 
 **The state file carries the session cookie AND a `localStorage` entry**, and the
 second is not redundant:
 
 > `PasswordGate` seeds its `session` state **only** from
-> `localStorage["bertbooker.auth.expiresAt"]` (`web/src/auth.ts`), and its one
+> `localStorage["bertbooker.auth.expiresAt"]` (`app/src/auth.ts`), and its one
 > correcting effect handles the Worker answering `authenticated: false`. There is
 > no branch for `true`. So a browser holding a perfectly valid `bertbooker_session`
 > cookie and no hint falls through every check and is **shown the login dialog
@@ -173,7 +173,7 @@ away on the pages under test. They are intercepted and answered 503, and touchin
 one fails the test.
 
 **External hosts are an allowlist derived from the CSP** in
-`workers/api/src/security.ts`, and that is deliberate — the two lists answer the
+`api/src/security.ts`, and that is deliberate — the two lists answer the
 same question and must not drift. Fonts (`fonts.googleapis.com`,
 `fonts.gstatic.com`) are let through, because stubbing them changes every metric
 in every screenshot. The three decorative image hosts (`images.kiwi.com`,
@@ -240,7 +240,7 @@ device presets, since no bundled browsers are installed.
 Note it is a 390px **desktop** context — nothing asks Playwright for `hasTouch`,
 so the theme's `(pointer: coarse)` hit-target floors do not apply there and are
 not asserted. Width and pointer are separate axes on purpose; see `COARSE` in
-`web/src/theme.ts`.
+`app/src/theme.ts`.
 
 ## 7. The driver
 
@@ -272,7 +272,7 @@ assertion in §6 can tell you whether one *reads* well.
 `--theme` seeds `bertbooker.prefs.v1` through `addInitScript` before first paint,
 spread over `DEFAULT_PREFERENCES` so a preference added later cannot silently
 reset here. `review` is four palettes (dark, light, a non-default light, and the
-contrast outlier); `all` is the full catalog from `web/src/themes.ts`, which is
+contrast outlier); `all` is the full catalog from `app/src/themes.ts`, which is
 also where the ids are validated against `isThemeId` — before the browser
 launches, so a typo costs nothing.
 

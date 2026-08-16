@@ -25,7 +25,7 @@ import type { Page } from "@playwright/test";
 /**
  * The two hosts the SPA is allowed to actually reach.
  *
- * Taken from `CSP` in `workers/api/src/security.ts` — this list and that one are
+ * Taken from `CSP` in `api/src/security.ts` — this list and that one are
  * answering the same question, so they must not drift. Fonts are let through
  * rather than stubbed because the alternative silently changes every metric in
  * every screenshot, and "the layout is wrong" is exactly the kind of finding
@@ -45,9 +45,9 @@ const ALLOWED_HOSTS = [
  * guard 2. So they are fulfilled with a transparent pixel and nobody notices.
  */
 const STUBBED_HOSTS = [
-  /^images\.kiwi\.com$/, // carrier logos (web/src/ui.tsx)
-  /^icons\.duckduckgo\.com$/, // program/site icons (web/src/ui.tsx)
-  /\.basemaps\.cartocdn\.com$/, // the airports map's tiles (web/src/AirportMap.tsx)
+  /^images\.kiwi\.com$/, // carrier logos (app/src/ui.tsx)
+  /^icons\.duckduckgo\.com$/, // program/site icons (app/src/ui.tsx)
+  /\.basemaps\.cartocdn\.com$/, // the airports map's tiles (app/src/AirportMap.tsx)
 ];
 
 /** 1x1 transparent GIF. */
@@ -221,7 +221,7 @@ export const test = base.extend<{
     ).toEqual([]);
     expect(
       [...v.foreignHosts],
-      "the SPA reached an external host that is not in the CSP allowlist in workers/api/src/security.ts",
+      "the SPA reached an external host that is not in the CSP allowlist in api/src/security.ts",
     ).toEqual([]);
     expect(v.failedRequests, "a same-origin request failed").toEqual([]);
     if (!allowConsoleErrors) {

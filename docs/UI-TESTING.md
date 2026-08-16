@@ -127,7 +127,7 @@ like a wrong password. Passing an object makes Playwright set
 second is not redundant:
 
 > `PasswordGate` seeds its `session` state **only** from
-> `localStorage["bertbooker.auth.expiresAt"]` (`app/src/auth.ts`), and its one
+> `localStorage["bertbooker.auth.expiresAt"]` (`app/src/lib/auth.ts`), and its one
 > correcting effect handles the Worker answering `authenticated: false`. There is
 > no branch for `true`. So a browser holding a perfectly valid `bertbooker_session`
 > cookie and no hint falls through every check and is **shown the login dialog
@@ -240,7 +240,7 @@ device presets, since no bundled browsers are installed.
 Note it is a 390px **desktop** context — nothing asks Playwright for `hasTouch`,
 so the theme's `(pointer: coarse)` hit-target floors do not apply there and are
 not asserted. Width and pointer are separate axes on purpose; see `COARSE` in
-`app/src/theme.ts`.
+`app/src/theme/build.ts`.
 
 ## 7. The driver
 
@@ -272,7 +272,7 @@ assertion in §6 can tell you whether one *reads* well.
 `--theme` seeds `bertbooker.prefs.v1` through `addInitScript` before first paint,
 spread over `DEFAULT_PREFERENCES` so a preference added later cannot silently
 reset here. `review` is four palettes (dark, light, a non-default light, and the
-contrast outlier); `all` is the full catalog from `app/src/themes.ts`, which is
+contrast outlier); `all` is the full catalog from `app/src/theme/themes.ts`, which is
 also where the ids are validated against `isThemeId` — before the browser
 launches, so a typo costs nothing.
 

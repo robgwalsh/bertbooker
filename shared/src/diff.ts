@@ -30,7 +30,8 @@ export interface ChangeSummary {
    *  its last ten characters — parseable, fragile, and the alert digest needs
    *  one line per change to say where the seat is. Optional because
    *  `search_runs.changes_json` holds blobs written before these existed, and
-   *  because the SPA mirrors this type by hand (`web/src/api.ts`).
+   *  because this shape is also part of the wire contract (`shared/src/wire/`),
+   *  which the SPA reads directly — it no longer mirrors it by hand.
    *
    *  Note what these are NOT for: alert FILTERING does not read them. That
    *  question — "would this route's own pane show this find?" — is answered by

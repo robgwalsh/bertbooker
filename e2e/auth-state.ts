@@ -193,7 +193,7 @@ export async function ensureAuthState(opts: EnsureAuthOptions = {}): Promise<str
 
     // The cookie alone is NOT enough, and this is the single least obvious thing
     // in the harness. `PasswordGate` seeds its `session` state only from
-    // `localStorage["bertbooker.auth.expiresAt"]` (app/src/auth.ts), and its one
+    // `localStorage["bertbooker.auth.expiresAt"]` (app/src/lib/auth.ts), and its one
     // correcting effect handles the server answering `authenticated: false` —
     // there is no branch for `true`. So a browser holding a perfectly valid
     // cookie and no hint falls all the way through to the login dialog. Seeding

@@ -41,20 +41,11 @@ import { recordQuota } from "./searchRun.js";
  */
 export const enrich = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-/**
- * Availability rows one "Enrich all" may expand.
- *
- * This is a **Worker subrequest budget**, the same per-request ceiling the search
- * path keeps with `MAX_CALLS_PER_REQUEST` (25), and one enrichment is one call.
- * Unlike search it does not resume across requests: there is no `run_continue`
- * here, so the cap is the end of the sweep rather than a pause in it. It is also
- * a spend ceiling — 25 calls is a visible dent in a 1000-call day and should be a
- * decision, not a side effect of a wide date window.
- *
- * When it bites, the run says so (`capped`, with the true total). A silently
- * truncated sweep reads as "everything is enriched now", which it is not.
- */
-export const ENRICH_MAX_PER_RUN = 25;
+/** Defined in `shared/src/wire/enrich.ts`, where the docblock lives. The SPA
+ *  quotes the same constant in its confirm dialog instead of holding a second
+ *  copy of the number. */
+export { ENRICH_MAX_PER_RUN } from "../../shared/src/wire/enrich.js";
+import { ENRICH_MAX_PER_RUN } from "../../shared/src/wire/enrich.js";
 
 /** One `availability_snapshots` row that could be enriched. */
 interface EnrichableRow {
@@ -115,14 +106,8 @@ async function currentRows(
   return results;
 }
 
-export interface EnrichOutcome {
-  /** Cabins whose stored row now carries a real itinerary. */
-  enriched: { cabin: string; stops: number; durationMinutes?: number; flights: string }[];
-  /** Cabins the call covered but could not improve, and why. */
-  skipped: { cabin: string; reason: string }[];
-  notes: string[];
-  quotaRemaining?: number;
-}
+export type { EnrichOutcome } from "../../shared/src/wire/enrich.js";
+import type { EnrichOutcome } from "../../shared/src/wire/enrich.js";
 
 /**
  * Expand one availability row and write the result onto its snapshot rows.
@@ -270,42 +255,10 @@ enrich.post("/api/finds/enrich", async (c) => {
 // A whole tracked route.
 // ---------------------------------------------------------------------------
 
-/** Mirrored by hand in `web/src/api.ts`, like every other wire type here. */
-export type EnrichEvent =
-  | {
-      type: "run_start";
-      /** Availability rows this run will expand — one call each. */
-      targets: number;
-      /** How many were eligible in total. Differs from `targets` when capped. */
-      totalTargets: number;
-      capped: boolean;
-    }
-  | {
-      type: "item";
-      index: number;
-      total: number;
-      flightDate: string;
-      program: string;
-      /** The shared failure vocabulary, straight from `classifyError`. `blocked`
-       *  at 401 is a wrong key and at 429 a spent day; those want opposite
-       *  responses, so the distinction has to survive to the UI. */
-      status: SourceTaskStatus;
-      cabins: string[];
-      error?: string;
-    }
-  | { type: "quota"; remaining: number; observedAt: number }
-  | {
-      type: "run_done";
-      enriched: number;
-      failed: number;
-      /** Cabins that came back with no itinerary at the stored price. */
-      empty: number;
-      calls: number;
-      durationMs: number;
-      capped: boolean;
-      remaining: number;
-    }
-  | { type: "error"; message: string };
+/** Defined in `shared/src/wire/enrich.ts`, re-exported here for this module's
+ *  consumers. Both halves used to be written down twice. */
+export type { EnrichEvent } from "../../shared/src/wire/enrich.js";
+import type { EnrichEvent } from "../../shared/src/wire/enrich.js";
 
 interface TargetRow {
   origin: string;

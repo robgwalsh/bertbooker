@@ -15,47 +15,7 @@ There is one source:
 |---|---|---|
 | `seatsaero` | A keyed, metered vendor API. Breadth: ~16 storable programs, a year out, for a handful of calls. | `docs/SEATS-AERO.md` |
 
-There used to be more. Some read airlines' own booking sites — that is over, and
-`docs/HARVEST-POSTMORTEM.md` is why. One, `pointsyeah`, was a free aggregator
-scraped from a laptop; it was removed because it was an undocumented endpoint of
-a service whose terms nobody had a good answer about, and taking it out also took
-the entire second runtime with it. **Sections 3 and 5 below are the part of that
-architecture that survives, and they survive because they were never about having
-two sources.**
-
----
-
-## 1. What may be added, and where it may run
-
-**There is one place code runs: this Worker.** Not a policy — a fact, since the
-local runner was deleted. So "where does this source run" is no longer a
-question a source answers; the question is whether it may be called at all.
-
-The test is **who is being scored**:
-
-- **The service authenticates the CREDENTIAL** — it wants a key and does not care
-  that Cloudflare made the request. seats.aero is this, which is why a search
-  needs no laptop awake. Resend is this too, on the notification side.
-- **The service judges the CLIENT** — it scores the browser, the IP, the TLS
-  fingerprint. Carriers do this and refuse datacenter IPs outright: United
-  answers an Akamai `428`, Delta a `444` that survives a real browser session
-  replayed verbatim.
-
-A source of the first kind can be added. A source of the second kind cannot, and
-**that is now a rejection rather than a redirection.** There used to be a
-`runtime: "worker" | "local"` field on `SourceDescriptor` for exactly this, and
-setting it to `local` meant "we have not measured this, so run it somewhere the
-answer doesn't matter". With nowhere else to run, the honest options are *prove
-it works from the edge* or *don't add it*.
-
-Why that matters more than it sounds: **a source that quietly returns nothing in
-production is indistinguishable from "there is no award space on this route"**,
-which is the one failure this whole application exists to prevent. Guessing was
-always the expensive mistake; there is simply no longer a hedge available.
-
----
-
-## 2. The contract
+## 1. The contract
 
 ```ts
 interface SourceDescriptor {
@@ -116,7 +76,7 @@ docblock on `run` states the failure protocol below.
 
 ---
 
-## 3. Three rules that keep the database honest
+## 2. Three rules that keep the database honest
 
 These are not style. Each one, broken, deletes real data. **None of them is about
 source count** — they are properties of `applyTask`, and seats.aero depends on
@@ -167,7 +127,7 @@ sources bother to run.
 
 ---
 
-## 4. Tasks
+## 3. Tasks
 
 One task is whatever a source can do in a **single observable attempt**: one API
 call, one date range. Small enough that its failure is informative, large enough
@@ -185,7 +145,7 @@ task an update rather than a duplicate.
 
 ---
 
-## 5. Where a source's output goes
+## 4. Where a source's output goes
 
 ```
 source.run()  →  AvailabilityResult[]  →  applyTask()  →  D1
@@ -220,7 +180,7 @@ Four things worth knowing because they constrain what a source may return:
 
 ---
 
-## 6. Adding a source
+## 5. Adding a source
 
 1. **Probe first, from the edge, with a control.** Establish that the data
    exists, logged out, and that a Cloudflare IP can get it. Hold every variable

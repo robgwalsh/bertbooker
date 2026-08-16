@@ -10,7 +10,11 @@ import type { AvailabilityResult } from "../types.js";
 // about honesty rather than transport: a task that was refused must be
 // distinguishable from one that looked and found nothing, whoever ran it.
 //
-// `app/src/api.ts` hand-mirrors the display half, as it does for every endpoint.
+// The display half of this IS part of the wire contract: `SourceTaskStatus` and
+// `RunStatus` are re-exported through `shared/src/wire/domain.ts`, which the SPA
+// imports. **It reaches this file by its DEEP path**, never through
+// `../ingest/index.js` — that re-exports `apply.ts`, which names `D1Database` at
+// module scope and would break `tsc -p app`.
 
 /** How a single unit of gathering work ended.
  *

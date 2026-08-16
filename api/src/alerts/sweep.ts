@@ -135,12 +135,11 @@ export function routeLabel(r: AlertRouteRow): string {
   return `${o} ${r.round_trip === 1 ? "⇄" : "→"} ${d}`;
 }
 
-export interface TickResult {
-  sweptRouteIds: number[];
-  skipped: { routeId: number; reason: string }[];
-  flushed: number;
-  pacing: string;
-}
+/** Defined in `shared/src/wire/alerts.ts` — the SPA reads it as
+ *  `AlertTickResult`. Re-exported here so this module's consumers are
+ *  unchanged. */
+export type { TickResult } from "../../../shared/src/wire/alerts.js";
+import type { TickResult } from "../../../shared/src/wire/alerts.js";
 
 /**
  * One cron tick.

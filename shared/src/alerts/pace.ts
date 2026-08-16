@@ -1,4 +1,7 @@
-import { SEATSAERO_MAX_PAGES } from "../providers/seatsaero.js";
+// From `wire/`, not `providers/seatsaero.js` — see the note in `../routing.ts`.
+// Keeping this file free of the provider is what lets `SweepPacing` be part of
+// the wire contract the SPA reads.
+import { SEATSAERO_MAX_PAGES } from "../wire/seatsaero.js";
 
 /**
  * How often the scheduler may re-search the routes that ask for alerts.

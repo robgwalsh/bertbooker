@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // DELIBERATELY THE NARROWEST PROJECT IN THE REPO: no DOM, no
+    // @cloudflare/workers-types. It exists to check one thing that no other pass
+    // can — that nothing reachable from `src/wire` names an ambient the SPA
+    // cannot supply.
+    //
+    // Two distinct failures, and only this project catches both:
+    //
+    //  - `D1Database` (and friends). `tsc -p app` DOES catch this, loudly, since
+    //    the app has no workers-types. But it catches it at the far end of a
+    //    refactor, blamed on whichever app file happened to import the chain.
+    //
+    //  - `fetch` / `Headers` / `Response`. `tsc -p app` does NOT catch this:
+    //    app's lib includes DOM, so a wire file that reached
+    //    `providers/seatsaero.ts` (1436 lines) or `providers/transport.ts` would
+    //    typecheck perfectly and simply re-drag them into the SPA's program and
+    //    bundle. That regression is otherwise invisible until somebody notices
+    //    the bundle grew — which is exactly how `routing.ts` and `alerts/pace.ts`
+    //    came to import the provider for a single integer.
+    //
+    // `shared/tsconfig.json` checks these files a second time WITH DOM and
+    // workers-types, as part of the whole directory. Both passes are wanted:
+    // that one proves they compose with the Worker's code, this one proves they
+    // need none of it.
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src/wire/**/*.ts"]
+}

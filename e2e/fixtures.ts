@@ -45,9 +45,9 @@ const ALLOWED_HOSTS = [
  * guard 2. So they are fulfilled with a transparent pixel and nobody notices.
  */
 const STUBBED_HOSTS = [
-  /^images\.kiwi\.com$/, // carrier logos (app/src/ui.tsx)
-  /^icons\.duckduckgo\.com$/, // program/site icons (app/src/ui.tsx)
-  /\.basemaps\.cartocdn\.com$/, // the airports map's tiles (app/src/AirportMap.tsx)
+  /^images\.kiwi\.com$/, // carrier logos (app/src/lib/flights.ts)
+  /^icons\.duckduckgo\.com$/, // program/site icons (app/src/lib/currencies.ts)
+  /\.basemaps\.cartocdn\.com$/, // the airports map's tiles (app/src/pages/library/airports/AirportMap.tsx)
 ];
 
 /** 1x1 transparent GIF. */

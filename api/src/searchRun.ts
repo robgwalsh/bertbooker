@@ -71,81 +71,15 @@ export const MAX_STORED_CHANGES = 200;
 
 /** What the SPA sees. Newline-delimited JSON, one object per line.
  *
- *  Mirrored by hand in `web/src/api.ts` (`RouteSearchEvent`), same as every other
- *  wire type — core references `D1Database` at module scope, so the SPA cannot
- *  import it. */
-export type SearchEvent =
-  | {
-      type: "run_start";
-      runId: string;
-      origin: string;
-      destination: string;
-      chunks: SeatsAeroChunk[];
-      /** Every city pair this search covers. One for a plain route, the cross
-       *  product for a multi-airport one. */
-      pairs: RoutePair[];
-      /** Total tasks, so a resumed request can show real progress rather than
-       *  restarting the count at zero. */
-      total: number;
-      /** Where THIS request starts in that list. */
-      from: number;
-    }
-  | {
-      type: "chunk_start";
-      index: number;
-      total: number;
-      start: string;
-      end: string;
-      origins: string[];
-      destinations: string[];
-    }
-  // One HTTP call to seats.aero, the moment it finishes. Carries the response
-  // body (bounded by CAPTURE_BUDGET_BYTES) so the UI can show the exact payload
-  // a find came from without a second round trip. The key is already redacted out
-  // of `requestHeaders` in core — never add it back here.
-  | ({ type: "call"; chunkIndex: number } & SeatsAeroCall)
-  | {
-      type: "chunk_done";
-      index: number;
-      start: string;
-      end: string;
-      status: SourceTaskStatus;
-      offersFound: number;
-      snapshotsWritten: number;
-      snapshotsPruned: number;
-      /** Outbound seats.aero calls this chunk spent. */
-      calls: number;
-      durationMs: number;
-      /** Present when the chunk narrowed its own claim (paginated out). */
-      note?: string;
-      error?: string;
-    }
-  | { type: "quota"; remaining: number; limit?: number; observedAt: number }
-  /**
-   * This request stopped early to stay inside the Worker's subrequest budget,
-   * and the run is NOT finished.
-   *
-   * A THIRD terminal frame beside `run_done` and `error`, and the client is
-   * required to act on it: re-issue with `?runId=&from=` until one of the other
-   * two arrives. The "a stream that ends without a terminal frame is a failure"
-   * rule is unchanged — this is a terminal frame, it just means "continue"
-   * rather than "finished". Everything applied so far is already durable, so a
-   * client that stops here loses nothing but the remaining chunks.
-   */
-  | { type: "run_continue"; runId: string; nextIndex: number; total: number; calls: number }
-  | {
-      type: "run_done";
-      runId: string;
-      status: "ok" | "partial" | "failed" | "aborted";
-      chunksOk: number;
-      chunksFailed: number;
-      offersFound: number;
-      snapshotsWritten: number;
-      snapshotsPruned: number;
-      calls: number;
-      durationMs: number;
-    }
-  | { type: "error"; message: string };
+ *  DEFINED IN `shared/src/wire/search.ts` and re-exported here, so this module's
+ *  consumers (`search.ts` re-exports it again) are unchanged. It used to be
+ *  declared here and mirrored by hand in the SPA; the mirror is gone, and with
+ *  it the note that used to sit on this line naming a type — `RouteSearchEvent`
+ *  — that had not existed for some time. */
+export type { SearchEvent } from "../../shared/src/wire/search.js";
+// Again as a plain import: `export … from` re-exports without binding the name
+// in this module, and the run loop below is typed in terms of it.
+import type { SearchEvent } from "../../shared/src/wire/search.js";
 
 /**
  * Response bytes one search will stream back for display, across all its calls.

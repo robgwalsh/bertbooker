@@ -12,7 +12,7 @@
  * Keyed by IATA because that is what the sources speak: seats.aero, like every
  * source this app has carried, puts a two-character code in `Segment.carrier`.
  *
- * The first block mirrors `AIRLINE_SEEDS` in core (the carriers the Library
+ * The first block covers `AIRLINE_SEEDS` in `shared/src/data/airlines.ts` (the carriers the Library
  * knows); the second is the operators that show up *inside* an itinerary without
  * being award carriers in their own right — US regionals flying a mainline
  * number, and low-cost carriers a cash fare can surface.

@@ -5,43 +5,7 @@ wire handling plus the chunk loop), `api/src/search.ts` (Search),
 `api/src/enrich.ts` (the itinerary behind a row), and the SPA controls
 that drive both.
 
-This is the only authenticated, metered source in the repo, and now **the only
-source at all**: the aggregator that used to run from a residential connection
-was removed, and with it the whole idea of a source running anywhere but this
-Worker. See `docs/SOURCES.md` §1 for what may be added in its place.
-
 ---
-
-## 1. Why this one is allowed on the Worker
-
-The standing rule is that the Worker never calls an airline's own site. Carriers
-worth having refuse datacenter IPs — United answers Akamai `428` and Delta `444`
-to raw HTTP, and Delta denies a real browser session replayed verbatim, valid
-`_abck` and all. And that is the *lesser* obstacle: the ones that let a browser
-through gate award pricing behind a login anyway (`docs/HARVEST-POSTMORTEM.md`).
-
-seats.aero is not an airline. It is a keyed vendor API that authenticates the
-**credential, not the client**, and does not care that Cloudflare made the
-request. The probe verdict, 2026-08-09, was "no anti-bot question here at all —
-it wants the key, not a browser." That is the whole of the exception, and it is
-evidence rather than convenience. If you are adding a `fetch` to an airline in
-`api`, stop.
-
-This used to say: *"nothing runs on a schedule. The endpoint fires because a
-human pressed Search. A source the server can call is exactly what makes a cron
-look tempting, and it is still forbidden."*
-
-That sentence predicted this feature and it is no longer true. **Alerts**
-(`docs/ALERTS.md`) is a Cron Trigger that re-searches routes marked for alerts
-through this same integration. What made the prohibition right was that
-unattended spending is unattended — so it was lifted with two things attached,
-not on its own: a budget that reserves headroom for the human who presses
-Search, and a rule that a sweep can never fail invisibly. `docs/ALERTS.md` §1 is
-that argument in full; if you are re-litigating this, start there rather than
-here.
-
-The endpoint itself is unchanged, and still fires because a human pressed
-Search.
 
 ### The meter
 
@@ -52,7 +16,7 @@ code that does is the deleted budget guard coming back (§9).
 
 ---
 
-## 2. The endpoints
+## 1. The endpoints
 
 | endpoint | what it costs | what it buys | used |
 |---|---|---|---|
@@ -77,7 +41,7 @@ week-old cached row out-rank a fresher row from another source.
 
 ---
 
-## 3. The economics, which are the design
+## 2. The economics, which are the design
 
 ```
 tracked route window
@@ -116,7 +80,7 @@ way to learn the same routing is `/trips/{id}` at one call *per row*.
 
 ---
 
-## 4. Search
+## 3. Search
 
 `POST /api/tracked-routes/:id/search` → NDJSON.
 
@@ -177,7 +141,7 @@ question is always which call, how long, and what did it actually say. Each call
 streams the moment it lands, carrying timing, status, response headers and the
 body — bounded by `CAPTURE_BUDGET_BYTES` (6 MB across the whole search), past
 which calls still stream with `bodyOmitted` rather than vanishing. **The key is
-redacted in core** (`SEATSAERO_REDACTED`) before the record exists; never add it
+redacted in the provider** (`SEATSAERO_REDACTED`, now `shared/src/wire/seatsaero.ts`) before the record exists; never add it
 back. Bodies are session-only — `search_tasks.capture_json` keeps the durable
 half via `callMetadata`.
 
@@ -194,7 +158,7 @@ nothing — and emits `run_continue` with the next index. The run row stays
 rather than overwriting.
 
 `run_continue` is a **third terminal frame**, not an exception to the terminal
-frame rule. `searchRoute` in `app/src/api.ts` hides it by re-issuing with
+frame rule. `searchRoute` in `app/src/api/search.ts` hides it by re-issuing with
 `?runId=&from=` until `run_done` or `error`, so consumers see one continuous
 stream — but it still yields the frame so the UI can show the pause. The loop is
 bounded at 64 requests so a Worker that somehow always pauses cannot spin.
@@ -209,7 +173,7 @@ corrupting: the chunk throws → `failed` → claims no coverage → the run is
 
 ---
 
-## 5. Normalizing a response
+## 4. Normalizing a response
 
 `normalizeSeatsAero` is pure and is the whole of what the unit tests assert on.
 One availability object fans out to up to **four** results — one per cabin with
@@ -267,7 +231,7 @@ task's notes, so unmapped breadth shows up as a number rather than as silence.
 
 ---
 
-## 6. `include_trips` — routing for free
+## 5. `include_trips` — routing for free
 
 Since 2026-08-10 a search asks for `include_trips=true`, so flight numbers,
 connection airports, aircraft, fare classes and total duration arrive **with the
@@ -306,7 +270,7 @@ rather than asserting either state.
 
 ---
 
-## 7. Get Trips, and enrichment
+## 6. Get Trips, and enrichment
 
 `api/src/enrich.ts`. Two entry points: one find
 (`POST /api/finds/enrich`) and a whole route
@@ -406,7 +370,7 @@ Two kinds of row are worth a call, and the second only exists since
 
 ---
 
-## 8. Coverage and truncation
+## 7. Coverage and truncation
 
 A chunk claims coverage for the pairs it asked about and the dates it actually
 saw. `SourceTaskReport.routes` carries the pair list; `origin`/`destination` stay
@@ -431,7 +395,7 @@ as never searched — which is the truth.
 
 ---
 
-## 9. Quota
+## 8. Quota
 
 `parseQuotaHeaders` reads `X-RateLimit-Remaining` (and `X-RateLimit-Limit` when
 present) off **every** response, including failures — a 429 is exactly when it
@@ -472,7 +436,7 @@ that overspends), but **self-accounts** from `SUM(search_runs.calls)` since
 
 ---
 
-## 10. Failure modes
+## 9. Failure modes
 
 `makeTransport` turns 401/403/429/451/503, Akamai 428, edge-deny 444 and
 challenge-shaped bodies into `BlockedError` before they can reach a parser as
@@ -500,7 +464,7 @@ explanation you get.
 
 ---
 
-## 11. Probes
+## 10. Probes
 
 Both spend real calls and print what is left, read off the same header
 `parseQuotaHeaders` reads.
@@ -527,7 +491,7 @@ file before committing it.
 
 ---
 
-## 12. Where things live, and what must not change
+## 11. Where things live, and what must not change
 
 | | |
 |---|---|
@@ -537,8 +501,8 @@ file before committing it.
 | `api/src/enrich.ts` | Get Trips, one find and one route |
 | `api/src/searchRun.ts` | the shared run/task/quota writers — `recordTask`, `recordQuota`, `MAX_STORED_CHANGES` |
 | `api/src/quota.ts` | `GET /api/quota`, the chip's endpoint |
-| `app/src/api.ts` | `searchRoute` / `enrichRoute` — hand-mirrored wire types, the resume loop |
-| `app/src/useRouteSearch.ts`, `useRouteEnrich.ts` | the two stream hooks, owned by the **page** so a search survives navigating away |
+| `app/src/api/search.ts`, `enrich.ts` | `searchRoute` / `enrichRoute` and the resume loop. The wire types they speak are `shared/src/wire/`, not copies |
+| `app/src/pages/routes/useRouteSearch.ts`, `useRouteEnrich.ts` | the two stream hooks, owned by the **page** so a search survives navigating away |
 
 Invariants worth restating, because each one silently corrupts data rather than
 failing:
@@ -551,8 +515,10 @@ failing:
   `0001_init.sql` — see `docs/HARVEST-POSTMORTEM.md` §7) touching four tables.
   The SPA then kept comparing against the OLD id for months: `quotaLeft` matched
   nothing, so the app-bar chip silently showed a raw string instead of a number.
-  If you rename it, `PRIMARY_METERED_SOURCE` in `app/src/QuotaIndicator.tsx` is
-  the hand-mirrored copy that has to move with it.
+  If you rename it, `PRIMARY_METERED_SOURCE` in `app/src/lib/quota.ts` follows
+  automatically — it is `export const PRIMARY_METERED_SOURCE = SEATSAERO_SOURCE_ID`
+  now, imported through `shared/src/wire/seatsaero.ts`. It was a hand-typed copy
+  when this happened, which is exactly why it is not one any more.
 - **`UpdatedAt` → `sourceFetchedAt`.** Never the fetch time.
 - **`raw_hash` is never touched by enrichment.**
 - **The program map is verified live**, and unmapped sources are dropped.

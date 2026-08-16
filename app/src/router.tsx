@@ -9,19 +9,20 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppBar, Box, IconButton, Stack, Toolbar, Tooltip } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
-import { Routes } from "./pages/Routes";
-import { Library } from "./pages/Library";
-import { Alerts } from "./pages/Alerts";
-import { QuotaIndicator } from "./QuotaIndicator";
+import { Routes } from "./pages/routes/RoutesPage";
+import { Library } from "./pages/library/LibraryPage";
+import { Alerts } from "./pages/alerts/AlertsPage";
+import { QuotaIndicator } from "./components/QuotaIndicator";
 // `PreferencesButton.tsx`, not `Preferences.tsx`: the store beside it is
 // `preferences.ts`, and two files differing only in case are ONE file to
 // TypeScript on a case-insensitive filesystem. Named for its export, as
 // `QuotaIndicator.tsx` is.
-import { PreferencesButton } from "./PreferencesButton";
+import { PreferencesButton } from "./components/PreferencesButton";
 import { api } from "./api";
-import { notifyLocked } from "./auth";
-import { MAX_NIGHTS, MAX_NIGHTS_SPAN } from "./roundtrip";
-import { APP_BAR_HEIGHT, useIsPhone } from "./ui";
+import { notifyLocked } from "./lib/auth";
+import { validateRoutesSearch } from "./pages/routes/searchParams";
+import { APP_BAR_HEIGHT } from "./lib/layout";
+import { useIsPhone } from "./hooks/useBreakpoints";
 
 /**
  * A page, drawn as an editor tab.
@@ -247,7 +248,7 @@ function Layout() {
  *
  * The session is an HttpOnly cookie, so only the Worker can actually clear it —
  * hence the round trip. `notifyLocked` is then the same hand-off a 401 uses
- * (`web/src/auth.ts`), so signing out and being timed out land on exactly one
+ * (`app/src/lib/auth.ts`), so signing out and being timed out land on exactly one
  * code path.
  *
  * It runs BEFORE `queryClient.clear()`, and the order is not cosmetic: locking
@@ -277,61 +278,16 @@ function SignOut() {
 
 const rootRoute = createRootRoute({ component: Layout });
 
-/** Which tracked route the Routes page has open, and how it is reading it. All
- *  four live in the URL rather than in component state so a reload, a bookmark
- *  and the back button all land on the view you were reading. Search params are
- *  untrusted input: anything that isn't valid becomes `undefined`, and the page
- *  falls back to a default rather than rendering an empty pane. */
-export interface RoutesSearchParams {
-  route?: number;
-  /**
-   * Trip length for a round-trip route's pairing. A reading preference, not a
-   * route setting — whether the route pairs at all is `round_trip` on the row
-   * itself, edited like every other property.
-   *
-   * ABSENT IS THE DEFAULT AND MEANS "the whole-window trip": out on the route's
-   * `date_start`, back on its `date_end`, and no other pair of dates. That is a
-   * different question from any nights range rather than the widest one, which is
-   * why absence still spells it — there is deliberately no third param naming the
-   * mode, since "no range chosen" and "the whole-window trip" are one state and
-   * two ways to spell it would eventually disagree. Present only when somebody
-   * picked a range, and only ever as a pair.
-   */
-  minNights?: number;
-  maxNights?: number;
-}
-
+// The Routes page's search params — its type and its validator — belong to the
+// page and live in `pages/routes/searchParams.ts`. The shell only wires them in.
+// They were declared here once, which meant this file reached into the page's
+// round-trip logic for `MAX_NIGHTS` while the page imported the type back out of
+// this file.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: Routes,
-  validateSearch: (search: Record<string, unknown>): RoutesSearchParams => {
-    const n = Number(search.route);
-    const nights = (v: unknown): number | undefined => {
-      const x = Number(v);
-      return Number.isInteger(x) && x >= 0 && x <= MAX_NIGHTS ? x : undefined;
-    };
-    let minNights = nights(search.minNights);
-    let maxNights = nights(search.maxNights);
-    // An inverted or absurdly wide pair is not an error to render, it is a pair
-    // to drop: the page falls back to the whole window, exactly the way an
-    // unknown `route` falls back to the first one. Dropped together, since half
-    // a range is not a range — and a lone `minNights` would otherwise read as a
-    // chosen range with a made-up other end.
-    if (
-      minNights != null &&
-      maxNights != null &&
-      (minNights > maxNights || maxNights - minNights > MAX_NIGHTS_SPAN)
-    ) {
-      minNights = undefined;
-      maxNights = undefined;
-    }
-    return {
-      route: Number.isInteger(n) && n > 0 ? n : undefined,
-      minNights,
-      maxNights,
-    };
-  },
+  validateSearch: validateRoutesSearch,
 });
 const libraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/library", component: Library });
 

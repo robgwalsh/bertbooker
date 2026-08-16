@@ -120,7 +120,7 @@ npm run build:world             # regenerates app/src/data/worldGeometry.ts, the
 
 npm test                    # ONE vitest run over shared/ api/ app/ (vitest.config.ts)
                             # — offline, no servers, no browser
-npm run typecheck           # four tsc projects: shared, api, app, e2e
+npm run typecheck           # five tsc projects: shared, shared/wire, api, app, e2e
 
 # Seeing the app. HEADLESS: no window opens, so a run cannot be disturbed by —
 # or disturb — whoever is using the machine. Reuses dev:api/dev:app if they are
@@ -151,18 +151,60 @@ Access in front of it, so `APP_USER_EMAIL` is the single shared identity everyon
 who knows the password signs in as.
 
 **Three directories, one `package.json`, no workspaces and no path aliases.**
-The thing that makes that work is that **`app/` imports nothing from `shared/`**
-— the SPA hand-mirrors the Worker's wire types (`app/src/api.ts`) — so `api/` is
-the only thing crossing a directory boundary, and it does it with plain relative
-specifiers (`../../shared/src/index.js`). Those resolve identically in `tsc`,
-wrangler's esbuild and vitest, which is why no alias is configured anywhere.
-Keep the `.js` suffix.
+Both `api/` and `app/` cross into `shared/` with plain relative specifiers
+(`../../shared/src/index.js`), which resolve identically in `tsc`, wrangler's
+esbuild, Vite and vitest — which is why no alias is configured anywhere. Keep
+the `.js` suffix.
+
+### The wire contract
+
+**`shared/src/wire/` is the one definition of every API request and response**,
+read by the Worker that produces it and the SPA that consumes it.
+
+It exists because those shapes used to be written down twice. `app/src/api/`
+hand-mirrored ~25 types out of `api/src` and `shared/`, and its own banner
+recorded what that cost: `PRIMARY_METERED_SOURCE` sat on a stale source id after
+a migration renamed it, every quota lookup silently matched nothing, and it went
+unnoticed for months. For `AlertSchedule` there was no second copy at all — the
+Worker built a four-level object literal by hand and the SPA's interface was the
+only written-down form of it.
+
+Two rules keep it working:
+
+- **The SPA imports `shared/src/wire/` and nothing else in `shared/`**, from
+  exactly one file — `app/src/api/index.ts`, which re-exports the types so no
+  other file in the SPA names a path in `shared/`. Three modules are
+  specifically out of bounds: **`shared/src/index.ts`** (the root barrel, which
+  re-exports `ingest/apply.ts` and its module-scope `D1Database`),
+  **`shared/src/ingest/index.ts`** (same reason — import `ingest/types.js` by
+  its deep path instead), and **`shared/src/sources/index.ts`** (it calls
+  `registerSource()` as a top-level side effect, which can throw and which
+  defeats tree-shaking).
+- **The Worker is annotated against it** — `const body: T = {…}` on hand-built
+  literals, `.all<T>()` on D1 reads. That is what turns the types from
+  documentation into a guarantee; without it, drift would only have moved rather
+  than stopped. Note the honest limit: **`.all<T>()` is an unchecked assertion**,
+  not validation. Nothing compares `T` against the SQL column list, so each row
+  type in `wire/rows.ts` names the statement it is asserting about and that
+  comment is the only thing keeping the two honest.
+
+`shared/tsconfig.wire.json` enforces the first rule. It is the narrowest project
+in the repo — no DOM, no `@cloudflare/workers-types` — and it is the only pass
+that catches **both** failure modes. `tsc -p app` catches a stray `D1Database`
+(loudly, but at the far end of a chain); nothing else catches a wire file
+reaching `fetch`/`Response`, because app's lib includes DOM and it would simply
+re-drag the 1436-line `providers/seatsaero.ts` into the SPA's bundle. That is not
+hypothetical: `routing.ts` and `alerts/pace.ts` each imported a single integer
+from that file, so `RoutePair` and `SweepPacing` dragged the whole provider along
+behind them. Both now point at `wire/seatsaero.ts`, which is where those
+constants live.
 
 - **`shared/`** — source-agnostic domain: the normalized `AvailabilityResult`
   contract (`src/types.ts`), the source contract and registry (`src/sources/`),
   the ingest write-pipeline (`src/ingest/`), diff (`src/diff.ts`), the shared
   collapse rule (`src/collapse.ts`), the seats.aero wire handling
-  (`src/providers/`), loyalty-program reference data (`src/data/programs.ts`).
+  (`src/providers/`), loyalty-program reference data (`src/data/programs.ts`),
+  and **`src/wire/`** — the request/response contract both sides read (above).
   **Not a package** — no `package.json`, no `exports` map, nothing emitted.
 - **`api/`** — the only worker, and its `wrangler.toml`. Identity is
   `APP_USER_EMAIL` and it *deliberately ignores*
@@ -172,6 +214,22 @@ Keep the `.js` suffix.
   gone.
 - **`app/`** — the SPA and its `vite.config.ts`, three routes: Routes, Library,
   Alerts.
+
+### Inside `app/src/`
+
+Seven directories and three files, and the rule for each is about *who is
+allowed to import it*:
+
+| | |
+| --- | --- |
+| `main.tsx`, `router.tsx`, `index.css` | the entry points. The shell wires pages together and owns nothing else — note it takes the Routes page's URL contract from `pages/routes/searchParams.ts` rather than declaring it, which is what broke the old cycle between the two. |
+| `api/` | **the one boundary crossing.** See *The wire contract*. |
+| `lib/` | pure logic, no JSX, no React. **`lib/` is where a thing goes when it wants a test**, because `vitest.config.ts` globs `*.test.ts` only — a `*.test.tsx` is not skipped, it is silently never collected, and the run stays green. That is why `lib/quota.ts` and `lib/statusTone.ts` exist at all: they were pure functions trapped inside `.tsx` component files where no test could reach them. |
+| `hooks/` | shared React hooks — the two named viewport seams, the airport-name lookup, the debounce. |
+| `components/` | presentation used by more than one page. |
+| `pages/<page>/` | **page-private, co-located with its only consumer.** The finds tables, the itinerary card, the route map and the two stream hooks live under `pages/routes/` because the Routes page is the only thing that reads a stored find. The Airports pane is under `pages/library/airports/` because it is a Library *tab*, not a route in `routeTree`. |
+| `theme/` | `themes.ts` is the palette catalog, `build.ts` is the only place the app's shape is decided. |
+| `data/` | **generated, and path-pinned** — `scripts/build-world-geometry.mjs` writes `app/src/data/worldGeometry.ts` by that exact path. Do not move this directory. |
 
 ### Coverage is a stored fact
 
@@ -278,13 +336,17 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   `./foo.js` imports pointing at `foo.ts`, and `api/` reaches `shared/` the same
   way (`../../shared/src/index.js`). esbuild (wrangler) and Vite (vitest) rewrite
   the extension. Keep the `.js` suffix on relative imports.
-- **`shared/src/index.ts` is one barrel, including `applyTask`.** It used to be
-  split — `ingest/apply.ts` names `D1Database` at module scope, and a subpath
-  export kept Cloudflare's ambient types out of a plain-Node consumer's
-  typecheck. That consumer was the local runner. With the Worker as the only
-  importer there is nothing left to protect, and `@bertbooker/core/ingest` no
-  longer exists as a specifier. **If you see the DOM-safety rule cited anywhere,
-  it is stale.**
+- **`shared/src/index.ts` is one barrel, including `applyTask` — and the SPA
+  must not import it.** It used to be split, because `ingest/apply.ts` names
+  `D1Database` at module scope and a subpath export kept Cloudflare's ambient
+  types out of a plain-Node consumer's typecheck. That consumer was the local
+  runner, and when it went the split went with it.
+  **A narrower entry point exists again, for a different consumer and a better
+  reason:** `shared/src/wire/` is what the SPA imports, and the barrel is exactly
+  what it must not (see *The wire contract* above). The difference from the old
+  arrangement is that this one has a compiler behind it —
+  `shared/tsconfig.wire.json` — rather than a comment. Any older note claiming
+  the DOM-safety rule is stale is itself stale.
 - **`seed/programs.sql` mirrors `shared/src/data/programs.ts`** — keep
   them in sync when adding or editing programs. The seed lives OUTSIDE
   `migrations/` so it stays re-runnable.
@@ -393,7 +455,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   Search has **three** terminal frames, not two: `run_done`, `error`, and
   `run_continue`, which means "I stopped inside my subrequest budget, ask again
   from here". `searchRoute` hides that from its consumers by looping, so callers
-  still see one continuous stream ending in `run_done` or `error`. `readNdjson` in `app/src/api.ts` is shared; the terminal-frame
+  still see one continuous stream ending in `run_done` or `error`. `readNdjson` in `app/src/api/client.ts` is shared; the terminal-frame
   check belongs to each caller. `X-Accel-Buffering: no` is set on every side
   because a buffering proxy defeats the point.
 - **The Worker does everything fallible BEFORE opening a stream.** Once the first
@@ -402,14 +464,17 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   the chunk plan all run first, as real status codes — a missing
   `SEATS_AERO_API_KEY` is a **503**, never an empty result that would read as "no
   award space".
-- **`app/src/api.ts` hand-mirrors the worker's wire types.** Core
-  references `D1Database` at module scope and fights a DOM tsconfig, so there is
-  no shared import; each mirrored type names its source file. They drift if you
-  let them.
+- **`app/src/api/index.ts` is the SPA's only door to the Worker** — every other
+  file imports from `./api` and knows nothing about the boundary. It assembles
+  the `api` object from the modules beside it and re-exports the wire types from
+  `shared/src/wire/`, which is why splitting the old 935-line `api.ts` into a
+  directory touched no call site: `api.ts` became `api/index.ts` and the
+  specifier is unchanged. It used to hand-mirror the types instead; see *The
+  wire contract* for why it no longer does, and what enforces that.
 - **The shell pads nothing and scrolls nothing; each page owns both.** `Layout`
   (`router.tsx`) is a fixed-height flex column — tab strip, then all the room
   that's left — and the document never scrolls (`html, body, #root` are 100%).
-  Pages that are DOCUMENTS wrap themselves in `PagePad` (`ui.tsx`), which
+  Pages that are DOCUMENTS wrap themselves in `PagePad` (`components/PagePad.tsx`), which
   supplies the old page margin and is their scroll container. The Routes page
   doesn't: it is a workbench, a full-height sidebar beside an editor pane, each
   with its own `overflow` from `md` up and one shared 1px rule between them. The
@@ -418,7 +483,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   `STICKY_NAV_TOP` no longer adds `APP_BAR_HEIGHT`: a sticky child is offset
   from its own scroller, which already starts below the bar.
 - **The app has TWO named viewport seams and no other media queries**
-  (`useIsPhone` = below `sm`, `useIsNarrow` = below `md`, both in `app/src/ui.tsx`).
+  (`useIsPhone` = below `sm`, `useIsNarrow` = below `md`, both in `app/src/hooks/useBreakpoints.ts`).
   Prefer an `sx` breakpoint object; reach for a hook only when the **DOM** has to
   change, which is a smaller set than it looks. It has to change in four places:
   the two finds tables become **cards** below `sm` (a CSS-only `display: block`
@@ -446,10 +511,10 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
 - **The card layouts must not drift from the columns they replace.** The cell
   bodies that encode decisions — cash quoted beside miles and never ranked
   against it, a round trip's total split by direction — live in
-  `app/src/findCells.tsx` and are rendered by both. ("Never checked" told apart
+  `app/src/pages/routes/findCells.tsx` and are rendered by both. ("Never checked" told apart
   from "checked and empty" was a third; it lived in `FindProvenance`, which went
   with the Source / checked column. If that column returns, that distinction is
-  the part to bring back with it.) `app/src/findKey.ts` is the shared React key for the same reason: each
+  the part to bring back with it.) `app/src/pages/routes/findKey.ts` is the shared React key for the same reason: each
   table now has two call sites, and a key that drifts silently reuses the wrong
   element across the breakpoint. The **Map** is the one column with no card
   equivalent; `showMap` is forced off there, which also drops the
@@ -459,8 +524,8 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   controls the app is drawn at; a phone at that width cannot hit them. Only hit
   areas move — the 13px type ramp is the same on every device. Note `ui:shot`
   makes a plain desktop context, so this is invisible in a screenshot.
-- **A theme is a palette, not a stylesheet.** `app/src/themes.ts` is twenty-one
-  `ThemeSpec`s — no CSS — and `buildTheme` in `app/src/theme.ts` is the only
+- **A theme is a palette, not a stylesheet.** `app/src/theme/themes.ts` is twenty-one
+  `ThemeSpec`s — no CSS — and `buildTheme` in `app/src/theme/build.ts` is the only
   place the app's *shape* is decided (square corners, solid rules, 13px density,
   a chrome colour distinct from the page). Adding a theme is adding a spec and
   nothing else; no theme can restyle a component.
@@ -504,7 +569,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   is also how the file browser draws its own tree. `selected`/`onSelected` are
   spent on `::selection` and the picker's swatches.
 - **User preferences are client-only, and deliberately not a table.**
-  `app/src/preferences.ts` keeps one versioned JSON blob under
+  `app/src/lib/preferences.ts` keeps one versioned JSON blob under
   `bertbooker.prefs.v1`, read through `useSyncExternalStore` over the same
   listener-set pattern `auth.ts` uses (there is no React context anywhere in
   `app/src`). Not D1, because the password gate means **one shared identity** —
@@ -545,7 +610,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   install Chrome, not `npx playwright install`. See `docs/UI-TESTING.md`.
 - **A valid session cookie with no `localStorage` hint still shows the login
   dialog.** `PasswordGate` seeds its `session` state only from
-  `bertbooker.auth.expiresAt` (`app/src/auth.ts`), and its one correcting effect
+  `bertbooker.auth.expiresAt` (`app/src/lib/auth.ts`), and its one correcting effect
   handles the Worker answering `authenticated: false` — there is no branch for
   `true`. So a cleared-storage-but-kept-cookies browser is asked for a password
   the server has already accepted. It is a known bug rather than a design, which

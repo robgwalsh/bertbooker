@@ -3,6 +3,7 @@ import type { Context, Next } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
 import type { Env, Vars } from "./bindings.js";
+import type { LoginResult, SessionState } from "../../shared/src/wire/index.js";
 
 /**
  * The shared-password gate.
@@ -284,15 +285,22 @@ export const authRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
 authRoutes.get("/api/auth/session", async (c) => {
   const missing = missingSecret(c.env);
   if (missing) {
-    return c.json({ configured: false, reason: missing, authenticated: false, expiresAt: null });
+    const unconfigured: SessionState = {
+      configured: false,
+      reason: missing,
+      authenticated: false,
+      expiresAt: null,
+    };
+    return c.json(unconfigured);
   }
   const key = await sessionKey(c.env.SESSION_SECRET!, c.env.APP_PASSWORD!);
   const expiresAt = await verifyToken(key, presentedToken(c));
-  return c.json({
+  const state: SessionState = {
     configured: true,
     authenticated: expiresAt != null,
     expiresAt,
-  });
+  };
+  return c.json(state);
 });
 
 /** Exchange the shared password for an 8-hour session. The token goes back as a
@@ -313,7 +321,8 @@ authRoutes.post("/api/auth/login", async (c) => {
   const expiresAt = nowSeconds() + SESSION_SECONDS;
   const key = await sessionKey(c.env.SESSION_SECRET!, c.env.APP_PASSWORD!);
   writeSessionCookie(c, await mintToken(key, expiresAt, c.env.APP_USER_EMAIL ?? "unknown"));
-  return c.json({ expiresAt });
+  const result: LoginResult = { expiresAt };
+  return c.json(result);
 });
 
 /**

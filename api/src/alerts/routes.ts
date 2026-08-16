@@ -9,6 +9,11 @@ import {
   type AlertRouteCost,
 } from "../../../shared/src/index.js";
 import type { Env, Vars } from "../bindings.js";
+import type {
+  AlertDelivery,
+  AlertSchedule,
+  SearchRun,
+} from "../../../shared/src/wire/index.js";
 import { allowedRecipients } from "../email.js";
 import { isLocalRequest } from "../security.js";
 import { ALERT_DEFAULTS, alertRouteRows, routeLabel, runAlertTick } from "./sweep.js";
@@ -82,7 +87,12 @@ alerts.get("/api/alerts/schedule", async (c) => {
     dailyBudget: cfg.dailyBudget,
   });
 
-  return c.json({
+  // Annotated, and this is the endpoint that most needed it. This literal used
+  // to be the ONLY description of the response anywhere on the server — the
+  // SPA's `AlertSchedule` interface was the only written-down form of it, and
+  // nothing compared the two. All fourteen mapped route fields below are now
+  // checked against what the Alerts tab reads.
+  const body: AlertSchedule = {
     // Whether `POST /api/alerts/run` exists on this host. Answered here rather
     // than by making the SPA probe for a 404, because the page already fetches
     // this and a button that appears only to fail is worse than no button.
@@ -141,7 +151,8 @@ alerts.get("/api/alerts/schedule", async (c) => {
         awaitingBaseline: r.alert_last_digest_at == null,
       };
     }),
-  });
+  };
+  return c.json(body);
 });
 
 /** Recent sweeps. `search_runs` already answers this; the filter is the only
@@ -156,7 +167,7 @@ alerts.get("/api/alerts/runs", async (c) => {
       ORDER BY started_at DESC LIMIT ?`,
   )
     .bind(email, limit)
-    .all();
+    .all<SearchRun>();
   return c.json(results ?? []);
 });
 
@@ -203,6 +214,6 @@ alerts.get("/api/alerts/deliveries", async (c) => {
     "SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT ?",
   )
     .bind(limit)
-    .all();
+    .all<AlertDelivery>();
   return c.json(results ?? []);
 });

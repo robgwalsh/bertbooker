@@ -14,7 +14,7 @@
   "bugs": {
     "url": "https://github.com/robgwalsh/bertbooker/issues"
   },
-  "//layout": "ONE package for the whole repo. `api/` is the Worker, `app/` is the SPA, `shared/` is the domain code the Worker imports by relative path. There are no npm workspaces and no path aliases: `app/` imports nothing from `shared/` (it hand-mirrors the wire types), so the Worker is the only thing that crosses a directory boundary, and a plain `../../shared/src/…` specifier resolves identically in tsc, wrangler's esbuild and vitest.",
+  "//layout": "ONE package for the whole repo. `api/` is the Worker, `app/` is the SPA, `shared/` is the domain code both import by relative path. There are no npm workspaces and no path aliases: a plain `../../shared/src/…` specifier with a `.js` suffix resolves identically in tsc, wrangler's esbuild, Vite and vitest. The SPA used to import NOTHING from `shared/` and hand-mirror ~25 wire types instead; it now imports `shared/src/wire/` — the D1-free, DOM-free subset — and does so from exactly one file, `app/src/api/index.ts`. It must never reach `shared/src/index.js`, `ingest/index.js` or `sources/index.js`; see the banner in `shared/src/wire/index.ts` for the reason each is out, and `shared/tsconfig.wire.json` for what enforces it.",
   "scripts": {
     "db:apply:local": "wrangler d1 migrations apply bertbooker_db --local --persist-to .wrangler-local --config api/wrangler.toml",
     "db:apply:remote": "wrangler d1 migrations apply bertbooker_db --remote --config api/wrangler.toml",
@@ -40,8 +40,8 @@
     "test:ui:report": "playwright show-report e2e/.artifacts/report",
     "//ui:shot": "Ad-hoc: go to a page, optionally click through it, write a PNG. `npm run ui:shot -- --path /library --theme review`. --help lists the flags and every theme id.",
     "ui:shot": "vite-node e2e/shot.ts --",
-    "//typecheck": "Four projects, because each has genuinely different compilerOptions: shared and api want @cloudflare/workers-types, app wants DOM + JSX, e2e wants node + Playwright. e2e is checked here rather than being picked up by `test`, which is vitest only.",
-    "typecheck": "tsc -p shared/tsconfig.json && tsc -p api/tsconfig.json && tsc -p app/tsconfig.json && tsc -p e2e/tsconfig.json",
+    "//typecheck": "Five projects, because each has genuinely different compilerOptions: shared and api want @cloudflare/workers-types, app wants DOM + JSX, e2e wants node + Playwright. The fifth checks shared/src/wire ALONE with neither DOM nor workers-types — it is the narrowest, and it is the only pass that can catch a wire file reaching `fetch` or `Response`, which every other project's lib would happily accept while silently dragging the 1436-line seats.aero provider into the SPA's bundle. e2e is checked here rather than being picked up by `test`, which is vitest only.",
+    "typecheck": "tsc -p shared/tsconfig.json && tsc -p shared/tsconfig.wire.json && tsc -p api/tsconfig.json && tsc -p app/tsconfig.json && tsc -p e2e/tsconfig.json",
     "//test": "Offline and serverless, as it has always been. The browser suite is `test:ui` and stays out of this on purpose: it needs two servers and a real Chrome.",
     "test": "vitest run"
   },

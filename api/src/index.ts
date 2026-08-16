@@ -9,6 +9,18 @@ import {
   baselineOnEnable,
   normalizeSpec,
 } from "../../shared/src/index.js";
+// The wire contract. A separate specifier from the barrel above on purpose —
+// see the banner in `shared/src/wire/index.ts`.
+import type {
+  AirportGeo,
+  AirportInfo,
+  AirportName,
+  DashboardData,
+  Find,
+  ProgramInfo,
+  RouteInput,
+  TrackedRoute,
+} from "../../shared/src/wire/index.js";
 import type { Env, Vars } from "./bindings.js";
 import { identity } from "./auth.js";
 import { authRoutes, gate } from "./gate.js";
@@ -119,13 +131,28 @@ app.get("/api/currencies", (c) => c.json(CURRENCIES));
 // program codes come from /api/programs, which is the editable D1 truth.
 app.get("/api/airlines", (c) => c.json(AIRLINE_DIRECTORY));
 
+/** The stored row, before `transfer_partners` is parsed out of its JSON column.
+ *  That parse is what makes `ProgramInfo` a different shape from this, and is
+ *  why annotating the mapped result below is a real check rather than a
+ *  restatement of the SELECT. */
+interface ProgramRow {
+  code: string;
+  name: string;
+  kind: "airline" | "hotel";
+  alliance: string | null;
+  transfer_partners: string;
+  is_active: number;
+}
+
 app.get("/api/programs", async (c) => {
   const { results } = await c.env.DB.prepare(
     "SELECT code, name, kind, alliance, transfer_partners, is_active FROM programs WHERE is_active = 1 ORDER BY kind, name",
-  ).all();
-  return c.json(
-    results.map((r) => ({ ...r, transfer_partners: JSON.parse(String(r.transfer_partners)) })),
-  );
+  ).all<ProgramRow>();
+  const body: ProgramInfo[] = results.map((r) => ({
+    ...r,
+    transfer_partners: JSON.parse(String(r.transfer_partners)) as ProgramInfo["transfer_partners"],
+  }));
+  return c.json(body);
 });
 
 // ---- Airports: distinct countries (powers the country filter) ----
@@ -134,7 +161,7 @@ app.get("/api/airports/countries", async (c) => {
     `SELECT country, COUNT(*) AS count FROM airports
       WHERE country IS NOT NULL AND country != ''
       GROUP BY country ORDER BY country`,
-  ).all();
+  ).all<{ country: string; count: number }>();
   return c.json(results);
 });
 
@@ -224,7 +251,7 @@ app.get("/api/airports/geo", async (c) => {
 
   const { results } = await c.env.DB.prepare(sql)
     .bind(...binds, limit)
-    .all();
+    .all<AirportGeo>();
   return c.json(results);
 });
 
@@ -266,7 +293,7 @@ app.get("/api/airports/lookup", async (c) => {
                          WHEN 'small_airport' THEN 2 ELSE 3 END`,
   )
     .bind(...codes)
-    .all();
+    .all<AirportName>();
   return c.json(results);
 });
 
@@ -295,7 +322,7 @@ app.get("/api/airports", async (c) => {
 
   const { results } = await c.env.DB.prepare(sql)
     .bind(...binds)
-    .all();
+    .all<AirportInfo>();
   return c.json(results);
 });
 
@@ -306,10 +333,16 @@ app.get("/api/dashboard", async (c) => {
   // collapse has to see every route they might be tracking. This is the one
   // caller that can't push a scope predicate down into the CTE.
   const dashboardFinds = findsCte({ where: [], binds: [] });
-  // NOTE: `rows` is read POSITIONALLY below. Adding or removing a statement here
-  // means renumbering the indices, and nothing in the type system will notice —
-  // `D1Result[]` is homogeneous, so a mismatch hands one key another's rows.
-  const rows = await c.env.DB.batch([
+  // NOTE: this batch is read POSITIONALLY below. Adding or removing a statement
+  // here means the destructuring on the other side has to move with it, and
+  // **nothing in the type system will notice** — `batch<T>()` is homogeneous by
+  // signature, so there is no way to give element 0 and element 1 different
+  // types short of splitting this into two round trips.
+  //
+  // Annotating the response `DashboardData` (below) checks the ENVELOPE and the
+  // two array element types; it cannot check the ORDER. Destructuring by name
+  // rather than indexing is as far as this goes. **This comment is the guard.**
+  const [routeRows, findRows] = await c.env.DB.batch([
     c.env.DB.prepare(
       // The route-SET columns must be in this list. They are
       // what the Routes page draws the route's shape from, and an explicit
@@ -329,7 +362,7 @@ app.get("/api/dashboard", async (c) => {
       // column sent `false` and QUIETLY UNENROLLED the route — and re-enabling
       // it afterwards re-ran `baselineOnEnable`, moving the digest clock too.
       // The last three are state rather than settings, and are here because the
-      // Routes page draws a route's alert health beside it (see web/src/alerts.ts).
+      // Routes page draws a route's alert health beside it (see app/src/lib/alerts.ts).
       "SELECT id, origin, destination, origins, destinations," +
         " date_start, date_end, cabins, currencies, min_seats, direct_only, round_trip," +
         " last_checked_at," +
@@ -360,10 +393,15 @@ app.get("/api/dashboard", async (c) => {
         ORDER BY tr.id, f.flight_date ASC, f.seats_available DESC, f.miles_cost ASC`,
     ).bind(...dashboardFinds.binds, email, JSON.stringify(PORTAL_CURRENCIES)),
   ]);
-  return c.json({
-    trackedRoutes: rows[0]?.results ?? [],
-    bestFinds: rows[1]?.results ?? [],
-  });
+  // The casts are exactly what was already happening implicitly — `batch()`
+  // hands back untyped rows either way. What the annotation buys is the
+  // envelope: a renamed or dropped key is now a compile error here rather than
+  // an empty pane in the SPA.
+  const body: DashboardData = {
+    trackedRoutes: (routeRows?.results ?? []) as TrackedRoute[],
+    bestFinds: (findRows?.results ?? []) as Find[],
+  };
+  return c.json(body);
 });
 
 // ---- Tracked routes (saved searches) ----
@@ -373,12 +411,28 @@ app.get("/api/tracked-routes", async (c) => {
     "SELECT * FROM tracked_routes WHERE user_email = ? ORDER BY created_at DESC",
   )
     .bind(email)
-    .all();
+    .all<TrackedRoute>();
   return c.json(results);
 });
 
-/** What a route is, on the wire. `POST` requires the window; `PATCH` treats every
- *  field as optional and merges against the stored row. */
+/**
+ * What a route is, on the wire. `POST` requires the window; `PATCH` treats every
+ * field as optional and merges against the stored row.
+ *
+ * **Deliberately NOT the same type as `RouteInput`** in
+ * `shared/src/wire/rows.ts`, which is what the SPA's form sends. This is what
+ * the Worker ACCEPTS, and it is a wider, older shape in three ways that all
+ * still matter: the pre-sets scalar `origin`/`destination`; `programs` and
+ * `kind`, which no current client sends; and `null` as an explicit "clear this
+ * filter", which is a distinct instruction from an absent field's "leave it
+ * alone". Collapsing the two would have to give one of those up.
+ *
+ * `alertOn` is `string[]` and not `AlertType[]` for the same reason: this
+ * describes what ARRIVED, not what is legal. `validateAlerts` below is what
+ * turns one into the other.
+ *
+ * The assertion under the interface is what keeps them in step.
+ */
 interface RouteBody {
   origin?: string;
   destination?: string;
@@ -410,6 +464,19 @@ interface RouteBody {
   alertOn?: string[] | null;
   alertMinDropPct?: number;
 }
+
+/**
+ * Everything the SPA can send, this handler must accept.
+ *
+ * A compile-time assertion and nothing else — it emits no code. `RouteInput`
+ * (the SPA's form contract) and `RouteBody` (what this route parses) are allowed
+ * to differ, but only in the direction of this being wider. Add a field to
+ * `RouteInput`, or change one's type, and this line fails rather than the
+ * mismatch reaching a handler that silently ignores it. That is the check the
+ * hand-mirrored pair never had.
+ */
+type Assert<T extends true> = T;
+type _RouteInputIsAcceptable = Assert<RouteInput extends RouteBody ? true : false>;
 
 /**
  * Validate the alert settings shared by POST and PATCH.
@@ -713,7 +780,7 @@ app.delete("/api/tracked-routes/:id", async (c) => {
 /**
  * Everything above is the API. Everything else this worker answers is the SPA,
  * served from the `ASSETS` binding (`web/dist`, see wrangler.toml) — one worker,
- * one origin, which is what lets `web/src/api.ts` keep fetching relative
+ * one origin, which is what lets `app/src/api/` keep fetching relative
  * `/api/…` paths with no base URL and no CORS in production.
  *
  * **`export default app` does NOT work here, and the failure is quiet.** Static

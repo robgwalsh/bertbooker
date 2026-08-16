@@ -82,9 +82,9 @@ const CSP = [
   // stylesheet in web/index.html.
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  // images.kiwi.com — carrier logos (web/src/ui.tsx)
-  // icons.duckduckgo.com — program/site icons (web/src/ui.tsx)
-  // *.basemaps.cartocdn.com — the airports map's dark tiles (web/src/AirportMap.tsx)
+  // images.kiwi.com — carrier logos (app/src/lib/flights.ts)
+  // icons.duckduckgo.com — program/site icons (app/src/lib/currencies.ts)
+  // *.basemaps.cartocdn.com — the airports map's dark tiles (app/src/pages/library/airports/AirportMap.tsx)
   "img-src 'self' data: blob: https://images.kiwi.com https://icons.duckduckgo.com https://*.basemaps.cartocdn.com",
 ].join("; ");
 

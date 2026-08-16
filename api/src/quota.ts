@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Env, Vars } from "./bindings.js";
+import type { QuotaPage, SourceQuota } from "../../shared/src/wire/index.js";
 
 /**
  * What's left of each metered source's daily API allowance.
@@ -26,8 +27,9 @@ quota.get("/api/quota", async (c) => {
       ORDER BY day DESC, source`,
   )
     .bind(since)
-    .all();
+    .all<SourceQuota>();
   // `today` travels with the payload so the SPA doesn't have to agree with the
   // server about what UTC day it is before it can pick out today's row.
-  return c.json({ today: new Date().toISOString().slice(0, 10), quota: results });
+  const body: QuotaPage = { today: new Date().toISOString().slice(0, 10), quota: results };
+  return c.json(body);
 });

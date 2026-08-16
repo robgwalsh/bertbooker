@@ -1,4 +1,9 @@
-import { SEATSAERO_MAX_PAGES } from "./providers/seatsaero.js";
+// From `wire/`, NOT from `providers/seatsaero.js`. This one import used to pull
+// the whole 1436-line provider — and `fetch` with it — into every program that
+// touched `RoutePair`, which since the wire module exists includes the SPA's.
+// The docblock below claims this file knows nothing about fetch; that is only
+// true because of this line.
+import { SEATSAERO_MAX_PAGES } from "./wire/seatsaero.js";
 
 /**
  * A tracked route as a SET of city pairs, not one pair.

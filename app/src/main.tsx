@@ -3,11 +3,11 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { ThemeProvider, CssBaseline } from "@mui/material";
-import { buildTheme } from "./theme";
-import { themeById } from "./themes";
-import { usePreferences } from "./preferences";
+import { buildTheme } from "./theme/build";
+import { themeById } from "./theme/themes";
+import { usePreferences } from "./lib/preferences";
 import { router } from "./router";
-import { PasswordGate } from "./PasswordGate";
+import { PasswordGate } from "./components/PasswordGate";
 import { ApiError } from "./api";
 import "./index.css";
 

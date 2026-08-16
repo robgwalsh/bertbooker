@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
-import type { Env, Vars } from "./bindings.js";
-import type { LoginResult, SessionState } from "../../shared/src/wire/index.js";
+import type { Env, Vars } from "../bindings.js";
+import type { LoginResult, SessionState } from "../../../shared/src/wire/index.js";
 
 /**
  * The shared-password gate.

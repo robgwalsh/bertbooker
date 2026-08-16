@@ -1,5 +1,5 @@
 import type { Context, Next } from "hono";
-import type { Env, Vars } from "./bindings.js";
+import type { Env, Vars } from "../bindings.js";
 
 /**
  * Identity middleware, and it is deliberately not an authentication one — that

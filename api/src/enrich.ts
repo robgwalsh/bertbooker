@@ -4,7 +4,7 @@ import type { Cabin } from "./domain/types.js";
 import { runSeatsAeroTrips, SEATSAERO_SOURCE_ID, type SeatsAeroTripDetail } from "./providers/seatsaero.js";
 import { classifyError, type FetchLike, makeTransport } from "./providers/transport.js";
 import type { Env, Vars } from "./bindings.js";
-import { recordQuota } from "./searchRun.js";
+import { recordQuota } from "./search/run.js";
 
 /**
  * Buying the itinerary behind a summary find.

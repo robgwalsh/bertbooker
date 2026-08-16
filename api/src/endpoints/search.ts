@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
-import type { Env, Vars } from "./bindings.js";
+import type { Env, Vars } from "../bindings.js";
 import {
   openSearchRun,
   planSearchPass,
   runSearchPass,
   type PlanFailure,
   type SearchEvent,
-} from "./searchRun.js";
+} from "../search/run.js";
 
 /**
  * Searching a tracked route, on the Worker, against seats.aero.
@@ -32,7 +32,7 @@ import {
  */
 export const search = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-export type { SearchEvent } from "./searchRun.js";
+export type { SearchEvent } from "../search/run.js";
 
 /** The engine's refusal codes as HTTP. The engine returns a code rather than a
  *  status because its other caller — the cron sweep — has no response to put one

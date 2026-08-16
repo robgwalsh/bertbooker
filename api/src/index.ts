@@ -31,16 +31,16 @@ import type {
   TrackedRoute,
 } from "../../shared/src/wire/index.js";
 import type { Env, Vars } from "./bindings.js";
-import { identity } from "./auth.js";
-import { authRoutes, gate } from "./gate.js";
-import { applySecurityHeaders, corsOrigin, csrfOrigin } from "./security.js";
-import { quota } from "./quota.js";
-import { search } from "./search.js";
+import { identity } from "./middleware/identity.js";
+import { authRoutes, gate } from "./middleware/gate.js";
+import { applySecurityHeaders, corsOrigin, csrfOrigin } from "./middleware/security.js";
+import { quota } from "./endpoints/quota.js";
+import { search } from "./endpoints/search.js";
 import { enrich } from "./enrich.js";
 import { runAlertTick } from "./alerts/sweep.js";
-import { alerts as alertRoutes } from "./alerts/routes.js";
-import { isRecipientAllowed } from "./email.js";
-import { FIND_COLUMNS, ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte } from "./finds.js";
+import { alerts as alertRoutes } from "./endpoints/alerts.js";
+import { isRecipientAllowed } from "./alerts/email.js";
+import { FIND_COLUMNS, ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte } from "./db/finds.js";
 
 // THIS WORKER NEVER CALLS AN AIRLINE'S OWN SITE. The rule is about who is being
 // scored: this Worker may call a service that authenticates the CREDENTIAL, and

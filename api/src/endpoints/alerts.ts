@@ -9,10 +9,10 @@ import type {
   AlertSchedule,
   SearchRun,
 } from "../../../shared/src/wire/index.js";
-import { allowedRecipients } from "../email.js";
-import { isLocalRequest } from "../security.js";
-import { ALERT_DEFAULTS, alertRouteRows, routeLabel, runAlertTick } from "./sweep.js";
-import { decideSweep, readBudgetState } from "./budget.js";
+import { allowedRecipients } from "../alerts/email.js";
+import { isLocalRequest } from "../middleware/security.js";
+import { ALERT_DEFAULTS, alertRouteRows, routeLabel, runAlertTick } from "../alerts/sweep.js";
+import { decideSweep, readBudgetState } from "../alerts/budget.js";
 
 /**
  * What the Alerts tab reads, and — in local dev only — the one control it has.

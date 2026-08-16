@@ -1,10 +1,10 @@
-import type { ChangeSummary } from "./domain/diff.js";
-import { planRoute, type RoutePair } from "./domain/routing.js";
-import { applyTask } from "./ingest/apply.js";
-import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "./ingest/types.js";
-import { callMetadata, datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk, seatsAeroTaskKey } from "./providers/seatsaero.js";
-import { classifyError, type FetchLike, makeTransport } from "./providers/transport.js";
-import { todayISO } from "./providers/window.js";
+import type { ChangeSummary } from "../domain/diff.js";
+import { planRoute, type RoutePair } from "../domain/routing.js";
+import { applyTask } from "../ingest/apply.js";
+import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../ingest/types.js";
+import { callMetadata, datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk, seatsAeroTaskKey } from "../providers/seatsaero.js";
+import { classifyError, type FetchLike, makeTransport } from "../providers/transport.js";
+import { todayISO } from "../providers/window.js";
 
 /** How many change summaries a run keeps. Display only — the authoritative
  *  record is the snapshot rows themselves.
@@ -60,10 +60,10 @@ export const MAX_STORED_CHANGES = 200;
  *  declared here and mirrored by hand in the SPA; the mirror is gone, and with
  *  it the note that used to sit on this line naming a type — `RouteSearchEvent`
  *  — that had not existed for some time. */
-export type { SearchEvent } from "../../shared/src/wire/search.js";
+export type { SearchEvent } from "../../../shared/src/wire/search.js";
 // Again as a plain import: `export … from` re-exports without binding the name
 // in this module, and the run loop below is typed in terms of it.
-import type { SearchEvent } from "../../shared/src/wire/search.js";
+import type { SearchEvent } from "../../../shared/src/wire/search.js";
 
 /**
  * Response bytes one search will stream back for display, across all its calls.

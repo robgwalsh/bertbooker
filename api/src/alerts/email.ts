@@ -1,4 +1,4 @@
-import type { Env } from "./bindings.js";
+import type { Env } from "../bindings.js";
 
 /**
  * Sending mail, via Resend.

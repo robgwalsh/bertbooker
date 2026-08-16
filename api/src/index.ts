@@ -1,11 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { csrf } from "hono/csrf";
-import { baselineOnEnable } from "./alerts/pace.js";
-import { ALL_ALERT_TYPES } from "./alerts/select.js";
-import { AIRLINE_DIRECTORY } from "./domain/airlines.js";
-import { CURRENCIES, PORTAL_CURRENCIES } from "./domain/programs.js";
-import { normalizeSpec } from "./domain/routing.js";
 // SIDE-EFFECT IMPORT, and the only one in this worker. `sources/index.ts` calls
 // `registerSource(seatsAeroSource)` at module scope, which validates every
 // program that source declares against `PROGRAM_SEEDS`. That matters because
@@ -18,29 +13,21 @@ import { normalizeSpec } from "./domain/routing.js";
 // and nothing else imports a symbol from `sources/`, so this line is now the
 // whole of the mechanism. Deleting it as an unused import removes the check.
 import "./sources/index.js";
-// The wire contract, imported by its own specifier — see the banner in
-// `shared/src/wire/index.ts`.
-import type {
-  AirportGeo,
-  AirportInfo,
-  AirportName,
-  DashboardData,
-  Find,
-  ProgramInfo,
-  RouteInput,
-  TrackedRoute,
-} from "../../shared/src/wire/index.js";
 import type { Env, Vars } from "./bindings.js";
 import { identity } from "./middleware/identity.js";
 import { authRoutes, gate } from "./middleware/gate.js";
 import { applySecurityHeaders, corsOrigin, csrfOrigin } from "./middleware/security.js";
+import { runAlertTick } from "./alerts/sweep.js";
+// The endpoint modules, each a `Hono` sub-app mounted below. THE ORDER OF THESE
+// MOUNTS IS THE ROUTING TABLE — see the block comment above them.
 import { quota } from "./endpoints/quota.js";
 import { search } from "./endpoints/search.js";
-import { enrich } from "./enrich.js";
-import { runAlertTick } from "./alerts/sweep.js";
-import { alerts as alertRoutes } from "./endpoints/alerts.js";
-import { isRecipientAllowed } from "./alerts/email.js";
-import { FIND_COLUMNS, ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte } from "./db/finds.js";
+import { enrich } from "./endpoints/enrich.js";
+import { alerts } from "./endpoints/alerts.js";
+import { reference } from "./endpoints/reference.js";
+import { airports } from "./endpoints/airports.js";
+import { dashboard } from "./endpoints/dashboard.js";
+import { trackedRoutes } from "./endpoints/trackedRoutes.js";
 
 // THIS WORKER NEVER CALLS AN AIRLINE'S OWN SITE. The rule is about who is being
 // scored: this Worker may call a service that authenticates the CREDENTIAL, and
@@ -111,6 +98,21 @@ app.use("/api/*", gate);
 // ...and then an identity.
 app.use("/api/*", identity);
 
+// ---------------------------------------------------------------------------
+// THE ENDPOINT MOUNTS. Everything below has passed the gate and has an identity.
+//
+// **This order is the routing table.** Hono runs matching handlers in
+// REGISTRATION order and stops at the first that responds, so a module mounted
+// earlier wins a path both could serve. The one that matters concretely:
+// `search` and `enrich` own `POST /api/tracked-routes/:id/search` and
+// `/enrich`, and are mounted ahead of `trackedRoutes`, which owns
+// `PATCH`/`DELETE /api/tracked-routes/:id`. Reordering these is a routing
+// change, not a tidy-up.
+//
+// Each module is a `Hono` sub-app registering ABSOLUTE `/api/...` paths, so
+// every mount is at `"/"` and the paths are greppable from the handler.
+// ---------------------------------------------------------------------------
+
 // The metered sources' remaining daily allowance — what the app-bar chip reads.
 // A plain read, covered by the password gate like any other.
 app.route("/", quota);
@@ -125,642 +127,29 @@ app.route("/", enrich);
 
 // What the Alerts tab reads. In production it is read-only: the cron does the
 // writing, and the only way to change what it does is to edit a route (PATCH
-// below). The one exception is `POST /api/alerts/run`, which 404s off a loopback
-// host — it is the development loop for `alerts/`, and it calls the same
-// `runAlertTick` the cron does rather than a second implementation of a tick.
-// See docs/ALERTS.md §9.
-app.route("/", alertRoutes);
+// via `trackedRoutes` below). The one exception is `POST /api/alerts/run`, which
+// 404s off a loopback host — it is the development loop for `alerts/`, and it
+// calls the same `runAlertTick` the cron does rather than a second
+// implementation of a tick. See docs/ALERTS.md §9.
+app.route("/", alerts);
 
-// ---- Reference data ----
-// The couple's transferable currencies (reference constant, not per-user).
-app.get("/api/currencies", (c) => c.json(CURRENCIES));
+// Reference constants and the editable `programs` table.
+app.route("/", reference);
 
-// Carriers with the programs that can book them, derived from the seed alliance
-// table (reference constant, like CURRENCIES). Names/transfer partners for those
-// program codes come from /api/programs, which is the editable D1 truth.
-app.get("/api/airlines", (c) => c.json(AIRLINE_DIRECTORY));
+// The ~72k-row OurAirports table: the Library pane, the autocompletes, and the
+// coordinates the trip list's route maps draw from.
+app.route("/", airports);
 
-/** The stored row, before `transfer_partners` is parsed out of its JSON column.
- *  That parse is what makes `ProgramInfo` a different shape from this, and is
- *  why annotating the mapped result below is a real check rather than a
- *  restatement of the SELECT. */
-interface ProgramRow {
-  code: string;
-  name: string;
-  kind: "airline" | "hotel";
-  alliance: string | null;
-  transfer_partners: string;
-  is_active: number;
-}
+// The Routes page's payload — monitors joined to their current finds. The only
+// reader of `findsCte`.
+app.route("/", dashboard);
 
-app.get("/api/programs", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    "SELECT code, name, kind, alliance, transfer_partners, is_active FROM programs WHERE is_active = 1 ORDER BY kind, name",
-  ).all<ProgramRow>();
-  const body: ProgramInfo[] = results.map((r) => ({
-    ...r,
-    transfer_partners: JSON.parse(String(r.transfer_partners)) as ProgramInfo["transfer_partners"],
-  }));
-  return c.json(body);
-});
-
-// ---- Airports: distinct countries (powers the country filter) ----
-app.get("/api/airports/countries", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT country, COUNT(*) AS count FROM airports
-      WHERE country IS NOT NULL AND country != ''
-      GROUP BY country ORDER BY country`,
-  ).all<{ country: string; count: number }>();
-  return c.json(results);
-});
-
-// Shared WHERE builder for the airport search — `q` is split into whitespace
-// tokens; EACH token must match somewhere (AND), while within a token we OR
-// across code/name/city/country/region (so "london heathrow" and "new york jfk"
-// both work). Filters (type, continent, country, scheduled, iataOnly) further
-// narrow the set. Uses anonymous `?` binds pushed in SQL order, so callers must
-// append their own binds (ORDER BY, LIMIT) only AFTER these.
-//
-// Both `/api/airports` (table) and `/api/airports/geo` (map) call this, which is
-// what keeps the two views showing the same set of airports once the user has
-// searched. They differ only when NOTHING is selected: the table falls back to a
-// browsable default of major airports (`defaultToMajors`), while the map wants
-// the whole world plotted, so it opts out.
-function airportFilter(
-  query: (k: string) => string | undefined,
-  { defaultToMajors = true }: { defaultToMajors?: boolean } = {},
-): {
-  q: string;
-  where: string[];
-  binds: unknown[];
-} {
-  const q = (query("q") ?? "").trim();
-  const iataOnly = query("iataOnly") === "1";
-  const scheduledOnly = query("scheduled") === "1";
-  const continent = (query("continent") ?? "").trim().toUpperCase();
-  const country = (query("country") ?? "").trim().toUpperCase();
-  const types = (query("type") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const where: string[] = [];
-  const binds: unknown[] = [];
-
-  if (iataOnly) where.push("iata IS NOT NULL AND iata != ''");
-  if (scheduledOnly) where.push("scheduled = 1");
-  if (continent) {
-    where.push("continent = ?");
-    binds.push(continent);
-  }
-  if (country) {
-    where.push("country = ?");
-    binds.push(country);
-  }
-  if (types.length) {
-    where.push(`type IN (${types.map(() => "?").join(", ")})`);
-    binds.push(...types);
-  }
-
-  const tokens = q.split(/\s+/).filter(Boolean).slice(0, 6);
-  for (const tok of tokens) {
-    const exact = tok.toUpperCase();
-    const prefix = `${tok}%`;
-    const contains = `%${tok}%`;
-    where.push(
-      "(iata = ? OR iata LIKE ? OR icao LIKE ? OR ident LIKE ? OR name LIKE ? OR city LIKE ? OR country = ? OR region LIKE ?)",
-    );
-    binds.push(exact, prefix, prefix, prefix, contains, contains, exact, contains);
-  }
-
-  // No query and no filters → a browsable default of major airports.
-  const hasFilters = iataOnly || scheduledOnly || continent || country || types.length > 0;
-  if (defaultToMajors && !q && !hasFilters) {
-    where.push("scheduled = 1", "type = 'large_airport'");
-  }
-
-  return { q, where, binds };
-}
-
-// ---- Airports: slim geo rows for the current search (powers the map) ----
-// Same criteria as `/api/airports`, but minimal columns and no practical cap:
-// the table shows the top ~100 matches while the map plots the whole matching
-// set, clustered client-side. With no criteria at all this is the full ~72k-row
-// dump (the map's default world view) — hence `defaultToMajors: false`.
-app.get("/api/airports/geo", async (c) => {
-  const { where, binds } = airportFilter((k) => c.req.query(k), { defaultToMajors: false });
-  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 100000, 1), 100000);
-
-  const sql =
-    `SELECT ident, iata, name, city, country, type, latitude, longitude, scheduled
-       FROM airports
-      WHERE latitude IS NOT NULL AND longitude IS NOT NULL` +
-    (where.length ? ` AND ${where.join(" AND ")}` : "") +
-    " LIMIT ?";
-
-  const { results } = await c.env.DB.prepare(sql)
-    .bind(...binds, limit)
-    .all<AirportGeo>();
-  return c.json(results);
-});
-
-// ---- Airports: resolve a set of IATA codes in one round trip ----
-// Deliberately NOT routed through `airportFilter`: that builder is a *search*,
-// tuned for ranking partial matches and owning the "no query → major airports"
-// default. This is an exact lookup for codes we already hold — the dashboard
-// naming the airports on a tracked route, the trip list plotting them on a map —
-// and wants none of that. Answers with whatever it finds; a code with no row is
-// simply absent, which the caller renders as the bare code rather than as an
-// error.
-//
-// Coordinates ride along with the names because both callers key off the same
-// code set: a second endpoint for lat/lon would double the round trips to say
-// something about airports this one has already found.
-app.get("/api/airports/lookup", async (c) => {
-  const codes = [
-    ...new Set(
-      (c.req.query("codes") ?? "")
-        .split(",")
-        .map((s) => s.trim().toUpperCase())
-        .filter((s) => /^[A-Z]{3}$/.test(s)),
-    ),
-    // A page of finds can hold 200 rows across many routes, and
-    // every one of them names two to four airports. The cap is a guard against a
-    // pathological query string, not a page size — set below what a real caller
-    // asks for and the overflow is silent, which reads as a map that lost a
-    // stop rather than as a truncated request.
-  ].slice(0, 400);
-  if (!codes.length) return c.json([]);
-
-  const { results } = await c.env.DB.prepare(
-    `SELECT iata, name, city, country, latitude, longitude FROM airports
-      WHERE iata IN (${codes.map(() => "?").join(", ")})
-      -- An IATA code can appear on more than one row in OurAirports (a heliport
-      -- or closed field sharing it). Prefer the one that actually flies.
-      ORDER BY scheduled DESC,
-               CASE type WHEN 'large_airport' THEN 0 WHEN 'medium_airport' THEN 1
-                         WHEN 'small_airport' THEN 2 ELSE 3 END`,
-  )
-    .bind(...codes)
-    .all<AirportName>();
-  return c.json(results);
-});
-
-// ---- Airports: server-side ranked, multi-token search + filters ----
-app.get("/api/airports", async (c) => {
-  const { q, where, binds } = airportFilter((k) => c.req.query(k));
-  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 25, 1), 200);
-  const cols =
-    "ident, type, name, iata, icao, city, country, region, continent, latitude, longitude, scheduled";
-
-  let sql = `SELECT ${cols} FROM airports`;
-  if (where.length) sql += ` WHERE ${where.join(" AND ")}`;
-
-  const order: string[] = [];
-  if (q) {
-    order.push("(iata = ?) DESC");
-    binds.push(q.toUpperCase());
-  }
-  order.push(
-    "scheduled DESC",
-    "CASE type WHEN 'large_airport' THEN 0 WHEN 'medium_airport' THEN 1 WHEN 'small_airport' THEN 2 ELSE 3 END",
-    "name",
-  );
-  sql += ` ORDER BY ${order.join(", ")} LIMIT ?`;
-  binds.push(limit);
-
-  const { results } = await c.env.DB.prepare(sql)
-    .bind(...binds)
-    .all<AirportInfo>();
-  return c.json(results);
-});
-
-// ---- Dashboard: monitors + best current finds ----
-app.get("/api/dashboard", async (c) => {
-  const email = c.get("userEmail");
-  // Unscoped: the dashboard's join is what narrows to the user's routes, so the
-  // collapse has to see every route they might be tracking. This is the one
-  // caller that can't push a scope predicate down into the CTE.
-  const dashboardFinds = findsCte({ where: [], binds: [] });
-  // NOTE: this batch is read POSITIONALLY below. Adding or removing a statement
-  // here means the destructuring on the other side has to move with it, and
-  // **nothing in the type system will notice** — `batch<T>()` is homogeneous by
-  // signature, so there is no way to give element 0 and element 1 different
-  // types short of splitting this into two round trips.
-  //
-  // Annotating the response `DashboardData` (below) checks the ENVELOPE and the
-  // two array element types; it cannot check the ORDER. Destructuring by name
-  // rather than indexing is as far as this goes. **This comment is the guard.**
-  const [routeRows, findRows] = await c.env.DB.batch([
-    c.env.DB.prepare(
-      // The route-SET columns must be in this list. They are
-      // what the Routes page draws the route's shape from, and an explicit
-      // column list is exactly the kind that gets forgotten when a schema
-      // change adds one: omitting them doesn't fail, it silently renders every
-      // multi-airport route as a plain single-pair route.
-      //
-      // Since the header edits the route in place, this list is ALSO what the
-      // edit form is seeded from — every settable column has to be here or its
-      // field opens showing a default the row does not hold. `PATCH` merges
-      // against the stored row, so the damage stops at the form; but a switch
-      // that renders "off" for a route that is on is its own bug.
-      //
-      // The alert columns are exactly the case that warning was written about,
-      // and they were missing from it. The edit dialog sends `alertsEnabled` on
-      // every save rather than omitting it, so a form seeded from an absent
-      // column sent `false` and QUIETLY UNENROLLED the route — and re-enabling
-      // it afterwards re-ran `baselineOnEnable`, moving the digest clock too.
-      // The last three are state rather than settings, and are here because the
-      // Routes page draws a route's alert health beside it (see app/src/lib/alerts.ts).
-      "SELECT id, origin, destination, origins, destinations," +
-        " date_start, date_end, cabins, currencies, min_seats, direct_only, round_trip," +
-        " last_checked_at," +
-        " alerts_enabled, alert_email, alert_on, alert_min_drop_pct," +
-        " alert_last_attempt_at, alert_last_digest_at, alert_consecutive_failures" +
-        " FROM tracked_routes WHERE user_email = ? ORDER BY created_at DESC",
-    ).bind(email),
-    // Current finds, tied to the routes that monitor them. `findsCte` collapses
-    // the per-source snapshot history into one current row per
-    // (route_key, program, cabin) — see finds.ts for why that collapse now
-    // happens at read time — and this joins the result to the user's
-    // tracked_routes by origin + destination + date window, constrained to each
-    // route's own cabin and min-seats. Tagged with tracked_route_id so the UI
-    // can nest each find under its route; a find overlapping two routes'
-    // windows appears under both.
-    c.env.DB.prepare(
-      `${dashboardFinds.sql}
-       SELECT tr.id AS tracked_route_id, ${FIND_COLUMNS}
-         FROM finds f
-         JOIN tracked_routes tr
-           ON tr.user_email = ?
-          -- "Does this find belong to this route, and pass its filters?" —
-          -- shared verbatim with the alert sweep, which asks the identical
-          -- question about one route. See ROUTE_FINDS_MATCH in finds.ts for why
-          -- that sharing is load-bearing rather than tidy.
-          AND ${ROUTE_FINDS_MATCH}
-        WHERE ${ROUTE_FINDS_SEATS}
-        ORDER BY tr.id, f.flight_date ASC, f.seats_available DESC, f.miles_cost ASC`,
-    ).bind(...dashboardFinds.binds, email, JSON.stringify(PORTAL_CURRENCIES)),
-  ]);
-  // The casts are exactly what was already happening implicitly — `batch()`
-  // hands back untyped rows either way. What the annotation buys is the
-  // envelope: a renamed or dropped key is now a compile error here rather than
-  // an empty pane in the SPA.
-  const body: DashboardData = {
-    trackedRoutes: (routeRows?.results ?? []) as TrackedRoute[],
-    bestFinds: (findRows?.results ?? []) as Find[],
-  };
-  return c.json(body);
-});
-
-// ---- Tracked routes (saved searches) ----
-app.get("/api/tracked-routes", async (c) => {
-  const email = c.get("userEmail");
-  const { results } = await c.env.DB.prepare(
-    "SELECT * FROM tracked_routes WHERE user_email = ? ORDER BY created_at DESC",
-  )
-    .bind(email)
-    .all<TrackedRoute>();
-  return c.json(results);
-});
-
-/**
- * What a route is, on the wire. `POST` requires the window; `PATCH` treats every
- * field as optional and merges against the stored row.
- *
- * **Deliberately NOT the same type as `RouteInput`** in
- * `shared/src/wire/rows.ts`, which is what the SPA's form sends. This is what
- * the Worker ACCEPTS, and it is a wider, older shape in three ways that all
- * still matter: the pre-sets scalar `origin`/`destination`; `programs` and
- * `kind`, which no current client sends; and `null` as an explicit "clear this
- * filter", which is a distinct instruction from an absent field's "leave it
- * alone". Collapsing the two would have to give one of those up.
- *
- * `alertOn` is `string[]` and not `AlertType[]` for the same reason: this
- * describes what ARRIVED, not what is legal. `validateAlerts` below is what
- * turns one into the other.
- *
- * The assertion under the interface is what keeps them in step.
- */
-interface RouteBody {
-  origin?: string;
-  destination?: string;
-  /** The authoritative airport sets. `origin`/`destination` remain accepted so
-   *  an older client still works, and are the fallback when these are absent. */
-  origins?: string[] | null;
-  destinations?: string[] | null;
-  dateStart?: string;
-  dateEnd?: string;
-  cabins?: string[] | null;
-  minSeats?: number;
-  programs?: string[] | null;
-  currencies?: string[] | null;
-  kind?: string;
-  /** Show only nonstop finds under this route. A read filter; see the migration. */
-  directOnly?: boolean;
-  /** Search BOTH directions. A gathering setting, not a read filter — turning
-   *  it on needs a re-search before the return legs exist. */
-  roundTrip?: boolean;
-  /** Email me when this route changes. The second setting that changes what is
-   *  GATHERED rather than what is shown: it enrolls the route in the cron sweep.
-   *  See docs/ALERTS.md. */
-  alertsEnabled?: boolean;
-  /** Where the digest goes. Empty/null = the account's own address. Checked
-   *  against ALERT_ALLOWED_RECIPIENTS. */
-  alertEmail?: string | null;
-  /** Which transitions fire. `undefined` keeps what is stored; `null` resets to
-   *  the default set. An EMPTY ARRAY is refused — see below. */
-  alertOn?: string[] | null;
-  alertMinDropPct?: number;
-}
-
-/**
- * Everything the SPA can send, this handler must accept.
- *
- * A compile-time assertion and nothing else — it emits no code. `RouteInput`
- * (the SPA's form contract) and `RouteBody` (what this route parses) are allowed
- * to differ, but only in the direction of this being wider. Add a field to
- * `RouteInput`, or change one's type, and this line fails rather than the
- * mismatch reaching a handler that silently ignores it. That is the check the
- * hand-mirrored pair never had.
- */
-type Assert<T extends true> = T;
-type _RouteInputIsAcceptable = Assert<RouteInput extends RouteBody ? true : false>;
-
-/**
- * Validate the alert settings shared by POST and PATCH.
- *
- * The empty-array rule is the one worth stating. Every other list column here
- * (`cabins`, `currencies`) treats `[]` as "no filter, everything matches", and
- * copying that convention would make `alert_on: []` mean *nothing ever fires* —
- * a route that looks armed and is silent forever, which is the single most
- * plausible way for this feature to appear broken while behaving exactly as
- * configured. So it is a 400 rather than a stored value, and `null` is the only
- * way to ask for the default set.
- */
-function validateAlerts(
-  b: RouteBody,
-  env: Env,
-): { ok: true } | { ok: false; error: string; message: string } {
-  if (b.alertOn !== undefined && b.alertOn !== null) {
-    if (!Array.isArray(b.alertOn) || b.alertOn.length === 0) {
-      return {
-        ok: false,
-        error: "bad_alert_types",
-        message: "Choose at least one kind of change to be told about.",
-      };
-    }
-    const unknown = b.alertOn.filter((t) => !(ALL_ALERT_TYPES as string[]).includes(t));
-    if (unknown.length) {
-      return { ok: false, error: "bad_alert_types", message: `Unknown: ${unknown.join(", ")}` };
-    }
-  }
-  if (b.alertEmail) {
-    if (!isRecipientAllowed(env, b.alertEmail)) {
-      return {
-        ok: false,
-        error: "recipient_not_allowed",
-        message: `${b.alertEmail} is not in ALERT_ALLOWED_RECIPIENTS.`,
-      };
-    }
-  }
-  return { ok: true };
-}
-
-/** 0–100, and a whole number: a fractional percentage threshold is a decision
- *  nobody makes and a column nobody can read back. */
-const clampDropPct = (v: number | undefined, fallback: number): number =>
-  v === undefined ? fallback : Math.min(Math.max(Math.round(v), 0), 100);
-
-/** A stored JSON array column back into a code list. Never throws: a route whose
- *  `origins` somehow isn't JSON should edit as unset, not 500. */
-function storedList(v: unknown): string[] {
-  if (typeof v !== "string" || !v) return [];
-  try {
-    const arr = JSON.parse(v);
-    return Array.isArray(arr) ? arr.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
-app.post("/api/tracked-routes", async (c) => {
-  const email = c.get("userEmail");
-  const b = await c.req.json<RouteBody & { dateStart: string; dateEnd: string }>();
-  const cabins = b.cabins?.length ? b.cabins : null;
-
-  const alerts = validateAlerts(b, c.env);
-  if (!alerts.ok) return c.json({ error: alerts.error, message: alerts.message }, 400);
-
-  // Validate through the same pure function the search planner uses, so a route
-  // that cannot be planned cannot be stored. It throws rather than truncating —
-  // a silently dropped third origin would make the route search less than it
-  // claims to, and claim coverage for a set nobody chose.
-  let spec: ReturnType<typeof normalizeSpec>;
-  try {
-    spec = normalizeSpec({
-      origins: b.origins?.length ? b.origins : [b.origin ?? ""],
-      destinations: b.destinations?.length ? b.destinations : [b.destination ?? ""],
-    });
-  } catch (err) {
-    return c.json({ error: "bad_route_spec", message: (err as Error).message }, 400);
-  }
-
-  const res = await c.env.DB.prepare(
-    `INSERT INTO tracked_routes
-       (user_email, origin, destination, origins, destinations,
-        date_start, date_end, cabin, cabins, min_seats, programs, currencies, kind, direct_only,
-        round_trip, alerts_enabled, alert_email, alert_on, alert_min_drop_pct)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     RETURNING id`,
-  )
-    .bind(
-      email,
-      // Legacy scalars (NOT NULL), kept as the route's PRIMARY airport — the same
-      // representative-value trick `cabin` uses below. `search_runs` and the
-      // pre-0013 read paths still key off these.
-      spec.origins[0]!,
-      spec.destinations[0]!,
-      JSON.stringify(spec.origins),
-      JSON.stringify(spec.destinations),
-      b.dateStart,
-      b.dateEnd,
-      // Legacy scalar `cabin` (NOT NULL): kept in sync as a representative value
-      // for any SELECT * reader; `cabins` is the authoritative filter now.
-      cabins?.length === 1 ? cabins[0] : "any",
-      // Store NULL (not "[]") when no filter, so downstream "no filter" checks
-      // and the dashboard join treat an empty selection as "any cabin".
-      cabins ? JSON.stringify(cabins) : null,
-      Math.min(Math.max(Math.round(b.minSeats ?? 2), 1), 9),
-      b.programs?.length ? JSON.stringify(b.programs) : null,
-      // Same NULL-when-empty rule for the currency filter ("any currency").
-      b.currencies?.length ? JSON.stringify(b.currencies) : null,
-      b.kind ?? "flight",
-      b.directOnly ? 1 : 0,
-      // Unlike every other flag bound here, this one changes what a search
-      // GATHERS: both directions in the one call. See migrations/0004.
-      b.roundTrip ? 1 : 0,
-      // ...and so does this one: it enrolls the route in the cron sweep.
-      b.alertsEnabled ? 1 : 0,
-      b.alertEmail?.trim() || null,
-      // NULL means the default set. `[]` was already refused above.
-      b.alertOn?.length ? JSON.stringify(b.alertOn) : null,
-      clampDropPct(b.alertMinDropPct, 5),
-    )
-    .first<{ id: number }>();
-  return c.json({ id: res?.id }, 201);
-});
-
-/**
- * Edit a stored route — the header's edit mode, and the only writer besides the
- * Add dialog.
- *
- * A **merge then whole-row write**, not a per-column patch. The reason is
- * `normalizeSpec`: it validates the airport sets as one shape, so it has to be
- * handed the route the caller means to end up with, not the two fields they
- * touched.
- * The stored row is therefore read first and anything absent from the body kept
- * from it. An absent field means "leave it"; an empty array means "clear the
- * filter", which is why the two are distinguished rather than collapsed.
- *
- * Nothing here touches a snapshot, a coverage row or `last_checked_at`. Editing
- * a route re-asks the question; it never invalidates an answer — a narrowed
- * window simply stops joining to finds that are still stored, and widening it
- * back shows them again with no search.
- */
-app.patch("/api/tracked-routes/:id", async (c) => {
-  const email = c.get("userEmail");
-  const id = Number(c.req.param("id"));
-  const b = await c.req.json<RouteBody>();
-
-  const alerts = validateAlerts(b, c.env);
-  if (!alerts.ok) return c.json({ error: alerts.error, message: alerts.message }, 400);
-
-  const row = await c.env.DB.prepare(
-    "SELECT * FROM tracked_routes WHERE id = ? AND user_email = ?",
-  )
-    .bind(id, email)
-    .first<Record<string, unknown>>();
-  if (!row) return c.json({ error: "not_found" }, 404);
-
-  const merged = {
-    origins: b.origins?.length
-      ? b.origins
-      : b.origins === undefined
-        ? (storedList(row.origins).length ? storedList(row.origins) : [String(row.origin)])
-        : [],
-    destinations: b.destinations?.length
-      ? b.destinations
-      : b.destinations === undefined
-        ? (storedList(row.destinations).length
-            ? storedList(row.destinations)
-            : [String(row.destination)])
-        : [],
-  };
-
-  let spec: ReturnType<typeof normalizeSpec>;
-  try {
-    spec = normalizeSpec(merged);
-  } catch (err) {
-    return c.json({ error: "bad_route_spec", message: (err as Error).message }, 400);
-  }
-
-  const alertsEnabled =
-    b.alertsEnabled === undefined ? Number(row.alerts_enabled ?? 0) : b.alertsEnabled ? 1 : 0;
-
-  const dateStart = b.dateStart ?? String(row.date_start);
-  const dateEnd = b.dateEnd ?? String(row.date_end);
-  if (dateEnd < dateStart) {
-    return c.json({ error: "bad_window", message: "The window ends before it starts." }, 400);
-  }
-
-  // `undefined` keeps what is stored; `[]` (or null) clears the filter to "any".
-  const cabins =
-    b.cabins === undefined
-      ? (row.cabins as string | null)
-      : b.cabins?.length
-        ? JSON.stringify(b.cabins)
-        : null;
-  const currencies =
-    b.currencies === undefined
-      ? (row.currencies as string | null)
-      : b.currencies?.length
-        ? JSON.stringify(b.currencies)
-        : null;
-
-  await c.env.DB.prepare(
-    `UPDATE tracked_routes
-        SET origin = ?, destination = ?, origins = ?, destinations = ?,
-            date_start = ?, date_end = ?,
-            cabin = ?, cabins = ?, currencies = ?, min_seats = ?, direct_only = ?,
-            round_trip = ?,
-            alerts_enabled = ?, alert_email = ?, alert_on = ?, alert_min_drop_pct = ?,
-            -- Turning alerts ON re-decides the baseline. A route that has been
-            -- dark has a stale per-source snapshot, so its next diff would call
-            -- everything new and email a wall of it; clearing the digest clock
-            -- makes the next sweep a silent baseline. But a route somebody
-            -- searched RECENTLY already holds the snapshot a baseline sweep
-            -- would go and fetch, so baselineOnEnable stamps the clock instead
-            -- and the very next sweep can email real changes. See its docblock —
-            -- the baseline is the snapshot, this column is only the suppression.
-            -- (No backticks in here — this is a template literal.)
-            alert_last_digest_at = CASE WHEN ? = 1 AND alerts_enabled = 0
-                                        THEN ? ELSE alert_last_digest_at END,
-            -- A settings change is a fresh start for the back-off too; otherwise
-            -- fixing a broken window would still wait out the old penalty.
-            alert_consecutive_failures = 0
-      WHERE id = ? AND user_email = ?`,
-  )
-    .bind(
-      // The legacy scalars stay the PRIMARY airport of each side, exactly as on
-      // insert: they are NOT NULL and other readers still key off them.
-      spec.origins[0]!,
-      spec.destinations[0]!,
-      JSON.stringify(spec.origins),
-      JSON.stringify(spec.destinations),
-      dateStart,
-      dateEnd,
-      // Representative value for any `SELECT *` reader; `cabins` is the filter.
-      cabins ? (storedList(cabins).length === 1 ? storedList(cabins)[0] : "any") : "any",
-      cabins,
-      currencies,
-      Math.min(Math.max(Math.round(b.minSeats ?? Number(row.min_seats ?? 1)), 1), 9),
-      b.directOnly === undefined ? Number(row.direct_only ?? 0) : b.directOnly ? 1 : 0,
-      b.roundTrip === undefined ? Number(row.round_trip ?? 0) : b.roundTrip ? 1 : 0,
-      alertsEnabled,
-      b.alertEmail === undefined
-        ? (row.alert_email as string | null)
-        : b.alertEmail?.trim() || null,
-      // `undefined` keeps what is stored; `null` resets to the default set. `[]`
-      // was refused above rather than stored as "never fire".
-      b.alertOn === undefined
-        ? (row.alert_on as string | null)
-        : b.alertOn?.length
-          ? JSON.stringify(b.alertOn)
-          : null,
-      clampDropPct(b.alertMinDropPct, Number(row.alert_min_drop_pct ?? 5)),
-      alertsEnabled,
-      // Only consulted by the CASE above, i.e. only on an OFF -> ON transition.
-      baselineOnEnable(row.last_checked_at == null ? null : Number(row.last_checked_at), Date.now()),
-      id,
-      email,
-    )
-    .run();
-
-  return c.json({ ok: true });
-});
-
-app.delete("/api/tracked-routes/:id", async (c) => {
-  const email = c.get("userEmail");
-  const id = Number(c.req.param("id"));
-  await c.env.DB.prepare("DELETE FROM tracked_routes WHERE id = ? AND user_email = ?")
-    .bind(id, email)
-    .run();
-  return c.json({ ok: true });
-});
+// The saved searches themselves. Mounted last of the `/api/tracked-routes`
+// owners, deliberately; see the order note above.
+app.route("/", trackedRoutes);
 
 /*
- * `POST /api/tracked-routes/:id/search` lives in `search.ts`.
+ * `POST /api/tracked-routes/:id/search` lives in `endpoints/search.ts`.
  *
  * It once lived here, running every provider inline and streaming NDJSON back,
  * and was moved out when it became clear a Worker cannot read a carrier's own

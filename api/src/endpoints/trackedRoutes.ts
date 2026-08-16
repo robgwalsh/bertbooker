@@ -1,0 +1,369 @@
+import { Hono } from "hono";
+import { ALL_ALERT_TYPES } from "../alerts/select.js";
+import { baselineOnEnable } from "../alerts/pace.js";
+import { normalizeSpec } from "../domain/routing.js";
+import { isRecipientAllowed } from "../alerts/email.js";
+import type { Env, Vars } from "../bindings.js";
+import type { RouteInput, TrackedRoute } from "../../../shared/src/wire/index.js";
+
+/**
+ * Tracked routes — the saved searches everything else in the app hangs off.
+ *
+ * The two writers here are the Add dialog and the header's edit mode, and they
+ * are deliberately asymmetric: `POST` requires the date window, while `PATCH`
+ * treats every field as optional and merges against the stored row. See
+ * `RouteBody` below for the three ways this differs from the SPA's `RouteInput`,
+ * and the assertion under it that keeps the two in step.
+ *
+ * `POST /api/tracked-routes/:id/search` and `/enrich` are NOT here — they are
+ * `endpoints/search.ts` and `endpoints/enrich.ts`, mounted before this module so
+ * their more specific paths are matched first.
+ */
+export const trackedRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
+
+// ---- Tracked routes (saved searches) ----
+trackedRoutes.get("/api/tracked-routes", async (c) => {
+  const email = c.get("userEmail");
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM tracked_routes WHERE user_email = ? ORDER BY created_at DESC",
+  )
+    .bind(email)
+    .all<TrackedRoute>();
+  return c.json(results);
+});
+
+/**
+ * What a route is, on the wire. `POST` requires the window; `PATCH` treats every
+ * field as optional and merges against the stored row.
+ *
+ * **Deliberately NOT the same type as `RouteInput`** in
+ * `shared/src/wire/rows.ts`, which is what the SPA's form sends. This is what
+ * the Worker ACCEPTS, and it is a wider, older shape in three ways that all
+ * still matter: the pre-sets scalar `origin`/`destination`; `programs` and
+ * `kind`, which no current client sends; and `null` as an explicit "clear this
+ * filter", which is a distinct instruction from an absent field's "leave it
+ * alone". Collapsing the two would have to give one of those up.
+ *
+ * `alertOn` is `string[]` and not `AlertType[]` for the same reason: this
+ * describes what ARRIVED, not what is legal. `validateAlerts` below is what
+ * turns one into the other.
+ *
+ * The assertion under the interface is what keeps them in step.
+ */
+interface RouteBody {
+  origin?: string;
+  destination?: string;
+  /** The authoritative airport sets. `origin`/`destination` remain accepted so
+   *  an older client still works, and are the fallback when these are absent. */
+  origins?: string[] | null;
+  destinations?: string[] | null;
+  dateStart?: string;
+  dateEnd?: string;
+  cabins?: string[] | null;
+  minSeats?: number;
+  programs?: string[] | null;
+  currencies?: string[] | null;
+  kind?: string;
+  /** Show only nonstop finds under this route. A read filter; see the migration. */
+  directOnly?: boolean;
+  /** Search BOTH directions. A gathering setting, not a read filter — turning
+   *  it on needs a re-search before the return legs exist. */
+  roundTrip?: boolean;
+  /** Email me when this route changes. The second setting that changes what is
+   *  GATHERED rather than what is shown: it enrolls the route in the cron sweep.
+   *  See docs/ALERTS.md. */
+  alertsEnabled?: boolean;
+  /** Where the digest goes. Empty/null = the account's own address. Checked
+   *  against ALERT_ALLOWED_RECIPIENTS. */
+  alertEmail?: string | null;
+  /** Which transitions fire. `undefined` keeps what is stored; `null` resets to
+   *  the default set. An EMPTY ARRAY is refused — see below. */
+  alertOn?: string[] | null;
+  alertMinDropPct?: number;
+}
+
+/**
+ * Everything the SPA can send, this handler must accept.
+ *
+ * A compile-time assertion and nothing else — it emits no code. `RouteInput`
+ * (the SPA's form contract) and `RouteBody` (what this route parses) are allowed
+ * to differ, but only in the direction of this being wider. Add a field to
+ * `RouteInput`, or change one's type, and this line fails rather than the
+ * mismatch reaching a handler that silently ignores it. That is the check the
+ * hand-mirrored pair never had.
+ */
+type Assert<T extends true> = T;
+type _RouteInputIsAcceptable = Assert<RouteInput extends RouteBody ? true : false>;
+
+/**
+ * Validate the alert settings shared by POST and PATCH.
+ *
+ * The empty-array rule is the one worth stating. Every other list column here
+ * (`cabins`, `currencies`) treats `[]` as "no filter, everything matches", and
+ * copying that convention would make `alert_on: []` mean *nothing ever fires* —
+ * a route that looks armed and is silent forever, which is the single most
+ * plausible way for this feature to appear broken while behaving exactly as
+ * configured. So it is a 400 rather than a stored value, and `null` is the only
+ * way to ask for the default set.
+ */
+function validateAlerts(
+  b: RouteBody,
+  env: Env,
+): { ok: true } | { ok: false; error: string; message: string } {
+  if (b.alertOn !== undefined && b.alertOn !== null) {
+    if (!Array.isArray(b.alertOn) || b.alertOn.length === 0) {
+      return {
+        ok: false,
+        error: "bad_alert_types",
+        message: "Choose at least one kind of change to be told about.",
+      };
+    }
+    const unknown = b.alertOn.filter((t) => !(ALL_ALERT_TYPES as string[]).includes(t));
+    if (unknown.length) {
+      return { ok: false, error: "bad_alert_types", message: `Unknown: ${unknown.join(", ")}` };
+    }
+  }
+  if (b.alertEmail) {
+    if (!isRecipientAllowed(env, b.alertEmail)) {
+      return {
+        ok: false,
+        error: "recipient_not_allowed",
+        message: `${b.alertEmail} is not in ALERT_ALLOWED_RECIPIENTS.`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+/** 0–100, and a whole number: a fractional percentage threshold is a decision
+ *  nobody makes and a column nobody can read back. */
+const clampDropPct = (v: number | undefined, fallback: number): number =>
+  v === undefined ? fallback : Math.min(Math.max(Math.round(v), 0), 100);
+
+/** A stored JSON array column back into a code list. Never throws: a route whose
+ *  `origins` somehow isn't JSON should edit as unset, not 500. */
+function storedList(v: unknown): string[] {
+  if (typeof v !== "string" || !v) return [];
+  try {
+    const arr = JSON.parse(v);
+    return Array.isArray(arr) ? arr.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+trackedRoutes.post("/api/tracked-routes", async (c) => {
+  const email = c.get("userEmail");
+  const b = await c.req.json<RouteBody & { dateStart: string; dateEnd: string }>();
+  const cabins = b.cabins?.length ? b.cabins : null;
+
+  const alerts = validateAlerts(b, c.env);
+  if (!alerts.ok) return c.json({ error: alerts.error, message: alerts.message }, 400);
+
+  // Validate through the same pure function the search planner uses, so a route
+  // that cannot be planned cannot be stored. It throws rather than truncating —
+  // a silently dropped third origin would make the route search less than it
+  // claims to, and claim coverage for a set nobody chose.
+  let spec: ReturnType<typeof normalizeSpec>;
+  try {
+    spec = normalizeSpec({
+      origins: b.origins?.length ? b.origins : [b.origin ?? ""],
+      destinations: b.destinations?.length ? b.destinations : [b.destination ?? ""],
+    });
+  } catch (err) {
+    return c.json({ error: "bad_route_spec", message: (err as Error).message }, 400);
+  }
+
+  const res = await c.env.DB.prepare(
+    `INSERT INTO tracked_routes
+       (user_email, origin, destination, origins, destinations,
+        date_start, date_end, cabin, cabins, min_seats, programs, currencies, kind, direct_only,
+        round_trip, alerts_enabled, alert_email, alert_on, alert_min_drop_pct)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     RETURNING id`,
+  )
+    .bind(
+      email,
+      // Legacy scalars (NOT NULL), kept as the route's PRIMARY airport — the same
+      // representative-value trick `cabin` uses below. `search_runs` and the
+      // pre-0013 read paths still key off these.
+      spec.origins[0]!,
+      spec.destinations[0]!,
+      JSON.stringify(spec.origins),
+      JSON.stringify(spec.destinations),
+      b.dateStart,
+      b.dateEnd,
+      // Legacy scalar `cabin` (NOT NULL): kept in sync as a representative value
+      // for any SELECT * reader; `cabins` is the authoritative filter now.
+      cabins?.length === 1 ? cabins[0] : "any",
+      // Store NULL (not "[]") when no filter, so downstream "no filter" checks
+      // and the dashboard join treat an empty selection as "any cabin".
+      cabins ? JSON.stringify(cabins) : null,
+      Math.min(Math.max(Math.round(b.minSeats ?? 2), 1), 9),
+      b.programs?.length ? JSON.stringify(b.programs) : null,
+      // Same NULL-when-empty rule for the currency filter ("any currency").
+      b.currencies?.length ? JSON.stringify(b.currencies) : null,
+      b.kind ?? "flight",
+      b.directOnly ? 1 : 0,
+      // Unlike every other flag bound here, this one changes what a search
+      // GATHERS: both directions in the one call. See migrations/0004.
+      b.roundTrip ? 1 : 0,
+      // ...and so does this one: it enrolls the route in the cron sweep.
+      b.alertsEnabled ? 1 : 0,
+      b.alertEmail?.trim() || null,
+      // NULL means the default set. `[]` was already refused above.
+      b.alertOn?.length ? JSON.stringify(b.alertOn) : null,
+      clampDropPct(b.alertMinDropPct, 5),
+    )
+    .first<{ id: number }>();
+  return c.json({ id: res?.id }, 201);
+});
+
+/**
+ * Edit a stored route — the header's edit mode, and the only writer besides the
+ * Add dialog.
+ *
+ * A **merge then whole-row write**, not a per-column patch. The reason is
+ * `normalizeSpec`: it validates the airport sets as one shape, so it has to be
+ * handed the route the caller means to end up with, not the two fields they
+ * touched.
+ * The stored row is therefore read first and anything absent from the body kept
+ * from it. An absent field means "leave it"; an empty array means "clear the
+ * filter", which is why the two are distinguished rather than collapsed.
+ *
+ * Nothing here touches a snapshot, a coverage row or `last_checked_at`. Editing
+ * a route re-asks the question; it never invalidates an answer — a narrowed
+ * window simply stops joining to finds that are still stored, and widening it
+ * back shows them again with no search.
+ */
+trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
+  const email = c.get("userEmail");
+  const id = Number(c.req.param("id"));
+  const b = await c.req.json<RouteBody>();
+
+  const alerts = validateAlerts(b, c.env);
+  if (!alerts.ok) return c.json({ error: alerts.error, message: alerts.message }, 400);
+
+  const row = await c.env.DB.prepare(
+    "SELECT * FROM tracked_routes WHERE id = ? AND user_email = ?",
+  )
+    .bind(id, email)
+    .first<Record<string, unknown>>();
+  if (!row) return c.json({ error: "not_found" }, 404);
+
+  const merged = {
+    origins: b.origins?.length
+      ? b.origins
+      : b.origins === undefined
+        ? (storedList(row.origins).length ? storedList(row.origins) : [String(row.origin)])
+        : [],
+    destinations: b.destinations?.length
+      ? b.destinations
+      : b.destinations === undefined
+        ? (storedList(row.destinations).length
+            ? storedList(row.destinations)
+            : [String(row.destination)])
+        : [],
+  };
+
+  let spec: ReturnType<typeof normalizeSpec>;
+  try {
+    spec = normalizeSpec(merged);
+  } catch (err) {
+    return c.json({ error: "bad_route_spec", message: (err as Error).message }, 400);
+  }
+
+  const alertsEnabled =
+    b.alertsEnabled === undefined ? Number(row.alerts_enabled ?? 0) : b.alertsEnabled ? 1 : 0;
+
+  const dateStart = b.dateStart ?? String(row.date_start);
+  const dateEnd = b.dateEnd ?? String(row.date_end);
+  if (dateEnd < dateStart) {
+    return c.json({ error: "bad_window", message: "The window ends before it starts." }, 400);
+  }
+
+  // `undefined` keeps what is stored; `[]` (or null) clears the filter to "any".
+  const cabins =
+    b.cabins === undefined
+      ? (row.cabins as string | null)
+      : b.cabins?.length
+        ? JSON.stringify(b.cabins)
+        : null;
+  const currencies =
+    b.currencies === undefined
+      ? (row.currencies as string | null)
+      : b.currencies?.length
+        ? JSON.stringify(b.currencies)
+        : null;
+
+  await c.env.DB.prepare(
+    `UPDATE tracked_routes
+        SET origin = ?, destination = ?, origins = ?, destinations = ?,
+            date_start = ?, date_end = ?,
+            cabin = ?, cabins = ?, currencies = ?, min_seats = ?, direct_only = ?,
+            round_trip = ?,
+            alerts_enabled = ?, alert_email = ?, alert_on = ?, alert_min_drop_pct = ?,
+            -- Turning alerts ON re-decides the baseline. A route that has been
+            -- dark has a stale per-source snapshot, so its next diff would call
+            -- everything new and email a wall of it; clearing the digest clock
+            -- makes the next sweep a silent baseline. But a route somebody
+            -- searched RECENTLY already holds the snapshot a baseline sweep
+            -- would go and fetch, so baselineOnEnable stamps the clock instead
+            -- and the very next sweep can email real changes. See its docblock —
+            -- the baseline is the snapshot, this column is only the suppression.
+            -- (No backticks in here — this is a template literal.)
+            alert_last_digest_at = CASE WHEN ? = 1 AND alerts_enabled = 0
+                                        THEN ? ELSE alert_last_digest_at END,
+            -- A settings change is a fresh start for the back-off too; otherwise
+            -- fixing a broken window would still wait out the old penalty.
+            alert_consecutive_failures = 0
+      WHERE id = ? AND user_email = ?`,
+  )
+    .bind(
+      // The legacy scalars stay the PRIMARY airport of each side, exactly as on
+      // insert: they are NOT NULL and other readers still key off them.
+      spec.origins[0]!,
+      spec.destinations[0]!,
+      JSON.stringify(spec.origins),
+      JSON.stringify(spec.destinations),
+      dateStart,
+      dateEnd,
+      // Representative value for any `SELECT *` reader; `cabins` is the filter.
+      cabins ? (storedList(cabins).length === 1 ? storedList(cabins)[0] : "any") : "any",
+      cabins,
+      currencies,
+      Math.min(Math.max(Math.round(b.minSeats ?? Number(row.min_seats ?? 1)), 1), 9),
+      b.directOnly === undefined ? Number(row.direct_only ?? 0) : b.directOnly ? 1 : 0,
+      b.roundTrip === undefined ? Number(row.round_trip ?? 0) : b.roundTrip ? 1 : 0,
+      alertsEnabled,
+      b.alertEmail === undefined
+        ? (row.alert_email as string | null)
+        : b.alertEmail?.trim() || null,
+      // `undefined` keeps what is stored; `null` resets to the default set. `[]`
+      // was refused above rather than stored as "never fire".
+      b.alertOn === undefined
+        ? (row.alert_on as string | null)
+        : b.alertOn?.length
+          ? JSON.stringify(b.alertOn)
+          : null,
+      clampDropPct(b.alertMinDropPct, Number(row.alert_min_drop_pct ?? 5)),
+      alertsEnabled,
+      // Only consulted by the CASE above, i.e. only on an OFF -> ON transition.
+      baselineOnEnable(row.last_checked_at == null ? null : Number(row.last_checked_at), Date.now()),
+      id,
+      email,
+    )
+    .run();
+
+  return c.json({ ok: true });
+});
+
+trackedRoutes.delete("/api/tracked-routes/:id", async (c) => {
+  const email = c.get("userEmail");
+  const id = Number(c.req.param("id"));
+  await c.env.DB.prepare("DELETE FROM tracked_routes WHERE id = ? AND user_email = ?")
+    .bind(id, email)
+    .run();
+  return c.json({ ok: true });
+});
+

@@ -1,4 +1,11 @@
 import type { Alliance, Currency, ProgramKind } from "../types.js";
+// `CurrencyInfo` is declared in `../wire/reference.ts`, because
+// `GET /api/currencies` answers `c.json(CURRENCIES)` verbatim — the wire type IS
+// the element type of `CURRENCIES` below, and annotating that array against it
+// is what keeps the served shape and the declared one in step.
+import type { CurrencyInfo } from "../wire/reference.js";
+
+export type { CurrencyInfo } from "../wire/reference.js";
 
 export interface TransferPartner {
   currency: Currency;
@@ -231,28 +238,6 @@ export const PROGRAM_SEEDS: ProgramSeed[] = [
     transferPartners: [p("citi_ty"), p("capital_one")],
   },
 ];
-
-export interface CurrencyInfo {
-  code: Currency;
-  name: string;
-  /** What one point is worth when redeemed against a CASH fare in this
-   *  currency's own travel portal, in cents. Undefined = no portal (miles held
-   *  directly in a loyalty program can't buy a revenue ticket this way).
-   *
-   *  These are the FIXED portal rates, deliberately not the aspirational
-   *  "valuations" the points blogs publish (1.85-2.2c). A valuation describes
-   *  what a good *transfer* redemption might return; this number is the rate the
-   *  portal actually charges, and using the bigger one would understate every
-   *  points price the app quotes.
-   *
-   *  Card-tier dependent — these reflect the cards the couple holds (Chase
-   *  Sapphire Reserve, Capital One Venture X). Change them here; conversion
-   *  happens at DISPLAY time, so an edit re-prices every stored row without
-   *  re-gathering it. */
-  portalCentsPerPoint?: number;
-  /** Display name of that portal, e.g. "Chase Travel". */
-  portalName?: string;
-}
 
 /** Currencies the couple holds, for the balances UI. */
 export const CURRENCIES: CurrencyInfo[] = [

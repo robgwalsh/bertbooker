@@ -1,5 +1,11 @@
 import type { Alliance } from "../types.js";
 import { PROGRAM_SEEDS } from "./programs.js";
+// `AirlineInfo` is declared in `../wire/reference.ts` for the same reason
+// `CurrencyInfo` is: `GET /api/airlines` answers `c.json(AIRLINE_DIRECTORY)`
+// verbatim, so the wire type is the element type of that array.
+import type { AirlineInfo } from "../wire/reference.js";
+
+export type { AirlineInfo } from "../wire/reference.js";
 
 /** A carrier you actually fly, as opposed to a loyalty program you pay with.
  *  The Library's Airlines section answers "which miles buy a seat on this
@@ -110,17 +116,6 @@ export function programsForAirline(code: string): string[] {
       p.kind === "airline" &&
       ((airline.alliance !== null && p.alliance === airline.alliance) || extra.has(p.code)),
   ).map((p) => p.code);
-}
-
-/** Wire shape for `GET /api/airlines`: the seed with its programs resolved. The
- *  web app joins `programs[]` against `/api/programs` (the editable D1 table) for
- *  names and transfer partners, so currencies stay single-sourced there. */
-export interface AirlineInfo {
-  code: string;
-  name: string;
-  country: string;
-  alliance: Alliance;
-  programs: string[];
 }
 
 export const AIRLINE_DIRECTORY: AirlineInfo[] = AIRLINE_SEEDS.map((a) => ({

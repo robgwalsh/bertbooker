@@ -2,8 +2,16 @@
 // Every data source (an aggregator, an airline's own site, seats.aero) must
 // produce `AvailabilityResult`s, and every consumer (D1 snapshots, the API, the
 // SPA) reads from this shape. Keep this file provider-agnostic.
+//
+// `Cabin`, `Segment`, `Currency` and `Alliance` are DECLARED in
+// `./wire/domain.ts` and re-exported here — the SPA reads all four, and the wire
+// contract is where the shared half of this vocabulary lives. Importing them
+// from here goes on working exactly as before; see the banner in that file for
+// why the direction is that way round and not this one.
 
-export type Cabin = "economy" | "premium" | "business" | "first";
+import type { Cabin, Currency, Segment } from "./wire/domain.js";
+
+export type { Alliance, Cabin, Currency, Segment } from "./wire/domain.js";
 
 /** The four cabins in ascending value order — useful for "best cabin" logic. */
 export const CABIN_ORDER: readonly Cabin[] = ["economy", "premium", "business", "first"];
@@ -13,34 +21,6 @@ export type ProgramKind = "airline" | "hotel";
 /** What a search is looking for. Distinct from ProgramKind: a "flight" search
  *  spans airline programs, a "hotel" search spans hotel programs. */
 export type SearchKind = "flight" | "hotel";
-
-export type Alliance = "star" | "oneworld" | "skyteam" | null;
-
-/** A point currency the couple holds and can transfer/redeem from. */
-export type Currency =
-  | "chase_ur"
-  | "capital_one"
-  | "bilt"
-  | "citi_ty"
-  | "direct"; // miles/points held directly in a loyalty program
-
-/** One flown segment within an award itinerary. */
-export interface Segment {
-  from: string; // IATA
-  to: string; // IATA
-  carrier: string; // marketing carrier IATA, e.g. "LH"
-  flightNumber?: string;
-  aircraft?: string;
-  /** Booking class letter, e.g. "O" or "T". Which award bucket the seat came out
-   *  of, which is the thing you quote to an agent when a website disagrees. */
-  fareClass?: string;
-  /** ISO local. Absent is a real answer, and a common one: a trip embedded in a
-   *  search response carries only the whole trip's endpoints, so its middle legs
-   *  genuinely have no times. Never interpolate them from a total duration. */
-  departsAt?: string;
-  arrivesAt?: string;
-  cabin?: Cabin;
-}
 
 /** A normalized search request, independent of any provider's query format. */
 export interface SearchParams {

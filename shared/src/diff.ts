@@ -1,7 +1,11 @@
 import type { AvailabilityResult } from "./types.js";
 import { routeKey } from "./types.js";
+import type { ChangeSummary, ChangeType } from "./wire/domain.js";
 
-export type ChangeType = "new" | "more_seats" | "price_drop" | "gone";
+// `ChangeType` and `ChangeSummary` are declared in `./wire/domain.ts` — the SPA
+// renders both, so the wire contract owns them and this module re-exports them.
+// `diffAvailability` below, which produces them, is Worker-only.
+export type { ChangeSummary, ChangeType } from "./wire/domain.js";
 
 export interface AvailabilityChange {
   type: ChangeType;
@@ -16,35 +20,6 @@ export interface AvailabilityChange {
 /** Identity for comparing "the same seat" across snapshots. */
 export function changeKey(r: Pick<AvailabilityResult, "origin" | "destination" | "flightDate" | "program" | "cabin">): string {
   return `${routeKey(r.origin, r.destination, r.flightDate)}|${r.program}|${r.cabin}`;
-}
-
-/** A change flattened for the wire — enough to render a row without shipping
- *  two whole `AvailabilityResult`s per change. Pure projection. */
-export interface ChangeSummary {
-  type: ChangeType;
-  key: string;
-  flightDate: string;
-  program: string;
-  cabin: string;
-  /** The city pair. Recoverable from `key` only by knowing the flight date is
-   *  its last ten characters — parseable, fragile, and the alert digest needs
-   *  one line per change to say where the seat is. Optional because
-   *  `search_runs.changes_json` holds blobs written before these existed, and
-   *  because this shape is also part of the wire contract (`shared/src/wire/`),
-   *  which the SPA reads directly — it no longer mirrors it by hand.
-   *
-   *  Note what these are NOT for: alert FILTERING does not read them. That
-   *  question — "would this route's own pane show this find?" — is answered by
-   *  intersecting with the finds query, so the route's cabin/currency/nonstop
-   *  rules keep exactly one implementation. See `shared/src/alerts`. */
-  origin?: string;
-  destination?: string;
-  /** Absent for "gone" (there is no current result). */
-  milesCost?: number;
-  seatsAvailable?: number;
-  /** Absent for "new" (there is no prior result). */
-  previousMilesCost?: number;
-  previousSeats?: number;
 }
 
 export function summarizeChange(c: AvailabilityChange): ChangeSummary {

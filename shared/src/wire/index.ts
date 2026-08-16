@@ -10,36 +10,34 @@
 // `AlertSchedule` there was no other copy — the SPA's interface was the only
 // written-down form of a response the Worker built by hand.
 //
-// **The SPA imports THIS directory and nothing else in `shared/`.** Three
-// modules are specifically out of bounds, and the reasons are not stylistic:
+// **The SPA imports THIS directory, and `shared/src/` holds nothing else.**
+// That used to be a rule with a list of exceptions attached — three modules the
+// app was forbidden to touch (the root barrel and `ingest/`'s, both of which
+// reached `ingest/apply.ts` and its module-scope `D1Database`; and
+// `sources/index.ts`, which calls `registerSource()` as a top-level side
+// effect), plus `providers/seatsaero.ts`, out of bounds by sheer size. All four
+// now live in `api/src/`, so the rule needs no exception list: there is nothing
+// else in `shared/` to forbid.
 //
-//   - `shared/src/index.ts` — the root barrel. It re-exports `ingest/index.js`
-//     → `ingest/apply.ts`, which names `D1Database` at module scope. The app's
-//     tsconfig has no `@cloudflare/workers-types`, so importing it fails
-//     `tsc -p app` outright.
-//   - `shared/src/ingest/index.ts` — same reason, one level down. Import
-//     `ingest/types.js` by its deep path instead; that file is clean.
-//   - `shared/src/sources/index.ts` — calls `registerSource(seatsAeroSource)` as
-//     a TOP-LEVEL SIDE EFFECT. Importing it runs that (and it can throw), and it
-//     defeats tree-shaking of the subtree.
+// **Every declaration the SPA reads is DECLARED here, not borrowed.** The
+// modules in this directory import only each other. That is the property that
+// let the Worker-only half of `shared/` move out — previously seven backend
+// files (`types.ts`, `diff.ts`, `routing.ts`, `ingest/types.ts`,
+// `data/programs.ts`, `data/airlines.ts`, `alerts/pace.ts`) were pinned in place
+// purely because `./domain.ts` quoted a type name out of each. The direction is
+// now the one `./seatsaero.ts` established: the declaration lives here and the
+// backend module re-exports it, so no `api/` import had to move.
 //
-// A fourth is out of bounds by size rather than by type:
-// `providers/seatsaero.ts` is 1436 lines and speaks `fetch`. The constants and
-// call records the SPA needs came OUT of it into `./seatsaero.ts`, and that file
-// re-exports them so nothing in `api/` moved. Two modules that look pure —
-// `routing.ts` and `alerts/pace.ts` — were importing a single integer from it
-// and dragging the whole thing along; both now point here.
-//
-// `shared/tsconfig.wire.json` enforces all of this. It compiles this directory
-// alone with neither DOM nor workers-types, so a wire file that reaches
-// `D1Database` OR `fetch`/`Response` fails immediately, at the file that did it.
-// `tsc -p app` catches only the first of those, and only at the far end.
-//
-// The root barrel deliberately does NOT re-export this directory. Keeping the
-// two surfaces disjoint is what makes "the SPA imports only `shared/src/wire/*`"
-// a rule you can grep for.
+// `shared/tsconfig.wire.json` enforces this. It compiles this directory alone
+// with neither DOM nor workers-types, so a wire file that reaches `D1Database`
+// OR `fetch`/`Response` fails immediately, at the file that did it. `tsc -p app`
+// catches only the first of those, and only at the far end. `shared/tsconfig.json`
+// then checks the same files a second time WITH both, as part of the whole
+// directory: that pass proves they compose with the Worker's code, this one
+// proves they need none of it.
 
 export * from "./domain.js";
+export * from "./routing.js";
 export * from "./seatsaero.js";
 export * from "./rows.js";
 export * from "./reference.js";

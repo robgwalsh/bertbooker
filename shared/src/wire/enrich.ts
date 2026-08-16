@@ -1,4 +1,4 @@
-import type { SourceTaskStatus } from "../ingest/types.js";
+import type { SourceTaskStatus } from "./domain.js";
 
 /**
  * Availability rows one "Enrich all" may expand.

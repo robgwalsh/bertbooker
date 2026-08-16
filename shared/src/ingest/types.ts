@@ -11,32 +11,14 @@ import type { AvailabilityResult } from "../types.js";
 // distinguishable from one that looked and found nothing, whoever ran it.
 //
 // The display half of this IS part of the wire contract: `SourceTaskStatus` and
-// `RunStatus` are re-exported through `shared/src/wire/domain.ts`, which the SPA
-// imports. **It reaches this file by its DEEP path**, never through
-// `../ingest/index.js` — that re-exports `apply.ts`, which names `D1Database` at
-// module scope and would break `tsc -p app`.
+// `RunStatus` are DECLARED in `../wire/domain.ts`, which the SPA imports, and
+// re-exported below so every consumer here is unchanged. The invariant that
+// pairs with the first of them — `COVERAGE_CLAIMING_STATUSES` — is a runtime
+// value and stays on this side.
 
-/** How a single unit of gathering work ended.
- *
- *  The distinction that matters: `empty` means "I looked and there is no award
- *  space"; everything below it means "I did not get a usable answer". Those
- *  produce identical availability data and must never produce identical
- *  metadata, because only the first one is allowed to claim coverage. */
-export type SourceTaskStatus =
-  /** Looked, found something. */
-  | "ok"
-  /** Looked, genuinely nothing there. Claims coverage — this is the point. */
-  | "empty"
-  /** Threw. Claims nothing. */
-  | "failed"
-  /** Never attempted (horizon, filter, aborted run). Claims nothing. */
-  | "skipped"
-  /** Refused at the door — 403/428/444/challenge page. Claims nothing. */
-  | "blocked"
-  /** A challenge appeared and needs a human. Claims nothing. */
-  | "challenged"
-  /** Ran out of time. Claims nothing. */
-  | "timeout";
+import type { RunStatus, SourceTaskStatus } from "../wire/domain.js";
+
+export type { RunStatus, SourceTaskStatus } from "../wire/domain.js";
 
 /** Statuses that are allowed to write `search_coverage` rows.
  *
@@ -114,8 +96,6 @@ export interface SourceQuotaObservation {
    *  UTC, because that is when seats.aero's allowance resets. */
   observedAt: number;
 }
-
-export type RunStatus = "running" | "ok" | "partial" | "failed" | "aborted";
 
 /** ok + at least one failure = partial. It matters that a run with any failed
  *  task never reads as a clean sweep: a silent partial looks exactly like "there

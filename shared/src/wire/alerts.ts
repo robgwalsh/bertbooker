@@ -9,6 +9,35 @@
 
 import type { AlertType } from "./domain.js";
 
+/**
+ * What one full pass over every alert-enabled route costs, and how often it can
+ * therefore run.
+ *
+ * Declared here rather than beside `sweepPacing()` (which computes it, in
+ * `api/src/alerts/pace.ts` and re-exports this type) because the Alerts tab
+ * renders the answer: `AlertSchedulePacing` below is the flattened form that
+ * actually goes over the wire, and this is the union it is spread from.
+ */
+export type SweepPacing =
+  | {
+      affordable: true;
+      /** Minutes between sweeps of any one route. */
+      intervalMinutes: number;
+      /** Calls one full pass over every alert route is expected to spend. */
+      cycleCost: number;
+      cyclesPerDay: number;
+      /** Routes that cannot be swept — window entirely in the past. */
+      unsearchable: number[];
+    }
+  | {
+      affordable: false;
+      /** Why, in a form the Alerts tab can render without re-deriving it. */
+      reason: "no_routes" | "cycle_exceeds_budget";
+      cycleCost: number;
+      dailyBudget: number;
+      unsearchable: number[];
+    };
+
 /** `GET /api/alerts/schedule`. */
 export interface AlertSchedule {
   /** Whether `POST /api/alerts/run` exists on this host — true under

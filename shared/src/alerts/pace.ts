@@ -2,6 +2,7 @@
 // Keeping this file free of the provider is what lets `SweepPacing` be part of
 // the wire contract the SPA reads.
 import { SEATSAERO_MAX_PAGES } from "../wire/seatsaero.js";
+import type { SweepPacing } from "../wire/alerts.js";
 
 /**
  * How often the scheduler may re-search the routes that ask for alerts.
@@ -59,25 +60,10 @@ export function routeSweepCost(route: AlertRouteCost): number {
   return Math.max(route.observedCalls, route.chunks);
 }
 
-export type SweepPacing =
-  | {
-      affordable: true;
-      /** Minutes between sweeps of any one route. */
-      intervalMinutes: number;
-      /** Calls one full pass over every alert route is expected to spend. */
-      cycleCost: number;
-      cyclesPerDay: number;
-      /** Routes that cannot be swept — window entirely in the past. */
-      unsearchable: number[];
-    }
-  | {
-      affordable: false;
-      /** Why, in a form the Alerts tab can render without re-deriving it. */
-      reason: "no_routes" | "cycle_exceeds_budget";
-      cycleCost: number;
-      dailyBudget: number;
-      unsearchable: number[];
-    };
+// Declared in `../wire/alerts.ts` beside `AlertSchedulePacing`, the flattened
+// form of it that goes over the wire, and re-exported here so `sweepPacing()`
+// below and its callers are unchanged.
+export type { SweepPacing } from "../wire/alerts.js";
 
 /**
  * Divide the day's alert allowance among the routes that want it.

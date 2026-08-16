@@ -22,31 +22,16 @@ import { SEATSAERO_MAX_PAGES } from "./wire/seatsaero.js";
  * D1, the Worker, or fetch.
  */
 
-export interface RoutePair {
-  origin: string;
-  destination: string;
-}
+// `RoutePair`, `RouteSpec` and the two caps are declared in `./wire/routing.ts`
+// and re-exported here, so every consumer of this module is unchanged. The SPA
+// reads all four — and because the caps are VALUES rather than types, this file
+// was the only module outside `wire/` whose runtime code reached the browser's
+// module graph at all. It no longer does.
+import { MAX_DESTINATIONS, MAX_ORIGINS } from "./wire/routing.js";
+import type { RoutePair, RouteSpec } from "./wire/routing.js";
 
-/** A tracked route's airports. */
-export interface RouteSpec {
-  origins: string[];
-  destinations: string[];
-}
-
-/**
- * Caps, and why they are small.
- *
- * Not a spend limit — adding pairs costs almost no calls, because the cap is on
- * PAGES, not pairs. The real cost of a wide route is **truncation**: one call
- * returns at most `take` rows, and the measured SFO->NRT 90-day window was
- * already 851 rows for a single pair. Six pairs is several thousand, which runs
- * `SEATSAERO_MAX_PAGES` out and makes the chunk narrow its own coverage claim —
- * a silent hole at the far end of the window rather than a visible error.
- *
- * These also bound the `IN (...)` placeholder count in the ingest baseline read.
- */
-export const MAX_ORIGINS = 3;
-export const MAX_DESTINATIONS = 3;
+export { MAX_DESTINATIONS, MAX_ORIGINS } from "./wire/routing.js";
+export type { RoutePair, RouteSpec } from "./wire/routing.js";
 
 /** Uppercase, trim, drop blanks, dedupe, and sort.
  *

@@ -1,5 +1,5 @@
-import type { RoutePair } from "../routing.js";
-import type { SourceTaskStatus, RunStatus } from "../ingest/types.js";
+import type { RoutePair } from "./routing.js";
+import type { SourceTaskStatus, RunStatus } from "./domain.js";
 import type { SeatsAeroCall, SeatsAeroChunk } from "./seatsaero.js";
 
 /**

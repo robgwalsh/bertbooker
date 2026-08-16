@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // `DOM` is not optional here even though this code runs in Node: the
+    // callbacks handed to `addInitScript` and `page.evaluate` are BROWSER code
+    // — they touch `localStorage` — and tsc type-checks them in this project.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true
+  },
+  // `playwright.config.ts` lives at the repo root but belongs to this project;
+  // it is checked here rather than being the one file nothing type-checks.
+  "include": ["**/*.ts", "../playwright.config.ts"],
+  "exclude": [".artifacts", ".auth"]
+}

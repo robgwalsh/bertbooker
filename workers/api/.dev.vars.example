@@ -1,0 +1,95 @@
+# Copy to `.dev.vars` (same directory) and fill in. That file is gitignored.
+#
+#   cp workers/api/.dev.vars.example workers/api/.dev.vars
+#
+# This is the WORKER's environment, and it is not the repo-root `.env` — workerd
+# never reads that one. The two files overlap on exactly one key, INGEST_TOKEN,
+# because two separate processes genuinely need it.
+#
+# `wrangler dev` does NOT reload this file. Edit a value and the old one keeps
+# working until you restart the API.
+#
+# In production these are secrets rather than a file:
+#   npx wrangler secret put NAME --config workers/api/wrangler.toml
+
+
+# ---- Required. Without these the app refuses to serve, on purpose. ----
+
+# The shared password typed on the way in. There is one password and one
+# identity for everyone who knows it; this app has no per-user accounts.
+#
+# UNSET => every /api/* route answers 503 `no_app_password` rather than waving
+# traffic through. That is deliberate: a gate that evaporated when unconfigured
+# would publish the whole app on one missed setup step.
+APP_PASSWORD=choose-a-strong-password
+
+# 32 random bytes, base64url — the keying material for the session cookie's
+# signature. UNSET => 503 `no_session_secret`, the same fail-closed posture.
+#
+# Generate one with:
+#   node -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'))"
+#
+# It must be random and independent of the password. The signing key is
+# HKDF(SESSION_SECRET, salt = SHA-256(APP_PASSWORD)): the random half is what
+# stops a leaked token being an offline cracking oracle on your password, and
+# the password in the salt is what makes rotating APP_PASSWORD sign everyone out.
+SESSION_SECRET=
+
+# The app's single identity — the address every session is signed in as, and the
+# value `search_runs.user_email` is written with.
+#
+# REQUIRED even though nothing emails it by default: the alerts cron reads it
+# directly (scheduled() runs no middleware) and fails closed when it is unset,
+# which surfaces as a failed invocation in Workers Logs and nowhere else.
+APP_USER_EMAIL=you@example.com
+
+
+# ---- Search. Required for the app to find anything. ----
+
+# seats.aero Partner API key — this is the app's primary data source, and it is
+# a PAID subscription. See https://seats.aero/apidocs and docs/SEATS-AERO.md.
+#
+# UNSET => the search endpoint answers 503 rather than an empty result, so a
+# missing key can never be mistaken for "no award space". The app still runs;
+# you just cannot search.
+SEATS_AERO_API_KEY=
+
+# ---- Local gathering. Needed only if you run `npm run gather`. ----
+
+# Shared secret the local gatherer presents to /api/ingest/*. Must match the
+# copy in the repo-root `.env` (see .env.example) or prod ingest is refused as
+# `bad_ingest_token`.
+#
+# UNSET => no check at all. That is the opposite posture to APP_PASSWORD above,
+# and deliberately so: a forgotten INGEST_TOKEN relaxes one check on ingest,
+# where a missing gate would expose everything.
+INGEST_TOKEN=
+
+# ---- Alerts. All optional; the scheduled sweep runs without them. ----
+
+# Resend API key for the email digest. See https://resend.com.
+# UNSET => sweeps still run and still ingest, but each digest is recorded in
+# `alert_deliveries` with status='skipped' and the reason. Never a silent drop.
+RESEND_API_KEY=
+
+# The digest's From address. MUST be on a domain you have verified with Resend —
+# the SPF/DKIM records are a deploy prerequisite, not a code step, and until they
+# exist every send fails with the provider's own message. This domain need not
+# match the domain the app is served from.
+ALERT_FROM=alerts@example.com
+
+# CSV of addresses the worker may send to. APP_USER_EMAIL is always included, so
+# unset means "only your own address" — the safe default, since with one shared
+# password an unchecked per-route alert_email would make this an
+# arbitrary-recipient sender on your verified domain.
+ALERT_ALLOWED_RECIPIENTS=
+
+# Absolute base URL for the link back into the app from a digest email.
+# Unset omits the link.
+APP_URL=http://127.0.0.1:8787
+
+# Call-budget knobs for the cron. Defaults (600 / 300 / 25) are in
+# workers/api/src/bindings.ts; see docs/ALERTS.md §7. Set only to change them.
+# ALERT_DAILY_BUDGET=600
+# ALERT_MANUAL_RESERVE=300
+# ALERT_MAX_CALLS_PER_TICK=25

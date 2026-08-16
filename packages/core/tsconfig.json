@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist",
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    // fetch/Response/RequestInit — standard web APIs available in Node 18+ and
+    // Cloudflare Workers; used by the HTTP-based providers. workers-types adds
+    // the D1Database/Fetcher/Queue bindings the monitor pipeline (src/monitor)
+    // references (skipLibCheck keeps the DOM+workers-types overlap quiet).
+    "lib": ["ES2022", "DOM"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.json"]
+}

@@ -1,0 +1,59 @@
+{
+  "name": "bertbooker",
+  "version": "0.1.0",
+  "//private": "Required for npm workspaces, and it prevents an accidental `npm publish`. It has nothing to do with the GitHub repo's visibility, which is public.",
+  "private": true,
+  "description": "Self-hosted award-travel availability tracker on Cloudflare Workers",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robgwalsh/bertbooker.git"
+  },
+  "homepage": "https://github.com/robgwalsh/bertbooker#readme",
+  "bugs": {
+    "url": "https://github.com/robgwalsh/bertbooker/issues"
+  },
+  "workspaces": [
+    "packages/*",
+    "workers/*",
+    "web"
+  ],
+  "scripts": {
+    "//gather": "Runs the sources that declare runtime: \"local\" (today: PointsYeah only) and POSTs what they find to the API. Everything else runs on the Worker and is reached by pressing Search. See docs/SOURCES.md.",
+    "gather": "vite-node packages/local-sources/src/cli.ts --",
+    "db:apply:local": "wrangler d1 migrations apply bertbooker_db --local --persist-to .wrangler-local --config workers/api/wrangler.toml",
+    "db:apply:remote": "wrangler d1 migrations apply bertbooker_db --remote --config workers/api/wrangler.toml",
+    "db:seed:local": "wrangler d1 execute bertbooker_db --local --persist-to .wrangler-local --config workers/api/wrangler.toml --file seed/programs.sql",
+    "db:seed:remote": "wrangler d1 execute bertbooker_db --remote --config workers/api/wrangler.toml --file seed/programs.sql",
+    "build:airports": "node scripts/build-airports.mjs",
+    "build:world": "node scripts/build-world-geometry.mjs",
+    "probe:seatsaero-trips": "node scripts/probe-seatsaero-trips.mjs",
+    "probe:seatsaero-search": "node scripts/probe-seatsaero-search.mjs",
+    "db:seed:airports:local": "wrangler d1 execute bertbooker_db --local --persist-to .wrangler-local --config workers/api/wrangler.toml --file seed/airports.sql",
+    "db:seed:airports:remote": "wrangler d1 execute bertbooker_db --remote --config workers/api/wrangler.toml --file seed/airports.sql",
+    "predev:api": "node scripts/free-port.mjs 8787",
+    "//dev:api": "--test-scheduled exposes GET /__scheduled so the alerts cron can be fired by hand; wrangler dev NEVER runs crons on their real schedule. It only adds a route, so it is safe to leave on.",
+    "dev:api": "wrangler dev --config workers/api/wrangler.toml --persist-to .wrangler-local --port 8787 --test-scheduled",
+    "dev:api:stop": "node scripts/free-port.mjs 8787",
+    "dev:web": "npm -w web run dev",
+    "//deploy": "ONE artifact: the worker serves the API and the SPA. The build MUST come first — wrangler uploads web/dist as static assets, so deploying without it ships whatever bundle was lying around.",
+    "deploy": "npm -w web run build && npm -w @bertbooker/api run deploy",
+    "//test:ui": "Drives the REAL SPA in headless Chrome. Reuses dev:api/dev:web if they are already up and starts them if not, so it is safe to run while somebody is working. Read docs/UI-TESTING.md before touching it — never --headed/--ui/show-report (they open a window), and never let a spec press Search (that spends seats.aero quota).",
+    "test:ui": "playwright test",
+    "test:ui:report": "playwright show-report e2e/.artifacts/report",
+    "//ui:shot": "Ad-hoc: go to a page, optionally click through it, write a PNG. `npm run ui:shot -- --path /library --theme review`. --help lists the flags and every theme id.",
+    "ui:shot": "vite-node e2e/shot.ts --",
+    "//typecheck": "e2e/ is deliberately NOT a workspace (so `npm test` cannot pick it up), which also means --workspaces skips it. Checked explicitly here so it cannot drift.",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json",
+    "//test": "Offline and serverless, as it has always been. The browser suite is `test:ui` and stays out of this on purpose: it needs two servers and a real Chrome.",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.118.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

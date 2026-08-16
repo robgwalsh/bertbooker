@@ -1,0 +1,6 @@
+# Normalize line endings to LF across platforms (silences CRLF warnings on
+# Windows and keeps the repo consistent for Cloudflare tooling).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

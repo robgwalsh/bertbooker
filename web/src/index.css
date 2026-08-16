@@ -1,0 +1,25 @@
+html,
+body,
+#root {
+  height: 100%;
+  /* iOS Safari resolves `100%` against the LARGE viewport — the one with the
+     URL bar collapsed — so the shell's fixed-height column runs off the bottom
+     of the screen while the bar is showing. The document deliberately cannot
+     scroll (that is the whole workbench model), so there is no way to reach
+     what is cut off. `dvh` tracks the visible viewport instead.
+
+     Declared SECOND on purpose: a browser without `dvh` ignores this line and
+     keeps the `100%` above it. */
+  height: 100dvh;
+}
+
+body {
+  /* No rubber-band on a shell that does not scroll. Without this, a swipe that
+     misses a pane drags the entire app up and down against nothing, which reads
+     as the page being broken rather than as an overscroll. */
+  overscroll-behavior: none;
+  /* Safari inflates small type when a phone is turned landscape. 13px IS this
+     app's density (see `buildTheme`), not a starting suggestion to be improved
+     on. */
+  -webkit-text-size-adjust: 100%;
+}

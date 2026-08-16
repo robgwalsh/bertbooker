@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.wrangler/
+.wrangler-local/
+.dev.vars
+*.local
+.DS_Store
+.env
+.env.*
+
+# ...but the templates ARE tracked. This negation is load-bearing: `.env.*` above
+# matches `.env.example`, so without it the setup docs point at a file that
+# silently never gets committed. (`.dev.vars.example` needs no negation — the
+# `.dev.vars` pattern is an exact name, not a prefix — but `git check-ignore` is
+# the only way to be sure of that, so check before adding a template here.)
+!.env.example
+coverage/
+*.log
+
+# The UI harness (docs/UI-TESTING.md). `.auth/state.json` is a LIVE session
+# cookie for the local API; `.artifacts/` is screenshots, traces and reports.
+e2e/.auth/
+e2e/.artifacts/
+# Playwright's own defaults, in case a run ever misses playwright.config.ts.
+playwright-report/
+test-results/

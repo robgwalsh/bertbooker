@@ -1,11 +1,5 @@
 /** API worker bindings.
- *
- *  Deliberately small. This worker reads, ingests, and calls exactly one data
- *  source — seats.aero — plus Resend to deliver a digest. No Browser Rendering
- *  binding, no Workers AI, no relay URL/token, no ENABLED_PROVIDERS: all of
- *  those existed to run *carrier sources* inside the request path, and those
- *  sources are gone. There is no longer anywhere else for a source to run
- *  either, which is why `INGEST_TOKEN` is no longer here. */
+ */
 export interface Env {
   DB: D1Database;
   /** The built SPA (`web/dist`), served by this same worker for every path that

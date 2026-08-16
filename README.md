@@ -1,6 +1,6 @@
 # BertBooker
 
-**A self-hosted award-travel availability tracker — a personal seats.aero.**
+**A self-hosted award-travel availability tracker**
 
 You save the routes you care about, and BertBooker keeps a database of what award
 space actually exists on them: which program, which cabin, how many miles, how
@@ -16,23 +16,6 @@ Routes    a dashboard of the routes you track, each with its current finds
 Library   a browsable flight database, plus airports and programs reference
 Alerts    a scheduled sweep that emails you a digest when something changes
 ```
-
-### Is this for you?
-
-Probably not, and it is worth being straight about that up front:
-
-- **It is built for one household, not for tenants.** There is one shared
-  password and one shared identity — everyone who signs in sees the same tracked
-  routes. There are no user accounts, and adding them is not a small change.
-- **Its main data source costs money.** seats.aero's Partner API is a paid
-  subscription (see below). Without a key the app runs but cannot search.
-- **The card list is hardcoded to the author's** — Chase, Capital One, Bilt and
-  Citi, deliberately no Amex. Changing that means editing
-  [`shared/src/data/programs.ts`](shared/src/data/programs.ts),
-  which is reference data rather than a settings screen.
-- **It is a personal project.** It is shared because it may be useful, not
-  because it is a product. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
 If you want award search without running anything, use
 [seats.aero](https://seats.aero) directly — this app is a client of it.
 
@@ -46,13 +29,6 @@ If you want award search without running anything, use
 | **Resend account** *(optional)* | Only for the alert digest, and only with a domain you have verified for SPF/DKIM. Without it, sweeps still run and still ingest; each digest is just recorded as `skipped`. |
 | **Google Chrome** *(optional)* | Only to run the UI suite (`npm run test:ui`), which uses your installed browser rather than a downloaded one. See [`docs/UI-TESTING.md`](docs/UI-TESTING.md). |
 
-> **There is exactly one data source, and that is a deliberate narrowing.** A
-> second one — PointsYeah, a free aggregator — was removed: it was an
-> undocumented endpoint reached with browser-shaped headers, and rather than
-> guess at whether that was within its terms, it went. Removing it also removed
-> the only reason any part of this app ran outside Cloudflare. The cost was two
-> programs (`cathay`, `eva`), which nothing reaches now.
-
 ## Documentation
 
 - [`docs/SOURCES.md`](docs/SOURCES.md) — what a source is, what may be added, and
@@ -63,9 +39,7 @@ If you want award search without running anything, use
   guard, the digest
 - [`docs/UI-TESTING.md`](docs/UI-TESTING.md) — driving the SPA headless, with
   nobody at the keyboard
-- [`docs/HARVEST-POSTMORTEM.md`](docs/HARVEST-POSTMORTEM.md) — the airline
-  scrapers that used to be here, and why they are gone. **Read before proposing
-  a source that reads a carrier's own site.**
+- [`docs/HARVEST-POSTMORTEM.md`](docs/HARVEST-POSTMORTEM.md) — notes about airline scrapers and we this repo doesn't have any. **Read before proposing a source that reads a carrier's own site.**
 
 ## Architecture
 
@@ -79,31 +53,6 @@ app/ (React + Vite SPA, served by that same worker)
 
 shared/ — imported by api/, by relative path
 ```
-
-**Everything runs in one place: that Worker.** Two things drive the one source —
-pressing Search, and the alerts cron — and both go through the same
-`searchRun.ts` and the same `applyTask`, writing the same tables. The app then
-*queries the database* they filled.
-
-There used to be a third writer that ran on your own machine, because a second
-source could not be trusted to a datacenter IP. Removing that source removed the
-runner, the `/api/ingest/*` endpoints, a second shared secret, a second
-`.env` file and the npm workspaces that held it all. What is left is three plain
-directories under one `package.json`:
-
-- **`shared/`** — the normalized `AvailabilityResult` contract, the source
-  registry, the ingest write-pipeline, diff logic, the seats.aero client, program
-  seed data. Not a package: `api/` imports it by relative path, and `app/`
-  does not import it at all (it hand-mirrors the wire types).
-- **`api/`** — the only worker, and it serves the whole app: a Hono API behind a
-  shared-password gate (dashboard, saved routes, route search against seats.aero,
-  per-row enrichment, alerts), plus the built SPA on every other path, from its
-  `[assets]` binding.
-- **`app/`** — SPA, three routes: Routes (the dashboard), Library (which is where
-  the airports table and map live, as one of its panes) and Alerts (the scheduled
-  sweep). Built into `app/dist` and uploaded with the worker above, so the two
-  share one origin.
-
 ## First-time setup
 
 ```sh
@@ -182,35 +131,6 @@ because you pressed Search or because the cron fired.
   (`predev:api` → `scripts/free-port.mjs`); `npm run dev:api:stop` tears a server
   down by hand.
 
-## Adding or repairing a source
-
-Narrowest scope first — *which* tool fails is the diagnosis.
-
-```sh
-# 1. Parsers vs. saved fixtures. Offline, hermetic, free.
-npm test
-
-# 2. The live payload, captured. THESE SPEND METERED CALLS — read
-#    docs/SEATS-AERO.md §11 before either.
-npm run probe:seatsaero-search -- --from SFO,OAK --to NRT,HND --days 120
-npm run probe:seatsaero-trips  -- --from SFO --to NRT --days 120
-
-# 3. Then press Search in the app, twice. The SECOND run must write zero
-#    snapshots — that is write-on-change, and the cheapest end-to-end proof this
-#    pipeline has that ids, hashes and coverage claims line up.
-```
-
-If `npm test` passes but a live search doesn't, the **service** changed —
-re-capture the fixture.
-
-**Never write a parser against a guessed payload.** Probing at both a near and a
-far date is also how a source's `horizonDays` gets established. Fixtures are
-committed forever, redacted and trimmed — read one before you commit it.
-
-Full guidance is in [`docs/SOURCES.md`](docs/SOURCES.md), and
-[`docs/HARVEST-POSTMORTEM.md`](docs/HARVEST-POSTMORTEM.md) §6 is a list of the
-probing mistakes this repo has already paid for.
-
 ## Test & typecheck
 
 ```sh
@@ -220,20 +140,6 @@ npm run test:ui  # the browser suite, headless — see docs/UI-TESTING.md
 ```
 
 ## Deploy
-
-**One worker serves everything.** The
-Hono API answers `/api/*`; every other path is the built SPA, uploaded as the
-worker's static assets from `app/dist` (`[assets]` in `api/wrangler.toml`).
-That single origin is the reason `app/src/api.ts` can fetch relative `/api/…`
-paths deployed exactly as it does in dev, with no base URL and no CORS — and the
-reason a hard refresh on `/library` works, via
-`not_found_handling = "single-page-application"`.
-
-Deploying gives you a `bertbooker.<your-subdomain>.workers.dev` URL for free.
-A custom domain is optional: uncomment the `[[routes]]` block in
-`api/wrangler.toml` once the zone is active on your Cloudflare account.
-Leaving a route in that names a zone you do not hold **fails the deploy**, which
-is why it ships commented out.
 
 Nothing is configured in the repo — set every value on your own account. The
 first three are required; the rest match the sections in
@@ -265,13 +171,6 @@ secrets only so that no personal value lives in a public repo. If you would
 rather keep them in `wrangler.toml` on your own fork, a `[vars]` block works and
 secrets override vars of the same name.
 
-If you had `INGEST_TOKEN` set from an earlier version, remove it — nothing reads
-it now:
-
-```sh
-npx wrangler secret delete INGEST_TOKEN $cfg
-```
-
 ## Third-party data and services
 
 - **seats.aero** — a paid Partner API, used as documented. Not affiliated with
@@ -285,10 +184,7 @@ npx wrangler secret delete INGEST_TOKEN $cfg
 - **Airline and program names** are trademarks of their respective owners, used
   here only to identify the programs a seat can be booked with.
 
-This project does not scrape airline websites, and
-[`docs/HARVEST-POSTMORTEM.md`](docs/HARVEST-POSTMORTEM.md) is the record of why
-the attempt was abandoned. Read it before proposing a source that reads a
-carrier's own site.
+This project does not scrape airline websites.
 
 ## License
 

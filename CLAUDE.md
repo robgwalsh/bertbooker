@@ -25,31 +25,6 @@ writes the same tables. The app then *queries the database* it filled.
 three ingest rules that keep the database honest, and how to add one. Read it
 before touching anything under `shared/src/sources` or `shared/src/ingest`.
 
-**A second source was removed, and it took a whole architecture with it.**
-PointsYeah was a free aggregator reached at an undocumented endpoint with
-browser-shaped headers; it went on terms-of-service grounds rather than anything
-measured. Because it could not be trusted to a datacenter IP, it had needed:
-a `runtime: "worker" | "local"` field on every source, a registry that
-partitioned two runners, a `packages/local-sources` workspace, `npm run gather`,
-three `/api/ingest/*` endpoints, an `INGEST_TOKEN` living in two files, a
-repo-root `.env`, and a rule that `@bertbooker/core`'s root export stay DOM-safe
-so plain Node could import it. **All of that is gone**, and the repo collapsed to
-`api/` + `app/` + `shared/` under one `package.json` in the same pass. If you
-find a comment describing any of it, it is stale — say so.
-
-Two things did NOT go with it, and they are the ones worth knowing:
-`availability_snapshots.source` and the per-source scoping around it (see
-*Coverage is a stored fact* below), and the three ingest rules. Neither was ever
-about having two sources.
-
-**There used to be a third way, and it is gone.** For two weeks this repo drove
-airlines' own booking forms in a real off-screen Chrome — Alaska and Delta
-shipped, United and Flying Blue were probed and closed. It does not work, and not
-for the reason anyone expects: anti-bot was never the wall, **product policy
-was**. **`docs/HARVEST-POSTMORTEM.md` is the whole record**, and it is what stops
-somebody rediscovering it in a year. Read it before proposing a source that reads
-a carrier's own site, and before re-litigating a dropped airline.
-
 There is one more writer, and it finds nothing. **Enrich**
 (`api/src/enrich.ts`) buys the itinerary behind a row, on a click. It
 claims no coverage and prunes nothing, which is what keeps it out of the sentence
@@ -101,9 +76,6 @@ the one place any of that is written down),
 `UI-TESTING.md` (**how to run and look at the SPA with nobody at the keyboard** —
 the headless harness, the session seeding, and the things it must never touch;
 the one place any of that is written down),
-`HARVEST-POSTMORTEM.md` (**the scrapers that used to be here** — what was tried,
-what each probe measured, and why it was abandoned; §7 also carries the note
-about PointsYeah going afterwards).
 
 ## Commands
 

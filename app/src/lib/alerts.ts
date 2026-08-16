@@ -16,7 +16,7 @@ import type { AlertScheduleRoute, AlertType } from "../api";
  * The four transitions, IN THE ORDER THE ROUTE FORM DRAWS THEM.
  *
  * Deliberately app-local rather than taken from `ALL_ALERT_TYPES` in
- * `shared/src/alerts/select.ts`, which lists the same four members with
+ * `api/src/alerts/select.ts`, which lists the same four members with
  * `more_seats` and `price_drop` the other way round. The type is shared (it is
  * `ChangeType`); only this ORDER is the SPA's, because it is what the alert
  * checkboxes render in — adopting the shared array would silently reorder a

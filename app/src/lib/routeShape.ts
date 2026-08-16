@@ -9,7 +9,7 @@ import type { TrackedRoute } from "../api";
  * graph. `pages/routes/RoutesPage.tsx` imports them back; this is a move, not a copy.
  *
  * The date helpers mirror `addDaysISO` / `daysBetween` in
- * `shared/src/providers/window.ts`, and are still copies. The old reason — that
+ * `api/src/providers/window.ts`, and are still copies. The old reason — that
  * the SPA could import nothing from `shared/` — no longer holds: it could take
  * them through `wire/` now. They are left here because `providers/window.ts` is
  * not part of the wire contract and putting two date helpers into it purely to

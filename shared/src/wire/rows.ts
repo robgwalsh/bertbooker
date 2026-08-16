@@ -1,7 +1,7 @@
 // D1 row projections — what `c.json(results)` actually hands back.
 //
 // These are the shapes with no other written-down form. Their authority is SQL:
-// a column list in a route handler, or `FIND_COLUMNS` in `api/src/finds.ts`.
+// a column list in a route handler, or `FIND_COLUMNS` in `api/src/db/finds.ts`.
 // TypeScript cannot check an interface against a SQL string, so `.all<T>()` in
 // the Worker is an ASSERTION, not a validation — each type below names the
 // statement it is asserting about, and that comment is the only thing keeping
@@ -123,7 +123,7 @@ export interface AlertDelivery {
 
 /**
  * One current find, as `findsCte` projects it. The authority is `FIND_COLUMNS`
- * in `api/src/finds.ts`, and every read of a stored find goes through that one
+ * in `api/src/db/finds.ts`, and every read of a stored find goes through that one
  * CTE so no two surfaces can disagree about what a current find is.
  *
  * `cabin` is `string` and NOT the `Cabin` union, deliberately: this is a

@@ -7,7 +7,7 @@ import type { Find } from "../api";
  * The cheapest way to pay a CASH fare with points, across the currencies the
  * couple holds.
  *
- * Mirrors `bestPointsForCash` in shared/src/data/programs.ts, but reads
+ * Mirrors `bestPointsForCash` in api/src/domain/programs.ts, but reads
  * its rates from `api.currencies()` rather than a second hardcoded copy — so the
  * portal rate lives in exactly one place even though the conversion happens on
  * the client. Returns undefined when there's no fare or no portal rate.

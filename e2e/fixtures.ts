@@ -25,7 +25,7 @@ import type { Page } from "@playwright/test";
 /**
  * The two hosts the SPA is allowed to actually reach.
  *
- * Taken from `CSP` in `api/src/security.ts` — this list and that one are
+ * Taken from `CSP` in `api/src/middleware/security.ts` — this list and that one are
  * answering the same question, so they must not drift. Fonts are let through
  * rather than stubbed because the alternative silently changes every metric in
  * every screenshot, and "the layout is wrong" is exactly the kind of finding
@@ -221,7 +221,7 @@ export const test = base.extend<{
     ).toEqual([]);
     expect(
       [...v.foreignHosts],
-      "the SPA reached an external host that is not in the CSP allowlist in api/src/security.ts",
+      "the SPA reached an external host that is not in the CSP allowlist in api/src/middleware/security.ts",
     ).toEqual([]);
     expect(v.failedRequests, "a same-origin request failed").toEqual([]);
     if (!allowConsoleErrors) {

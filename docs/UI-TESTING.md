@@ -121,7 +121,7 @@ counts. An `APIRequestContext` sends no `Origin` and no `Sec-Fetch-Site`. So
 `data: JSON.stringify(...)` — a string — gets a bare **403** that reads exactly
 like a wrong password. Passing an object makes Playwright set
 `application/json`; setting `Origin` to the `DEV_ORIGIN` from
-`api/src/security.ts` makes it moot either way.
+`api/src/middleware/security.ts` makes it moot either way.
 
 **The state file carries the session cookie AND a `localStorage` entry**, and the
 second is not redundant:
@@ -173,7 +173,7 @@ away on the pages under test. They are intercepted and answered 503, and touchin
 one fails the test.
 
 **External hosts are an allowlist derived from the CSP** in
-`api/src/security.ts`, and that is deliberate — the two lists answer the
+`api/src/middleware/security.ts`, and that is deliberate — the two lists answer the
 same question and must not drift. Fonts (`fonts.googleapis.com`,
 `fonts.gstatic.com`) are let through, because stubbing them changes every metric
 in every screenshot. The three decorative image hosts (`images.kiwi.com`,

@@ -26,7 +26,7 @@ export type { SearchTotals } from "../db/runs.js";
  * are adding a `fetch` to an airline in this worker, stop.
  *
  * It lives here rather than inside the Hono handler because it now has **two
- * callers and one behaviour** — the same idiom `applyTask` has. `search.ts`
+ * callers and one behaviour** — the same idiom `applyTask` has. `endpoints/search.ts`
  * streams it to a person who pressed Search; `alerts/sweep.ts` runs it
  * unattended on a cron and reads the changes it returns. Two implementations of
  * "search a route and ingest the result" would eventually disagree about
@@ -34,7 +34,7 @@ export type { SearchTotals } from "../db/runs.js";
  *
  * ## Three functions, not one, and the split is the safety property
  *
- * `search.ts` holds a rule that a single entry point cannot keep: **everything
+ * `endpoints/search.ts` holds a rule that a single entry point cannot keep: **everything
  * fallible happens before the stream opens**, because once the first byte is
  * written the response is committed to 200 and an `error` frame is all that is
  * left. A missing `SEATS_AERO_API_KEY` must be a 503, never an empty result that
@@ -55,7 +55,7 @@ export type { SearchTotals } from "../db/runs.js";
 /** What the SPA sees. Newline-delimited JSON, one object per line.
  *
  *  DEFINED IN `shared/src/wire/search.ts` and re-exported here, so this module's
- *  consumers (`search.ts` re-exports it again) are unchanged. It used to be
+ *  consumers (`endpoints/search.ts` re-exports it again) are unchanged. It used to be
  *  declared here and mirrored by hand in the SPA; the mirror is gone, and with
  *  it the note that used to sit on this line naming a type — `RouteSearchEvent`
  *  — that had not existed for some time. */
@@ -111,7 +111,7 @@ export interface TrackedRouteRow {
 /** Every way a search can be refused before it spends anything.
  *
  *  A CODE rather than a status or a message, because the two callers report it
- *  differently and neither should be parsing the other's prose: `search.ts` maps
+ *  differently and neither should be parsing the other's prose: `endpoints/search.ts` maps
  *  it to an HTTP status, the scheduler maps it to a named skip reason that lands
  *  in the Alerts tab. */
 export type PlanFailure =
@@ -145,7 +145,7 @@ export interface SearchPassResult {
   nextIndex: number;
   total: number;
   totals: SearchTotals;
-  /** What changed, for the caller that cares. `search.ts` ignores these (they
+  /** What changed, for the caller that cares. `endpoints/search.ts` ignores these (they
    *  are persisted to `search_runs.changes_json` either way); the alert sweep
    *  is the reason they are returned rather than only stored. */
   changes: ChangeSummary[];

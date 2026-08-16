@@ -5,7 +5,7 @@ import { chromium } from "@playwright/test";
 /**
  * Getting the harness past the front door, once.
  *
- * The app is behind a shared-password gate (`api/src/gate.ts`), so every
+ * The app is behind a shared-password gate (`api/src/middleware/gate.ts`), so every
  * page a test looks at is eight hours of session cookie away from existing. This
  * module performs that login exactly once per run and leaves the result in a
  * `storageState` file the browser contexts are seeded from.
@@ -173,7 +173,7 @@ export async function ensureAuthState(opts: EnsureAuthOptions = {}): Promise<str
     // password.
     //
     // `Origin` is set explicitly because an APIRequestContext sends none, and
-    // it is the `DEV_ORIGIN` in api/src/security.ts. Belt to the braces
+    // it is the `DEV_ORIGIN` in api/src/middleware/security.ts. Belt to the braces
     // above: with it, the content-type no longer matters.
     const res = await context.request.post("/api/auth/login", {
       data: { password },

@@ -12,7 +12,7 @@ import {
 /**
  * Searching a tracked route, on the Worker, against seats.aero.
  *
- * The engine moved to `searchRun.ts` when the alert scheduler became its second
+ * The engine moved to `search/run.ts` when the alert scheduler became its second
  * caller — two implementations of "search a route and ingest the result" would
  * eventually disagree about coverage, which is the one thing in this pipeline
  * that silently destroys data. What is left here is the HTTP shape: a preflight

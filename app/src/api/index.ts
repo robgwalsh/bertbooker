@@ -18,11 +18,13 @@
 // one definition now, and the Worker is annotated against it, so the two halves
 // of a response cannot drift apart in silence.
 //
-// NEVER import `shared/src/index.js` from here. It re-exports `ingest/apply.ts`,
-// which names `D1Database` at module scope, and `tsc -p app` has no
-// `@cloudflare/workers-types` — it fails outright. `shared/src/sources/index.js`
-// is out too: it calls `registerSource()` as a top-level side effect. The
-// banner in `shared/src/wire/index.ts` has the full list and the reasons.
+// `shared/src/wire/` is the ONLY thing under `shared/` — the Worker-only half
+// (`providers/`, `ingest/`, `sources/`, the domain logic) now lives in
+// `api/src/`, so the old list of specifically-forbidden modules is gone with it.
+// What remains is the one rule worth keeping: **the SPA imports `shared/`, never
+// `api/`.** A path that climbs into `api/src` reaches `D1Database` and `fetch`
+// and fails `tsc -p app` — loudly, but at the far end of whatever chain got it
+// there. See the banner in `shared/src/wire/index.ts`.
 //
 // Note every type line below is `export type`. `app/tsconfig.json` sets
 // `isolatedModules`, so a bare `export { SomeType }` is an error — and the

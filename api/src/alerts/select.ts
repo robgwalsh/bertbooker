@@ -6,7 +6,7 @@ import type { ChangeSummary, ChangeType } from "../domain/diff.js";
  * Pure, and deliberately does NOT re-implement the route's read filters. That
  * question — *would this route's own pane show this find?* — is answered in SQL
  * by intersecting with the finds query (`ROUTE_FINDS_MATCH` in
- * `api/src/finds.ts`), and the caller hands the answer in as
+ * `api/src/db/finds.ts`), and the caller hands the answer in as
  * `findKeys`.
  *
  * The reason is worth stating, because writing the filter here would have been

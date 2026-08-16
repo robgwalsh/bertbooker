@@ -112,7 +112,7 @@ export function formFromRoute(r: TrackedRoute): RouteForm {
 }
 
 /** A stored `alert_on` back into the form's list. Mirrors `parseAlertTypes` in
- *  shared/src/alerts/select.ts — NULL and anything unrecognised mean the
+ *  api/src/alerts/select.ts — NULL and anything unrecognised mean the
  *  default set, never "nothing". */
 export function parseAlertOn(json: string | null): AlertType[] {
   if (!json) return ["new", "price_drop"];

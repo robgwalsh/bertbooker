@@ -7,7 +7,7 @@ import type { RunStatus } from "../../../shared/src/wire/domain.js";
  * `search_tasks` and `source_quota`.
  *
  * These lived in `search/run.ts` and are not search logic: they take a run id
- * and a report and write a row. Keeping them there meant `enrich.ts` had to
+ * and a report and write a row. Keeping them there meant the enrichment path had to
  * import the whole search engine to record a quota observation it read off a
  * `/trips/{id}` response header, which made the enrichment path look like it
  * depended on the searcher when it only shared three tables with it.

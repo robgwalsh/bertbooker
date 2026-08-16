@@ -16,28 +16,28 @@ Capital One / Bilt / Citi — **no Amex**).
   programs, a year of dates) for a handful of calls.
   **`docs/SEATS-AERO.md` is that integration in full** — the endpoints, the call
   economics, the payload traps, coverage, enrichment, quota. Read it before
-  touching `api/src/search.ts`, `src/enrich.ts` or
-  `shared/src/providers/seatsaero.ts`; none of that detail is repeated here.
+  touching `api/src/endpoints/search.ts`, `api/src/search/` or
+  `api/src/providers/seatsaero.ts`; none of that detail is repeated here.
 
 Everything reaches the database through one ingest pipeline (`applyTask`) and
 writes the same tables. The app then *queries the database* it filled.
 **`docs/SOURCES.md` is the source contract in full** — what may be added, the
 three ingest rules that keep the database honest, and how to add one. Read it
-before touching anything under `shared/src/sources` or `shared/src/ingest`.
+before touching anything under `api/src/sources` or `api/src/ingest`.
 
 There is one more writer, and it finds nothing. **Enrich**
-(`api/src/enrich.ts`) buys the itinerary behind a row, on a click. It
+(`api/src/search/enrich.ts`) buys the itinerary behind a row, on a click. It
 claims no coverage and prunes nothing, which is what keeps it out of the sentence
 above.
 
 **And one thing does now run on a schedule.** **Alerts**
 (`api/src/alerts/`) is a Cron Trigger that re-searches the routes marked
 for alerts and emails a digest when something changes. It is the same Search
-engine (`searchRun.ts`, two callers and one behaviour) and the same ingest
+engine (`search/run.ts`, two callers and one behaviour) and the same ingest
 pipeline — the only new thing is that nobody pressed a button.
 **`docs/ALERTS.md` is that process in full**, and §1 of it is the argument
 against the four comments in this repo that forbade exactly this. Read it before
-touching anything under `api/src/alerts`, `src/email.ts` or the cron in
+touching anything under `api/src/alerts` or the cron in
 `wrangler.toml`. Two rules from it that constrain code elsewhere:
 
 - **Unattended work must never fail invisibly.** No email is sent when a sweep
@@ -118,7 +118,7 @@ npm run build:world             # regenerates app/src/data/worldGeometry.ts, the
                                 # basemap the trip list's route maps draw
                                 # (needs internet)
 
-npm test                    # ONE vitest run over shared/ api/ app/ (vitest.config.ts)
+npm test                    # ONE vitest run over api/ and app/ (vitest.config.ts)
                             # — offline, no servers, no browser
 npm run typecheck           # five tsc projects: shared, shared/wire, api, app, e2e
 
@@ -138,7 +138,7 @@ npm run deploy               # ONE artifact: vite build → wrangler deploy, whi
                              # uploads the worker AND app/dist as its assets
 ```
 
-Single test file / test: `npx vitest run shared/src/providers/seatsaero.test.ts`
+Single test file / test: `npx vitest run api/src/providers/seatsaero.test.ts`
 (`-t "<name>"` to filter). Tests live next to sources as `*.test.ts`.
 
 ## Layout
@@ -146,20 +146,23 @@ Single test file / test: `npx vitest run shared/src/providers/seatsaero.test.ts`
 Deployed as **one worker** serving both the
 API and the SPA at `bertbooker.com` (`www.bertbooker.com` is routed to the same
 worker and 308s to the apex, so exactly one origin is ever served). Production is gated by the
-shared-password gate (`src/gate.ts`) and nothing else — there is no Cloudflare
+shared-password gate (`api/src/middleware/gate.ts`) and nothing else — there is no Cloudflare
 Access in front of it, so `APP_USER_EMAIL` is the single shared identity everyone
 who knows the password signs in as.
 
 **Three directories, one `package.json`, no workspaces and no path aliases.**
-Both `api/` and `app/` cross into `shared/` with plain relative specifiers
-(`../../shared/src/index.js`), which resolve identically in `tsc`, wrangler's
-esbuild, Vite and vitest — which is why no alias is configured anywhere. Keep
-the `.js` suffix.
+`api/` and `app/` both cross into `shared/` with plain relative specifiers
+(`../../shared/src/wire/index.js`), which resolve identically in `tsc`,
+wrangler's esbuild, Vite and vitest — which is why no alias is configured
+anywhere. Keep the `.js` suffix.
 
 ### The wire contract
 
 **`shared/src/wire/` is the one definition of every API request and response**,
-read by the Worker that produces it and the SPA that consumes it.
+read by the Worker that produces it and the SPA that consumes it. **It is also
+the whole of `shared/`** — `shared/src/wire/` is the only directory under
+`shared/src/`, which is what makes "the SPA imports the wire contract" a fact
+about the tree rather than a rule with an exception list.
 
 It exists because those shapes used to be written down twice. `app/src/api/`
 hand-mirrored ~25 types out of `api/src` and `shared/`, and its own banner
@@ -169,17 +172,21 @@ unnoticed for months. For `AlertSchedule` there was no second copy at all — th
 Worker built a four-level object literal by hand and the SPA's interface was the
 only written-down form of it.
 
-Two rules keep it working:
+Three rules keep it working:
 
-- **The SPA imports `shared/src/wire/` and nothing else in `shared/`**, from
-  exactly one file — `app/src/api/index.ts`, which re-exports the types so no
-  other file in the SPA names a path in `shared/`. Three modules are
-  specifically out of bounds: **`shared/src/index.ts`** (the root barrel, which
-  re-exports `ingest/apply.ts` and its module-scope `D1Database`),
-  **`shared/src/ingest/index.ts`** (same reason — import `ingest/types.js` by
-  its deep path instead), and **`shared/src/sources/index.ts`** (it calls
-  `registerSource()` as a top-level side effect, which can throw and which
-  defeats tree-shaking).
+- **The SPA imports `shared/`, never `api/`.** There is nothing under `shared/`
+  that a browser cannot run, so this needs no list of forbidden modules; it used
+  to need one, naming the root barrel, `ingest/index.ts` and `sources/index.ts`,
+  and all three now live in `api/src/`. The import happens in `app/src/api/*`,
+  which re-exports the types so no page or component names a path in `shared/`.
+- **Every wire declaration is DECLARED in `wire/`, not borrowed from elsewhere.**
+  The modules in that directory import only each other. This is the rule that
+  keeps the first one true: `wire/domain.ts` used to re-export `Cabin`,
+  `ChangeSummary`, `RoutePair`, `SweepPacing` and four more out of the backend
+  half of `shared/`, which pinned seven Worker-only files inside a directory the
+  SPA reads. The direction is now the one `wire/seatsaero.ts` established — the
+  declaration lives in `wire/` and the backend module re-exports it, so `api/`
+  imports its own domain vocabulary from `api/src/domain/*` exactly as before.
 - **The Worker is annotated against it** — `const body: T = {…}` on hand-built
   literals, `.all<T>()` on D1 reads. That is what turns the types from
   documentation into a guarantee; without it, drift would only have moved rather
@@ -188,24 +195,23 @@ Two rules keep it working:
   type in `wire/rows.ts` names the statement it is asserting about and that
   comment is the only thing keeping the two honest.
 
-`shared/tsconfig.wire.json` enforces the first rule. It is the narrowest project
+`shared/tsconfig.wire.json` enforces the first two. It is the narrowest project
 in the repo — no DOM, no `@cloudflare/workers-types` — and it is the only pass
 that catches **both** failure modes. `tsc -p app` catches a stray `D1Database`
 (loudly, but at the far end of a chain); nothing else catches a wire file
 reaching `fetch`/`Response`, because app's lib includes DOM and it would simply
-re-drag the 1436-line `providers/seatsaero.ts` into the SPA's bundle. That is not
+re-drag the 1361-line `providers/seatsaero.ts` into the SPA's bundle. That is not
 hypothetical: `routing.ts` and `alerts/pace.ts` each imported a single integer
 from that file, so `RoutePair` and `SweepPacing` dragged the whole provider along
-behind them. Both now point at `wire/seatsaero.ts`, which is where those
-constants live.
+behind them. `shared/tsconfig.json` then checks the same files a second time WITH
+DOM and workers-types: that pass proves they compose with the Worker's code, the
+narrow one proves they need none of it.
 
-- **`shared/`** — source-agnostic domain: the normalized `AvailabilityResult`
-  contract (`src/types.ts`), the source contract and registry (`src/sources/`),
-  the ingest write-pipeline (`src/ingest/`), diff (`src/diff.ts`), the shared
-  collapse rule (`src/collapse.ts`), the seats.aero wire handling
-  (`src/providers/`), loyalty-program reference data (`src/data/programs.ts`),
-  and **`src/wire/`** — the request/response contract both sides read (above).
-  **Not a package** — no `package.json`, no `exports` map, nothing emitted.
+- **`shared/`** — `src/wire/` and nothing else: the request/response contract
+  both sides read (above). **Not a package** — no `package.json`, no `exports`
+  map, nothing emitted. It used to hold the domain model, the sources, the
+  ingest pipeline and the seats.aero provider too; all of that was Worker-only
+  and is now in `api/src/`.
 - **`api/`** — the only worker, and its `wrangler.toml`. Identity is
   `APP_USER_EMAIL` and it *deliberately ignores*
   `Cf-Access-Authenticated-User-Email` — with no Access in front and no JWT
@@ -214,6 +220,31 @@ constants live.
   gone.
 - **`app/`** — the SPA and its `vite.config.ts`, three routes: Routes, Library,
   Alerts.
+
+### Inside `api/src/`
+
+Grouped by **responsibility class**, which is the split `alerts/` always used
+(HTTP surface / impure engine / isolated policy) generalized to the rest.
+
+| | |
+| --- | --- |
+| `index.ts` | **the composition root, and nothing else.** The middleware chain, the mounts, and the `fetch`/`scheduled` export. It was 861 lines holding nine inline endpoints; if you are adding a handler, it does not go here. |
+| `bindings.ts` | `Env` and `Vars`. Every secret is documented on the field, including what its absence does. |
+| `middleware/` | the request pipeline: `gate.ts` (password + `/api/auth/*`), `identity.ts`, `security.ts`. |
+| `endpoints/` | one `Hono` sub-app per surface, registering **absolute** `/api/...` paths, so every mount in `index.ts` is at `"/"` and the path is greppable from the handler. **Named `endpoints/`, not `routes/`** — "route" already means a tracked route here. |
+| `db/` | SQL more than one surface shares: `finds.ts` (the one `findsCte`) and `runs.ts` (the `search_runs`/`search_tasks`/`source_quota` writers). |
+| `search/` | the gathering engine — `run.ts` (plan/open/run) and `enrich.ts`. Split from its HTTP shell for the reason in *Ingest* below: two callers, one behaviour. |
+| `alerts/` | the scheduled sweep, pure halves included: `sweep.ts`, `budget.ts`, `pace.ts`, `select.ts`, `digest.ts`, `email.ts`. `docs/ALERTS.md`. |
+| `domain/` | the source-agnostic model: `types.ts` (`AvailabilityResult`), `diff.ts`, `collapse.ts`, `routing.ts`, and the reference seeds `programs.ts` / `airlines.ts`. |
+| `ingest/`, `sources/`, `providers/` | the write pipeline, the source contract and registry, and the seats.aero integration. `docs/SOURCES.md`, `docs/SEATS-AERO.md`. |
+
+**The mount order in `index.ts` is the routing table.** Hono runs matching
+handlers in registration order and stops at the first that responds, so
+`endpoints/search.ts` and `endpoints/enrich.ts` — which own
+`POST /api/tracked-routes/:id/search` and `/enrich` — must stay mounted ahead of
+`endpoints/trackedRoutes.ts`, which owns `PATCH`/`DELETE` on
+`/api/tracked-routes/:id`. `GET /api/health` and `/api/auth/*` are registered
+*before* the gate, which is the only reason login is reachable.
 
 ### Inside `app/src/`
 
@@ -252,11 +283,11 @@ upserted by every coverage-claiming task.
   read as current forever. `migrations/0002_drop_pointsyeah.sql` is that delete;
   migration 0009 was the same delete for the scrapers.
 
-### Ingest (`shared/src/ingest/apply.ts`)
+### Ingest (`api/src/ingest/apply.ts`)
 
 `applyTask` runs on the Worker, per task, as work completes **during** a run —
 gathering can die halfway and the successful tasks should already be durable. It
-is reached through `searchRun.ts`, which has **two callers and one behaviour**:
+is reached through `search/run.ts`, which has **two callers and one behaviour**:
 the Search endpoint and the alert sweep. Order is the safety property: read
 baseline → write changed snapshots → prune → **record coverage last**, so a crash
 under-claims rather than over-claims.
@@ -284,7 +315,7 @@ under-claims rather than over-claims.
   **coverage claim** — miss any one and you either merge two real finds into one,
   rewrite rows every run, or leave rows prunable-but-never-marked-checked.
 
-### Reading (`api/src/finds.ts`)
+### Reading (`api/src/db/finds.ts`)
 
 Every read of a stored find goes through **one CTE** (`findsCte`), so no two
 surfaces can disagree about what a current find is. There used to be three
@@ -333,21 +364,23 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
 - **`SearchKind` vs `ProgramKind`** (`types.ts`): a *search* is `flight | hotel`;
   a *program* is `airline | hotel`. Different types — don't conflate.
 - **`.js` import specifiers resolve to `.ts`**: `shared/` and `api/` use ESM
-  `./foo.js` imports pointing at `foo.ts`, and `api/` reaches `shared/` the same
-  way (`../../shared/src/index.js`). esbuild (wrangler) and Vite (vitest) rewrite
-  the extension. Keep the `.js` suffix on relative imports.
-- **`shared/src/index.ts` is one barrel, including `applyTask` — and the SPA
-  must not import it.** It used to be split, because `ingest/apply.ts` names
-  `D1Database` at module scope and a subpath export kept Cloudflare's ambient
-  types out of a plain-Node consumer's typecheck. That consumer was the local
-  runner, and when it went the split went with it.
-  **A narrower entry point exists again, for a different consumer and a better
-  reason:** `shared/src/wire/` is what the SPA imports, and the barrel is exactly
-  what it must not (see *The wire contract* above). The difference from the old
-  arrangement is that this one has a compiler behind it —
-  `shared/tsconfig.wire.json` — rather than a comment. Any older note claiming
-  the DOM-safety rule is stale is itself stale.
-- **`seed/programs.sql` mirrors `shared/src/data/programs.ts`** — keep
+  `./foo.js` imports pointing at `foo.ts`, and both `api/` and `app/` reach
+  `shared/` the same way (`../../shared/src/wire/index.js`). esbuild (wrangler)
+  and Vite (vitest) rewrite the extension. Keep the `.js` suffix on relative
+  imports.
+- **There is no barrel in `api/src/`, and that is deliberate.**
+  `shared/src/index.ts` used to re-export the whole domain, and seven files each
+  pulled 10–20 symbols through one opaque line — you could not tell which
+  subsystem any of them came from. Imports now name the owning module
+  (`../providers/seatsaero.js`, `../domain/routing.js`). Don't reintroduce one.
+- **`api/src/index.ts` imports `./sources/index.js` for its SIDE EFFECT**, and
+  that line is the whole of a real check. `sources/index.ts` calls
+  `registerSource(seatsAeroSource)` at module scope, which validates every
+  program the source declares against `PROGRAM_SEEDS`;
+  `availability_snapshots.program` is a foreign key, so without it a typo
+  surfaces as a write failing mid-search instead of as a worker that won't boot.
+  Nothing imports a *symbol* from `sources/`, so it looks removable. It is not.
+- **`seed/programs.sql` mirrors `api/src/domain/programs.ts`** — keep
   them in sync when adding or editing programs. The seed lives OUTSIDE
   `migrations/` so it stays re-runnable.
 - **`seed/airports.sql` is GENERATED — do not hand-edit.** Re-run
@@ -409,7 +442,7 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   `/harvest` — the SPA had a page at that path, and a proxy prefix that shadows a
   client route makes the page unreachable. Both are gone; if you add a proxy,
   check its prefix against `routeTree` in `app/src/router.tsx` first.
-- **The password gate fails closed, and that is the point** (`src/gate.ts`). An
+- **The password gate fails closed, and that is the point** (`middleware/gate.ts`). An
   unset `APP_PASSWORD` answers **503 `no_app_password`** on every `/api/*` route
   rather than waving traffic through: a gate that evaporated when unconfigured
   would publish the entire app on one missed `wrangler secret put`. The SPA

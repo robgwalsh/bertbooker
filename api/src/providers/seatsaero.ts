@@ -53,7 +53,7 @@ import {
 // `AvailabilitySegments`, only the whole journey's endpoints — so a layover
 // inside it is unmeasured, and a cabin no trip described stays a `summary`.
 // `GET /trips/{id}` is the fallback for both, at ONE CALL PER availability
-// object, which is why it is a click (`api/src/enrich.ts`) and never
+// object, which is why it is a click (`api/src/search/enrich.ts`) and never
 // part of a search. The remaining limitation is recorded on the task's notes
 // rather than hidden — see `runSeatsAeroChunk` below.
 //
@@ -460,7 +460,7 @@ export function normalizeSeatsAero(
 // response header, and it can **narrow its own coverage claim** when pagination
 // is cut short — and it is resumable mid-window, which is what lets a 30-second
 // cron tick pick up where the last one stopped. The Worker drives it directly
-// (`api/src/searchRun.ts`); see docs/SOURCES.md.
+// (`api/src/search/run.ts`); see docs/SOURCES.md.
 
 // The constants and the two call/chunk shapes above this line now live in
 // `../wire/seatsaero.ts`, because the SPA reads them and this file cannot be on
@@ -813,7 +813,7 @@ export async function runSeatsAeroChunk(
 // which is why it plays no part in a search: a 200-row chunk would spend a fifth
 // of the day's allowance on decoration. It is affordable exactly once the choice
 // is a person's — one click, one row, one call — so this half is driven by
-// `api/src/enrich.ts` and never by the search path.
+// `api/src/search/enrich.ts` and never by the search path.
 //
 // One availability id covers ALL FOUR CABINS of a (route, date, program), so a
 // single call expands up to four `availability_snapshots` rows. That is the

@@ -2,7 +2,7 @@
 //
 // The route-planning numbers it needs — `MAX_ORIGINS`, `MAX_DESTINATIONS` and
 // the three `SEATSAERO_*` — are NOT here. They were, as literals, under a
-// docblock explaining that they were "hand-mirrored from `shared/src/routing.ts`
+// docblock explaining that they were "hand-mirrored from `api/src/domain/routing.ts`
 // and `providers/seatsaero.ts`… copied rather than imported because the SPA
 // imports nothing from `shared/`". That reason is gone, so the copies are too:
 // they come through `../../api` like every other part of the wire contract, and

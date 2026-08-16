@@ -40,9 +40,9 @@ import { trackedRoutes } from "./endpoints/trackedRoutes.js";
 // It reaches exactly TWO hosts, and the split is the rule rather than an
 // exception list:
 //
-//   INBOUND DATA — seats.aero's Partner API (`searchRun.ts`): a keyed, metered
+//   INBOUND DATA — seats.aero's Partner API (`search/run.ts`): a keyed, metered
 //     vendor API that authenticates the key rather than the client.
-//   OUTBOUND NOTIFICATION — Resend (`email.ts`): not a data source at all, but a
+//   OUTBOUND NOTIFICATION — Resend (`alerts/email.ts`): not a data source at all, but a
 //     delivery channel, on exactly the same keyed-vendor footing.
 //
 // That test is now the ONLY gate on adding a source, because there is nowhere
@@ -170,7 +170,7 @@ app.route("/", trackedRoutes);
  * and no test for long enough that nothing would have noticed either breaking.
  *
  * They are gone rather than kept-just-in-case. `findsCte` is still the one
- * reader every surface shares (`finds.ts`); the dashboard is now the only
+ * reader every surface shares (`db/finds.ts`); the dashboard is now the only
  * caller of it, which means a change to that CTE is exercised by the surface
  * that matters instead of by an endpoint nobody was watching.
  */

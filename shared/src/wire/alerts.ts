@@ -2,7 +2,7 @@
 //
 // `AlertSchedule` is the one wire shape that had NO written-down form anywhere
 // until this module: `GET /api/alerts/schedule` builds a four-level object
-// literal by hand in `api/src/alerts/routes.ts`, and the SPA's interface was the
+// literal by hand in `api/src/endpoints/alerts.ts`, and the SPA's interface was the
 // only description of it. Annotating that handler against this type is the
 // highest-value half of the whole enforcement pass — it is 14 mapped route
 // fields that nothing was checking.

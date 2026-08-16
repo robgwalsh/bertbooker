@@ -1,4 +1,4 @@
-// The password gate's two responses — `api/src/gate.ts` builds both by hand.
+// The password gate's two responses — `api/src/middleware/gate.ts` builds both by hand.
 //
 // **No token crosses this boundary.** Login answers with a `Set-Cookie` the
 // browser stores and no script can read; `expiresAt` is the only thing in the

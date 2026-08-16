@@ -6,7 +6,7 @@ source produces `AvailabilityResult[]`, the ingest pipeline decides what that
 means for the database, and every read goes through one CTE regardless of who
 wrote the row.
 
-The contract is `shared/src/sources/types.ts`, the catalogue is `registry.ts`,
+The contract is `api/src/sources/types.ts`, the catalogue is `registry.ts`,
 and the one entry is `seatsaero.ts` in the same directory.
 
 There is one source:
@@ -63,7 +63,7 @@ claims coverage.
 ### `SourceDescriptor` without `run` is the only shape in use
 
 seats.aero is descriptor-only. The Worker drives it through a specialised runner
-(`api/src/searchRun.ts`) that streams every HTTP call to the browser as it lands,
+(`api/src/search/run.ts`) that streams every HTTP call to the browser as it lands,
 meters a per-request subrequest budget, and resumes across requests when it runs
 out. Expressing that through a plain `run()` would push streaming callbacks and
 call accounting into the interface and make every future source carry
@@ -151,7 +151,7 @@ task an update rather than a duplicate.
 source.run()  →  AvailabilityResult[]  →  applyTask()  →  D1
 ```
 
-`applyTask` (`shared/src/ingest/apply.ts`) runs per task, as work completes —
+`applyTask` (`api/src/ingest/apply.ts`) runs per task, as work completes —
 gathering can die halfway and the successful tasks should already be durable. Its
 order is the safety property: **read baseline → write changed snapshots → prune →
 record coverage last**, so a crash under-claims rather than over-claims.
@@ -188,7 +188,7 @@ Four things worth knowing because they constrain what a source may return:
    `docs/HARVEST-POSTMORTEM.md` §6 is a list of what that costs. There is no
    `runtime: "local"` to fall back on any more; see §1.
 2. **Map its programs onto `PROGRAM_SEEDS`.** A program that is not seeded is not
-   storable; add it to *both* `shared/src/data/programs.ts` and
+   storable; add it to *both* `api/src/domain/programs.ts` and
    `seed/programs.sql`, which mirror each other.
 3. **Establish `horizonDays` empirically.** Too high wastes calls on an empty
    horizon; too low silently caps the app's reach.
@@ -197,7 +197,7 @@ Four things worth knowing because they constrain what a source may return:
 5. **Write `run` against a captured fixture**, and let it throw. Redact
    credential-ish headers before committing the fixture, and read it before you
    do.
-6. **Register it** in `shared/src/sources/index.ts`.
+6. **Register it** in `api/src/sources/index.ts`.
 7. **Then run it for real, twice.** The second run must write **zero** snapshots
    (§5).
 8. **Plan its removal before you need it.** A source is a permanent value in two

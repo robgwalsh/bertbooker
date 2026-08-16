@@ -1,8 +1,8 @@
 # seats.aero
 
-The Partner API integration: `shared/src/providers/seatsaero.ts` (pure
-wire handling plus the chunk loop), `api/src/search.ts` (Search),
-`api/src/enrich.ts` (the itinerary behind a row), and the SPA controls
+The Partner API integration: `api/src/providers/seatsaero.ts` (pure
+wire handling plus the chunk loop), `api/src/endpoints/search.ts` (Search),
+`api/src/search/enrich.ts` (the itinerary behind a row), and the SPA controls
 that drive both.
 
 ---
@@ -272,7 +272,7 @@ rather than asserting either state.
 
 ## 6. Get Trips, and enrichment
 
-`api/src/enrich.ts`. Two entry points: one find
+`api/src/search/enrich.ts`. Two entry points: one find
 (`POST /api/finds/enrich`) and a whole route
 (`POST /api/tracked-routes/:id/enrich`, NDJSON, same stream contract as search).
 
@@ -405,7 +405,7 @@ honest, where a guessed 1000 would read as "plenty left" on the one day you'd
 want to know otherwise. The explicit null check exists because `Number(null)` is
 0, which would turn a missing header into an exhausted quota that never happened.
 
-`recordQuota` (shared with `enrich.ts` and the alert sweep) writes it to `source_quota`,
+`recordQuota` (`api/src/db/runs.ts`, shared with enrich and the alert sweep) writes it to `source_quota`,
 keyed by source and **UTC day** derived from `observedAt` — because that is when
 the allowance resets. The upsert's `WHERE excluded.observed_at >=
 source_quota.observed_at` is what stops a late older observation rolling
@@ -495,12 +495,13 @@ file before committing it.
 
 | | |
 |---|---|
-| `shared/src/providers/seatsaero.ts` | everything above the Worker: pure `buildSearchUrl` / `normalizeSeatsAero` / `parseQuotaHeaders` / `parseSeatsAeroTrips`, plus `planSeatsAeroChunks` / `runSeatsAeroChunk` / `runSeatsAeroTrips` |
-| `shared/src/routing.ts` | a route as a set of pairs; round-trip spec; the call estimate |
-| `api/src/search.ts` | the Search endpoint, the stream, resumption |
-| `api/src/enrich.ts` | Get Trips, one find and one route |
-| `api/src/searchRun.ts` | the shared run/task/quota writers — `recordTask`, `recordQuota`, `MAX_STORED_CHANGES` |
-| `api/src/quota.ts` | `GET /api/quota`, the chip's endpoint |
+| `api/src/providers/seatsaero.ts` | everything above the Worker: pure `buildSearchUrl` / `normalizeSeatsAero` / `parseQuotaHeaders` / `parseSeatsAeroTrips`, plus `planSeatsAeroChunks` / `runSeatsAeroChunk` / `runSeatsAeroTrips` |
+| `api/src/domain/routing.ts` | a route as a set of pairs; round-trip spec; the call estimate |
+| `api/src/endpoints/search.ts` | the Search endpoint, the stream, resumption |
+| `api/src/search/enrich.ts` | Get Trips, the engine; `api/src/endpoints/enrich.ts` the two HTTP shapes |
+| `api/src/db/runs.ts` | the shared run/task/quota writers — `recordTask`, `recordQuota`, `finishRun`, `MAX_STORED_CHANGES` |
+| `api/src/search/run.ts` | the engine: `planSearchPass` / `openSearchRun` / `runSearchPass` |
+| `api/src/endpoints/quota.ts` | `GET /api/quota`, the chip's endpoint |
 | `app/src/api/search.ts`, `enrich.ts` | `searchRoute` / `enrichRoute` and the resume loop. The wire types they speak are `shared/src/wire/`, not copies |
 | `app/src/pages/routes/useRouteSearch.ts`, `useRouteEnrich.ts` | the two stream hooks, owned by the **page** so a search survives navigating away |
 

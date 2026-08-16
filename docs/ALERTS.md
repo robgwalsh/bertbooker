@@ -6,9 +6,9 @@ unattended work in this codebase**, and everything below exists because
 unattended work is a different kind of thing from a button somebody pressed.
 
 It is not, however, a second engine. A sweep is the *same* Search — the same
-`planSearchPass` / `openSearchRun` / `runSearchPass` in `api/src/searchRun.ts`,
+`planSearchPass` / `openSearchRun` / `runSearchPass` in `api/src/search/run.ts`,
 the same `applyTask` ingest, the same coverage rules, the same `search_runs` row.
-`searchRun.ts` has **two callers and one behaviour**; the only difference is
+`search/run.ts` has **two callers and one behaviour**; the only difference is
 whether an `onEvent` callback is passed, i.e. whether anyone is listening.
 
 ```
@@ -34,11 +34,11 @@ Where things live:
 |---|---|
 | `api/src/alerts/sweep.ts` | the tick, the sweep, the outbox, the flush |
 | `api/src/alerts/budget.ts` | **the only budget guard in the repo** |
-| `api/src/alerts/routes.ts` | the four `/api/alerts/*` endpoints |
-| `api/src/email.ts` | Resend, the recipient allowlist |
-| `shared/src/alerts/pace.ts` | cost, cadence, due-ness, back-off, baseline — all pure |
-| `shared/src/alerts/select.ts` | which changes are worth an email — pure |
-| `shared/src/alerts/digest.ts` | grouping and rendering — pure |
+| `api/src/endpoints/alerts.ts` | the four `/api/alerts/*` endpoints |
+| `api/src/alerts/email.ts` | Resend, the recipient allowlist |
+| `api/src/alerts/pace.ts` | cost, cadence, due-ness, back-off, baseline — all pure |
+| `api/src/alerts/select.ts` | which changes are worth an email — pure |
+| `api/src/alerts/digest.ts` | grouping and rendering — pure |
 | `app/src/pages/alerts/AlertsPage.tsx`, `app/src/lib/alerts.ts` | the safety surface |
 | `api/wrangler.toml` `[triggers]` | `crons = ["*/15 * * * *"]` |
 | `migrations/0001_init.sql` | `alert_*` columns, `alert_outbox`, `alert_deliveries` |
@@ -96,7 +96,7 @@ of throwing, and why `alert_deliveries` records the sends that never happened.
 The guard was deleted because *unattended work* was deleted. A person pressing
 Search does not need protecting from a call they chose to spend, and a guard in
 that path turns a deliberate action into a baffling refusal. Both halves are
-still true: `search.ts` and `enrich.ts` still **spend first and report after**.
+still true: the interactive search and enrich paths still **spend first and report after**.
 
 What changed is that a process now spends without being watched, which is
 precisely what a budget is for. So the guard is back, in one file, scoped to one
@@ -200,7 +200,7 @@ its own `search_runs` row.
 
 ## 4. Pacing — how often
 
-`shared/src/alerts/pace.ts`. All pure, and that is the point:
+`api/src/alerts/pace.ts`. All pure, and that is the point:
 
 > **The scheduler and the Alerts tab call the same functions.** `GET
 > /api/alerts/schedule` derives nothing of its own — it runs `sweepPacing`,
@@ -331,12 +331,12 @@ avoidable email.
 
 ## 6. What is worth an email
 
-`shared/src/alerts/select.ts`, pure, called as
+`api/src/alerts/select.ts`, pure, called as
 `selectAlertable(changes, findKeys, rule, routeFilters)`.
 
 ### The four types
 
-`new | more_seats | price_drop | gone` (`ChangeType` in `shared/src/diff.ts`),
+`new | more_seats | price_drop | gone` (`ChangeType` in `api/src/domain/diff.ts`),
 stored per route as a JSON array in `alert_on`.
 
 **The default is `["new", "price_drop"]`.** `gone` is out because most
@@ -363,7 +363,7 @@ The other half of the question is *would this route's own pane show this find?*
 — cabins, currencies, seats, nonstop, and the cross-source collapse. That is
 **not** re-implemented in TypeScript. `sweepRoute` runs `routeFindKeys`, which is
 the dashboard's own CTE (`findsCte` + `ROUTE_FINDS_MATCH` + `ROUTE_FINDS_SEATS`
-in `api/src/finds.ts`) restricted to the one route, and hands the resulting
+in `api/src/db/finds.ts`) restricted to the one route, and hands the resulting
 `changeKey` set in.
 
 The reason is worth stating, because writing the filter in `select.ts` would have
@@ -419,8 +419,8 @@ is the assertion `budget.test.ts` pins by name.
 
 ### The absent-observation case is the one that matters
 
-`source_quota` is written only when a call is actually made — by `search.ts` and
-`enrich.ts` reading `X-RateLimit-Remaining` off a live response, through the
+`source_quota` is written only when a call is actually made — by the search and
+enrich paths reading `X-RateLimit-Remaining` off a live response, through the
 shared `recordQuota`. So on most days, days nobody manually searched, **there is
 no row at all when the first tick fires.** Two obvious answers are both wrong:
 
@@ -485,7 +485,7 @@ fixed.
 
 ## 9. The digest, and delivery
 
-`shared/src/alerts/digest.ts` renders strings and decides nothing; the Worker
+`api/src/alerts/digest.ts` renders strings and decides nothing; the Worker
 half only hands them to Resend.
 
 - **One digest per recipient, not per route.** `groupForRecipients` buckets by
@@ -509,7 +509,7 @@ half only hands them to Resend.
 
 ### Resend, and the recipient allowlist
 
-`api/src/email.ts`. **This is the Worker's second and last outbound host**, and
+`api/src/alerts/email.ts`. **This is the Worker's second and last outbound host**, and
 the distinction is what makes it allowed: Resend is not a data source, it is a
 delivery channel — a keyed vendor API that authenticates the *key*, not the
 client, exactly like seats.aero. Nothing about the airline prohibition changes.
@@ -687,12 +687,12 @@ That last row is the one with no in-app surface, which is exactly why
 
 Everything interesting is pure, and offline:
 
-- `shared/src/alerts/alerts.test.ts` — cost, pacing (including that unaffordable
+- `api/src/alerts/alerts.test.ts` — cost, pacing (including that unaffordable
   **refuses** rather than clamping), due-ness and both clocks, back-off,
   `baselineOnEnable` at the cutoff, `parseAlertTypes`, `selectAlertable`
   (including that `gone` bypasses the intersection and that a drop coinciding with
   more seats classifies as `more_seats`).
-- `shared/src/alerts/digest.test.ts` — rendering, escaping, grouping, and that a
+- `api/src/alerts/digest.test.ts` — rendering, escaping, grouping, and that a
   recipient whose routes were all quiet gets nothing.
 - `api/src/alerts/budget.test.ts` — the guard, both bases, and the UTC day.
 - `app/src/alerts.test.ts` — the health ladder's order and completeness.

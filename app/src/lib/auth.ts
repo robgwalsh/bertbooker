@@ -1,5 +1,5 @@
 /**
- * Client half of the shared-password gate (`api/src/gate.ts`).
+ * Client half of the shared-password gate (`api/src/middleware/gate.ts`).
  *
  * **There is no credential in this file, and that is the point.** The session is
  * an `HttpOnly` cookie the Worker sets at login: the browser attaches it to every

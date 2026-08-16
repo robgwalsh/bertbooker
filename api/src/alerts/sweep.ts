@@ -391,7 +391,7 @@ async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string
     .bind(...cte.binds, route.id, JSON.stringify(PORTAL_CURRENCIES))
     .all<{ route_key: string; program: string; cabin: string }>();
 
-  // Must match `changeKey` in shared/src/diff.ts exactly.
+  // Must match `changeKey` in api/src/domain/diff.ts exactly.
   return new Set((results ?? []).map((r) => `${r.route_key}|${r.program}|${r.cabin}`));
 }
 

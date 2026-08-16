@@ -1,7 +1,7 @@
 // The words the route form and header use for alerts.
 //
 // `ALERT_TYPES` is here rather than in `shared/` and its ORDER is the reason:
-// `ALL_ALERT_TYPES` in `shared/src/alerts/select.ts` lists the same four
+// `ALL_ALERT_TYPES` in `api/src/alerts/select.ts` lists the same four
 // members with `more_seats` and `price_drop` the other way round, and this is
 // the order the checkboxes below render in. The TYPE is shared; adopting the
 // shared array would silently reorder a form.
@@ -28,7 +28,7 @@ export const ALERT_TYPE_LABEL: Record<AlertType, string> = {
  * classified `more_seats` and a route watching only `price_drop` never hears
  * about it. Documented here rather than fixed, because changing the classifier
  * would change `changes_json` for the alert sweep too — pinned by a test in
- * shared/src/alerts/alerts.test.ts.
+ * api/src/alerts/alerts.test.ts.
  */
 export const ALERT_TYPE_HELP: Record<AlertType, string> = {
   new: "Award space that wasn't there before",

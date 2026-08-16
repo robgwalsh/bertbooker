@@ -13,7 +13,7 @@ import { SEATSAERO_SOURCE_ID } from "../providers/seatsaero.js";
  * The guard was deleted because *unattended work* was deleted. A person pressing
  * Search does not need protecting from a call they chose to spend, and a guard
  * in that path turns a deliberate action into a baffling refusal. Both halves
- * are still true, and `search.ts` and `enrich.ts` still spend first and report
+ * are still true, and `endpoints/search.ts` and `endpoints/enrich.ts` still spend first and report
  * after. What changed is that unattended work exists again — a cron sweeping
  * alert routes — and a process that spends without being watched is exactly what
  * a budget is for. Nothing else may import this module.

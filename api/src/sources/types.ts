@@ -122,7 +122,7 @@ export interface SourceDescriptor {
  *
  * **Nothing implements this today, and that is the honest state of it.**
  * seats.aero — the only source — is a `SourceDescriptor` only, because the
- * Worker drives it through a specialised runner (`api/src/searchRun.ts`) that
+ * Worker drives it through a specialised runner (`api/src/search/run.ts`) that
  * streams each HTTP call to the browser as it lands, meters a per-request
  * subrequest budget, and resumes across requests when it runs out. Expressing
  * that through a plain `run()` would mean pushing streaming callbacks and call

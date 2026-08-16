@@ -128,7 +128,7 @@ finds AS (
  *
  * Its currency clause is the SQL statement of the bookability rule, whose
  * reference implementation is `bookableCurrencies()` in
- * `shared/src/providers/filter.ts`. The two halves must stay in step: the portal
+ * `api/src/providers/filter.ts`. The two halves must stay in step: the portal
  * branch is what makes an Alaska find (Bilt-only) visible to a Chase-filtered
  * view once its dollar price is known, which is the entire reason cash pricing
  * exists. There used to be a third expression here, `BOOKABLE_WITH_CLAUSE`, for
@@ -195,7 +195,7 @@ export const ROUTE_FINDS_MATCH = `(
         -- are. Without this clause an Alaska find (Bilt-only) stays invisible
         -- to a Chase-filtered route even when we know its dollar price — which
         -- is precisely the case cash pricing exists to surface. Mirrors
-        -- bookableCurrencies() in shared/src/providers/filter.ts.
+        -- bookableCurrencies() in api/src/providers/filter.ts.
         AND (tr.currencies IS NULL
              OR EXISTS (
                SELECT 1

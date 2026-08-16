@@ -8,8 +8,8 @@ many seats, and — the part most tools leave out — **which of your credit car
 can actually book it**, whether by transferring points or by buying the seat
 outright through a travel portal.
 
-It runs entirely on your own Cloudflare account, on the free tier, with your own
-API keys. There is no hosted version and nothing phones home.
+Run locally or on a free Cloudflare account, with your own
+API keys.
 
 ```
 Routes    a dashboard of the routes you track, each with its current finds
@@ -23,9 +23,9 @@ If you want award search without running anything, use
 
 | | |
 |---|---|
-| **Cloudflare account** | Free tier is enough: Workers, D1 and Cron Triggers all fit inside it. `wrangler` ships as a dev dependency. |
 | **seats.aero Partner API key** | **Paid**, and the app's primary source — ~20 programs, a year of dates. See [seats.aero/apidocs](https://seats.aero/apidocs) and [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md). Without it the search endpoint answers 503 rather than an empty result, so a missing key can never be mistaken for "no award space". |
 | **Node ≥ 20, npm ≥ 10** | |
+| **Cloudflare account** *(optional)* | Free tier is enough: Workers, D1 and Cron Triggers all fit inside it. `wrangler` ships as a dev dependency. |
 | **Resend account** *(optional)* | Only for the alert digest, and only with a domain you have verified for SPF/DKIM. Without it, sweeps still run and still ingest; each digest is just recorded as `skipped`. |
 | **Google Chrome** *(optional)* | Only to run the UI suite (`npm run test:ui`), which uses your installed browser rather than a downloaded one. See [`docs/UI-TESTING.md`](docs/UI-TESTING.md). |
 
@@ -33,13 +33,13 @@ If you want award search without running anything, use
 
 - [`docs/SOURCES.md`](docs/SOURCES.md) — what a source is, what may be added, and
   the three ingest rules that keep the database honest
-- [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md) — the Partner API integration in
+- [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md) — currently the only implemented 'source' - seats.aero's paid API, bring your own key.
   full: search, enrich, quota, every payload trap
 - [`docs/ALERTS.md`](docs/ALERTS.md) — the scheduled sweep: pacing, the budget
   guard, the digest
 - [`docs/UI-TESTING.md`](docs/UI-TESTING.md) — driving the SPA headless, with
   nobody at the keyboard
-- [`docs/HARVEST-POSTMORTEM.md`](docs/HARVEST-POSTMORTEM.md) — notes about airline scrapers and we this repo doesn't have any. **Read before proposing a source that reads a carrier's own site.**
+- [`docs/HARVEST-POSTMORTEM.md`](docs/HARVEST-POSTMORTEM.md) — notes about airline scrapers and we this repo doesn't have any.
 
 ## Architecture
 
@@ -139,7 +139,7 @@ npm run typecheck
 npm run test:ui  # the browser suite, headless — see docs/UI-TESTING.md
 ```
 
-## Deploy
+## Deploy To Cloudflare
 
 Nothing is configured in the repo — set every value on your own account. The
 first three are required; the rest match the sections in

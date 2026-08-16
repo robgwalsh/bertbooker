@@ -1,5 +1,5 @@
-import { PROGRAM_SEEDS } from "../data/programs.js";
-import type { ChangeSummary } from "../diff.js";
+import { PROGRAM_SEEDS } from "../domain/programs.js";
+import type { ChangeSummary } from "../domain/diff.js";
 
 /**
  * The alert email, as strings.

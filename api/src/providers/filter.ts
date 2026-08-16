@@ -1,5 +1,5 @@
-import type { AvailabilityResult, Currency } from "../types.js";
-import { PORTAL_CURRENCIES } from "../data/programs.js";
+import type { AvailabilityResult, Currency } from "../domain/types.js";
+import { PORTAL_CURRENCIES } from "../domain/programs.js";
 
 /**
  * Every currency that can actually pay for this result — by transferring miles

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AvailabilityResult } from "../types.js";
+import type { AvailabilityResult } from "../domain/types.js";
 import { bookableCurrencies } from "./filter.js";
 
 const result =(o: Partial<AvailabilityResult> = {}): AvailabilityResult => ({

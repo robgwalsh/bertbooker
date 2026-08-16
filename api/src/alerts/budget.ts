@@ -1,4 +1,4 @@
-import { SEATSAERO_SOURCE_ID } from "../../../shared/src/index.js";
+import { SEATSAERO_SOURCE_ID } from "../providers/seatsaero.js";
 
 /**
  * The budget guard — reinstated, and scoped to the scheduler alone.

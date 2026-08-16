@@ -1,16 +1,25 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { csrf } from "hono/csrf";
-import {
-  AIRLINE_DIRECTORY,
-  ALL_ALERT_TYPES,
-  CURRENCIES,
-  PORTAL_CURRENCIES,
-  baselineOnEnable,
-  normalizeSpec,
-} from "../../shared/src/index.js";
-// The wire contract. A separate specifier from the barrel above on purpose —
-// see the banner in `shared/src/wire/index.ts`.
+import { baselineOnEnable } from "./alerts/pace.js";
+import { ALL_ALERT_TYPES } from "./alerts/select.js";
+import { AIRLINE_DIRECTORY } from "./domain/airlines.js";
+import { CURRENCIES, PORTAL_CURRENCIES } from "./domain/programs.js";
+import { normalizeSpec } from "./domain/routing.js";
+// SIDE-EFFECT IMPORT, and the only one in this worker. `sources/index.ts` calls
+// `registerSource(seatsAeroSource)` at module scope, which validates every
+// program that source declares against `PROGRAM_SEEDS`. That matters because
+// `availability_snapshots.program` is a foreign key: without this, a typo in a
+// source's program list surfaces as a write failing halfway through a search
+// instead of as a worker that refuses to boot.
+//
+// It used to happen invisibly — `shared/src/index.ts` re-exported
+// `sources/index.js`, so merely importing the barrel ran it. The barrel is gone
+// and nothing else imports a symbol from `sources/`, so this line is now the
+// whole of the mechanism. Deleting it as an unused import removes the check.
+import "./sources/index.js";
+// The wire contract, imported by its own specifier — see the banner in
+// `shared/src/wire/index.ts`.
 import type {
   AirportGeo,
   AirportInfo,

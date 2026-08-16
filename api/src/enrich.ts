@@ -1,15 +1,8 @@
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
-import {
-  classifyError,
-  makeTransport,
-  runSeatsAeroTrips,
-  SEATSAERO_SOURCE_ID,
-  type Cabin,
-  type FetchLike,
-  type SeatsAeroTripDetail,
-  type SourceTaskStatus,
-} from "../../shared/src/index.js";
+import type { Cabin } from "./domain/types.js";
+import { runSeatsAeroTrips, SEATSAERO_SOURCE_ID, type SeatsAeroTripDetail } from "./providers/seatsaero.js";
+import { classifyError, type FetchLike, makeTransport } from "./providers/transport.js";
 import type { Env, Vars } from "./bindings.js";
 import { recordQuota } from "./searchRun.js";
 

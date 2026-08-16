@@ -1,6 +1,6 @@
-import { changeKey, diffAvailability, summarizeChange, type ChangeSummary } from "../diff.js";
-import { collapseBy } from "../collapse.js";
-import { routeKey, type AvailabilityResult } from "../types.js";
+import { changeKey, diffAvailability, summarizeChange, type ChangeSummary } from "../domain/diff.js";
+import { collapseBy } from "../domain/collapse.js";
+import { routeKey, type AvailabilityResult } from "../domain/types.js";
 import { claimsCoverage, type ApplyTaskResult, type SourceTaskReport } from "./types.js";
 
 // The write side of the pivot. A source reports one completed unit of

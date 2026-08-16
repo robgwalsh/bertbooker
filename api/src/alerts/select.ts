@@ -1,4 +1,4 @@
-import type { ChangeSummary, ChangeType } from "../diff.js";
+import type { ChangeSummary, ChangeType } from "../domain/diff.js";
 
 /**
  * Which of a sweep's changes are worth an email.

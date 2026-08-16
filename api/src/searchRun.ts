@@ -1,26 +1,10 @@
-import {
-  applyTask,
-  callMetadata,
-  classifyError,
-  datesIn,
-  makeTransport,
-  planRoute,
-  planSeatsAeroChunks,
-  runSeatsAeroChunk,
-  runStatus,
-  seatsAeroTaskKey,
-  todayISO,
-  SEATSAERO_PROGRAMS,
-  SEATSAERO_SOURCE_ID,
-  type ChangeSummary,
-  type FetchLike,
-  type RoutePair,
-  type SeatsAeroCall,
-  type SeatsAeroChunk,
-  type SourceQuotaObservation,
-  type SourceTaskReport,
-  type SourceTaskStatus,
-} from "../../shared/src/index.js";
+import type { ChangeSummary } from "./domain/diff.js";
+import { planRoute, type RoutePair } from "./domain/routing.js";
+import { applyTask } from "./ingest/apply.js";
+import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "./ingest/types.js";
+import { callMetadata, datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk, seatsAeroTaskKey } from "./providers/seatsaero.js";
+import { classifyError, type FetchLike, makeTransport } from "./providers/transport.js";
+import { todayISO } from "./providers/window.js";
 
 /** How many change summaries a run keeps. Display only — the authoritative
  *  record is the snapshot rows themselves.

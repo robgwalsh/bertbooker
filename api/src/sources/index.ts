@@ -14,9 +14,16 @@ export { seatsAeroSource } from "./seatsaero.js";
  * `availability_snapshots.program` is a foreign key — so a typo that would
  * otherwise surface as a write failing mid-search fails at import instead.
  *
- * An embedder adding a source calls `registerSource` itself after importing
- * here. The registry rejects a duplicate id rather than letting one source
- * silently shadow another, because two services writing rows under one
+ * **`api/src/index.ts` imports this file for the side effect and nothing else.**
+ * That import is the entire mechanism now, and it looks removable to anyone
+ * tidying unused imports — it is not. The check used to ride along invisibly:
+ * the old `shared/src/index.ts` barrel re-exported this module, so importing
+ * anything from the barrel ran it. The barrel is gone, and no file imports a
+ * symbol from this directory.
+ *
+ * A second source would call `registerSource` itself after importing here. The
+ * registry rejects a duplicate id rather than letting one source silently shadow
+ * another, because two services writing rows under one
  * `availability_snapshots.source` would make a prune delete the wrong data.
  * docs/SOURCES.md.
  */

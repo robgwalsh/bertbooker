@@ -3,7 +3,7 @@
 // touched `RoutePair`, which since the wire module exists includes the SPA's.
 // The docblock below claims this file knows nothing about fetch; that is only
 // true because of this line.
-import { SEATSAERO_MAX_PAGES } from "./wire/seatsaero.js";
+import { SEATSAERO_MAX_PAGES } from "../../../shared/src/wire/seatsaero.js";
 
 /**
  * A tracked route as a SET of city pairs, not one pair.
@@ -27,11 +27,11 @@ import { SEATSAERO_MAX_PAGES } from "./wire/seatsaero.js";
 // reads all four — and because the caps are VALUES rather than types, this file
 // was the only module outside `wire/` whose runtime code reached the browser's
 // module graph at all. It no longer does.
-import { MAX_DESTINATIONS, MAX_ORIGINS } from "./wire/routing.js";
-import type { RoutePair, RouteSpec } from "./wire/routing.js";
+import { MAX_DESTINATIONS, MAX_ORIGINS } from "../../../shared/src/wire/routing.js";
+import type { RoutePair, RouteSpec } from "../../../shared/src/wire/routing.js";
 
-export { MAX_DESTINATIONS, MAX_ORIGINS } from "./wire/routing.js";
-export type { RoutePair, RouteSpec } from "./wire/routing.js";
+export { MAX_DESTINATIONS, MAX_ORIGINS } from "../../../shared/src/wire/routing.js";
+export type { RoutePair, RouteSpec } from "../../../shared/src/wire/routing.js";
 
 /** Uppercase, trim, drop blanks, dedupe, and sort.
  *

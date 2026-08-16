@@ -1,7 +1,7 @@
-import type { AvailabilityResult, Cabin, Segment } from "../types.js";
+import type { AvailabilityResult, Cabin, Segment } from "../domain/types.js";
 import type { SourceQuotaObservation } from "../ingest/types.js";
-import { currenciesForProgram } from "../data/programs.js";
-import { collapseBy, type Collapsible } from "../collapse.js";
+import { currenciesForProgram } from "../domain/programs.js";
+import { collapseBy, type Collapsible } from "../domain/collapse.js";
 import { BlockedError, makeTransport, type FetchLike } from "./transport.js";
 import { addDaysISO, chunkDateRange, effectiveSearchWindow } from "./window.js";
 // Re-exported at the bottom of this file as well; imported here because
@@ -17,7 +17,7 @@ import {
   SEATSAERO_SOURCE_ID,
   type SeatsAeroCall,
   type SeatsAeroChunk,
-} from "../wire/seatsaero.js";
+} from "../../../shared/src/wire/seatsaero.js";
 
 // ---------------------------------------------------------------------------
 // seats.aero Partner API.
@@ -467,7 +467,7 @@ export function normalizeSeatsAero(
 // an app import path — it is 1436 lines and speaks `fetch`. Re-exported here so
 // this module's public surface, and therefore the root barrel's, is unchanged:
 // every existing `api/` import still resolves against this file.
-export * from "../wire/seatsaero.js";
+export * from "../../../shared/src/wire/seatsaero.js";
 
 /** The durable half of a call record: everything except the body. This is what
  *  goes into `search_tasks.capture_json`, matching the shape that column is

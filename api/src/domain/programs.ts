@@ -1,11 +1,11 @@
-import type { Alliance, Currency, ProgramKind } from "../types.js";
+import type { Alliance, Currency, ProgramKind } from "./types.js";
 // `CurrencyInfo` is declared in `../wire/reference.ts`, because
 // `GET /api/currencies` answers `c.json(CURRENCIES)` verbatim — the wire type IS
 // the element type of `CURRENCIES` below, and annotating that array against it
 // is what keeps the served shape and the declared one in step.
-import type { CurrencyInfo } from "../wire/reference.js";
+import type { CurrencyInfo } from "../../../shared/src/wire/reference.js";
 
-export type { CurrencyInfo } from "../wire/reference.js";
+export type { CurrencyInfo } from "../../../shared/src/wire/reference.js";
 
 export interface TransferPartner {
   currency: Currency;

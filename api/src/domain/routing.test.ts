@@ -9,7 +9,7 @@ import {
   RouteSpecError,
   MAX_ORIGINS,
 } from "./routing.js";
-import { SEATSAERO_MAX_PAGES } from "./providers/seatsaero.js";
+import { SEATSAERO_MAX_PAGES } from "../../../shared/src/wire/seatsaero.js";
 
 const SEA_NRT = { origins: ["SEA"], destinations: ["NRT"] };
 

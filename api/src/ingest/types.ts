@@ -1,4 +1,4 @@
-import type { AvailabilityResult } from "../types.js";
+import type { AvailabilityResult } from "../domain/types.js";
 
 // What a completed unit of gathering work looks like on its way into the
 // database. One producer — the Worker's own seats.aero search — hands these to
@@ -16,9 +16,9 @@ import type { AvailabilityResult } from "../types.js";
 // pairs with the first of them — `COVERAGE_CLAIMING_STATUSES` — is a runtime
 // value and stays on this side.
 
-import type { RunStatus, SourceTaskStatus } from "../wire/domain.js";
+import type { RunStatus, SourceTaskStatus } from "../../../shared/src/wire/domain.js";
 
-export type { RunStatus, SourceTaskStatus } from "../wire/domain.js";
+export type { RunStatus, SourceTaskStatus } from "../../../shared/src/wire/domain.js";
 
 /** Statuses that are allowed to write `search_coverage` rows.
  *

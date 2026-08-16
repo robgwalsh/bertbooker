@@ -9,5 +9,5 @@
   // again with DOM and with its own tests. No `paths` block: there is no
   // package to alias, and a relative specifier resolves the same way in tsc,
   // wrangler's esbuild and vitest.
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.json"]
 }

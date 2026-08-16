@@ -1,4 +1,4 @@
-import type { AvailabilityResult } from "../types.js";
+import type { AvailabilityResult } from "../domain/types.js";
 import type { SourceQuotaObservation, SourceTaskStatus } from "../ingest/types.js";
 
 /**

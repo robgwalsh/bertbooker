@@ -9,9 +9,9 @@
 // from here goes on working exactly as before; see the banner in that file for
 // why the direction is that way round and not this one.
 
-import type { Cabin, Currency, Segment } from "./wire/domain.js";
+import type { Cabin, Currency, Segment } from "../../../shared/src/wire/domain.js";
 
-export type { Alliance, Cabin, Currency, Segment } from "./wire/domain.js";
+export type { Alliance, Cabin, Currency, Segment } from "../../../shared/src/wire/domain.js";
 
 /** The four cabins in ascending value order — useful for "best cabin" logic. */
 export const CABIN_ORDER: readonly Cabin[] = ["economy", "premium", "business", "first"];

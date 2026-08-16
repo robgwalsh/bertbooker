@@ -1,11 +1,11 @@
 import type { AvailabilityResult } from "./types.js";
 import { routeKey } from "./types.js";
-import type { ChangeSummary, ChangeType } from "./wire/domain.js";
+import type { ChangeSummary, ChangeType } from "../../../shared/src/wire/domain.js";
 
 // `ChangeType` and `ChangeSummary` are declared in `./wire/domain.ts` — the SPA
 // renders both, so the wire contract owns them and this module re-exports them.
 // `diffAvailability` below, which produces them, is Worker-only.
-export type { ChangeSummary, ChangeType } from "./wire/domain.js";
+export type { ChangeSummary, ChangeType } from "../../../shared/src/wire/domain.js";
 
 export interface AvailabilityChange {
   type: ChangeType;

@@ -1,18 +1,10 @@
-import {
-  PORTAL_CURRENCIES,
-  groupForRecipients,
-  parseAlertTypes,
-  planSeatsAeroChunks,
-  renderDigest,
-  selectAlertable,
-  sweepPacing,
-  todayISO,
-  dueRoutes,
-  routeSweepCost,
-  type AlertRouteCost,
-  type ChangeSummary,
-  type DigestRoute,
-} from "../../../shared/src/index.js";
+import { type DigestRoute, groupForRecipients, renderDigest } from "../alerts/digest.js";
+import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "../alerts/pace.js";
+import { parseAlertTypes, selectAlertable } from "../alerts/select.js";
+import type { ChangeSummary } from "../domain/diff.js";
+import { PORTAL_CURRENCIES } from "../domain/programs.js";
+import { planSeatsAeroChunks } from "../providers/seatsaero.js";
+import { todayISO } from "../providers/window.js";
 import type { Env } from "../bindings.js";
 import { ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte } from "../finds.js";
 import { idempotencyKey, sendEmail } from "../email.js";

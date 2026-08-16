@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeSummary, ChangeType } from "../diff.js";
+import type { ChangeSummary, ChangeType } from "../domain/diff.js";
 import {
   MAX_SWEEP_MINUTES,
   MIN_SWEEP_MINUTES,

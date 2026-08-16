@@ -1,4 +1,4 @@
-import { PORTAL_CURRENCIES } from "../../shared/src/index.js";
+import { PORTAL_CURRENCIES } from "./domain/programs.js";
 
 /**
  * The read side of the pivot.

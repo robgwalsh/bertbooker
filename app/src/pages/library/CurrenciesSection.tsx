@@ -86,7 +86,7 @@ export function CurrenciesSection({
                   <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                     {/* What a cash fare costs in this currency's own travel
                         portal. This is the rate the app converts at — edit it in
-                        shared/src/data/programs.ts, and every stored find
+                        api/src/domain/programs.ts, and every stored find
                         re-prices without re-gathering it. */}
                     {cur.portalCentsPerPoint ? (
                       <Tooltip title={cur.portalName ?? "Travel portal"}>

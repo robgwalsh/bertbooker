@@ -55,10 +55,9 @@ export interface TrackedRoute {
   alert_consecutive_failures: number;
 }
 
-// migrations/0001_init.sql — search_runs (`harvest_runs` until migration 0009).
-// One row per gather, whoever asked for it. The Worker writes `search` (a human
-// pressed the button) and `alert` (the cron did); `local` was a gatherer that
-// ran outside Cloudflare, and 0002 deleted its rows.
+// Asserts about the shape migrations/0001_init.sql defines for search_runs.
+// One row per gather, whoever asked for it: the Worker writes `search` for a
+// button press and `alert` for the cron.
 export interface SearchRun {
   id: string;
   user_email: string;

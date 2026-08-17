@@ -1,22 +1,20 @@
 import { SEATSAERO_SOURCE_ID } from "../providers/seatsaero.js";
 
 /**
- * The budget guard — reinstated, and scoped to the scheduler alone.
+ * The budget guard — scoped to the scheduler alone.
  *
- * **This file is the exception that three comments elsewhere warn about**, and
- * it lives on its own so that "who consults quota before spending" stays a
+ * **This file is the exception that comments elsewhere warn about**, and it
+ * lives on its own so that "who consults quota before spending" stays a
  * one-file answer to `grep`. `migrations/0001_init.sql` says of `source_quota`:
  * "if you ever find code gating a call on this value, that is the guard coming
  * back and it needs the argument in CLAUDE.md to survive first." Here is the
  * argument, in short; `docs/ALERTS.md` is the long form.
  *
- * The guard was deleted because *unattended work* was deleted. A person pressing
- * Search does not need protecting from a call they chose to spend, and a guard
- * in that path turns a deliberate action into a baffling refusal. Both halves
- * are still true, and `endpoints/search.ts` and `endpoints/enrich.ts` still spend first and report
- * after. What changed is that unattended work exists again — a cron sweeping
- * alert routes — and a process that spends without being watched is exactly what
- * a budget is for. Nothing else may import this module.
+ * A person pressing Search does not need protecting from a call they chose to
+ * spend, and a guard in that path turns a deliberate action into a baffling
+ * refusal — `endpoints/search.ts` and `endpoints/enrich.ts` spend first and
+ * report after. The cron sweeping alert routes spends without anyone watching,
+ * which is exactly what a budget is for. Nothing else may import this module.
  *
  * What it protects is not the quota for its own sake. It is the RESERVE: the
  * scheduler stops well short of the day's ceiling so that a human pressing

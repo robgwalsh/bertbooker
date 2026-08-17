@@ -46,8 +46,7 @@ const NavLink = styled(Link)(({ theme }) => ({
   alignItems: "center",
   // Tighter on a phone. The tabs at desktop padding plus the right-hand
   // controls overrun a narrow bar, and the toolbar is deliberately `overflow:
-  // visible` (see `Layout`), so they OVERLAP rather than clip — the quota chip
-  // used to land on top of the last tab.
+  // visible` (see `Layout`), so they OVERLAP rather than clip.
   //
   // This padding is only half the fix and cannot be the whole of it: the tabs
   // are what they are, so the bar is balanced by DROPPING the quota chip below
@@ -298,13 +297,9 @@ const alertsRoute = createRoute({
   component: Alerts,
 });
 
-// Three routes. There were two others: /calendar, a month grid for one route,
-// and /harvest, the console for the local scrapers. Both were removed because
-// nothing used them — the scrapers themselves are gone (docs/HARVEST-POSTMORTEM.md),
-// and the Harvest tab's Database pane went the same way as /calendar. That
-// leaves the Routes page as the single place stored finds are read: one surface
-// over `findsCte`, rather than a dashboard and a browser drifting apart about
-// what a current find is.
+// Three routes. The Routes page is the single place stored finds are read:
+// one surface over `findsCte`, rather than a dashboard and a browser
+// drifting apart about what a current find is.
 const routeTree = rootRoute.addChildren([indexRoute, libraryRoute, alertsRoute]);
 
 export const router = createRouter({ routeTree });

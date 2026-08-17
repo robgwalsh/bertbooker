@@ -8,10 +8,9 @@ export const PAGE_PY = 2.5;
 
 /** The page container's horizontal padding, per breakpoint.
  *
- *  Lives here rather than in `router.tsx` because the shell no longer applies
- *  it: since the Routes page became a full-bleed workbench, padding is a
- *  PAGE's decision, and `PagePad` is the one place the pages that still want it
- *  get it. */
+ *  Lives here rather than in `router.tsx` because padding is a PAGE's
+ *  decision — the shell doesn't apply it — and `PagePad` is the one place the
+ *  pages that want it get it. */
 export const GUTTERS = { xs: 1.5, sm: 2, lg: 3 };
 
 /** The app bar's height: a 40px title-bar/tab strip plus the rule under it.
@@ -29,15 +28,15 @@ export const APP_BAR_HEIGHT = 41;
  *  moment the page moves, which reads as a nav that doesn't hold its place
  *  rather than as a page sliding underneath one that does.
  *
- *  **No `APP_BAR_HEIGHT` term any more, and that is the point.** The document
- *  itself no longer scrolls — `Layout` is a fixed-height column and each page
- *  owns a scroll container inside it (`PagePad` here) — so a sticky child is
- *  offset from ITS SCROLLER's top edge, which already starts below the tab
- *  strip. Adding the bar's height back would push the column down by 41px the
- *  instant anything scrolled.
+ *  **There is no `APP_BAR_HEIGHT` term here, and that is the point.** The
+ *  document itself does not scroll — `Layout` is a fixed-height column and
+ *  each page owns a scroll container inside it (`PagePad` here) — so a sticky
+ *  child is offset from ITS SCROLLER's top edge, which already starts below
+ *  the tab strip. Adding the bar's height back would push the column down by
+ *  41px the instant anything scrolled.
  *
  *  A nav is only pinned from `md` up — a pinned column is worth little on a
- *  screen narrower than that. The Routes rail no longer uses this at all: it is
+ *  screen narrower than that. The Routes rail does not use this at all: it is
  *  a full-height pane with its own scrollbar, which is what a sidebar is. */
 export const STICKY_NAV_TOP = 8 * PAGE_PY;
 

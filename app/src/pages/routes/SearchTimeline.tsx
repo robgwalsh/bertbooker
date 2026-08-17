@@ -110,10 +110,9 @@ function Segment({ seg, chunk }: { seg: TimelineSegment; chunk: ChunkState }) {
 /**
  * The window being searched, as one bar that fills in range by range.
  *
- * Replaces the per-call log this panel used to print. Everything that log said
- * still exists — it moved into `SearchCallsDialog`, one button away — but the
- * question the panel answers by default is now "how far along is this, and which
- * dates does it actually cover", which is the question somebody watching a
+ * The per-call detail lives in `SearchCallsDialog`, one button away. The
+ * question this panel answers by default is "how far along is this, and
+ * which dates does it actually cover" — the question somebody watching a
  * search is asking.
  */
 export function SearchTimeline({ chunks }: { chunks: ChunkState[] }) {

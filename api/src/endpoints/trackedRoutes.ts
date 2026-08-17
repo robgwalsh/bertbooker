@@ -185,8 +185,8 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
     .bind(
       email,
       // Legacy scalars (NOT NULL), kept as the route's PRIMARY airport — the same
-      // representative-value trick `cabin` uses below. `search_runs` and the
-      // pre-0013 read paths still key off these.
+      // representative-value trick `cabin` uses below. `search_runs` and other
+      // readers still key off these.
       spec.origins[0]!,
       spec.destinations[0]!,
       JSON.stringify(spec.origins),

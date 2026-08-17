@@ -15,11 +15,8 @@ export { seatsAeroSource } from "./seatsaero.js";
  * otherwise surface as a write failing mid-search fails at import instead.
  *
  * **`api/src/index.ts` imports this file for the side effect and nothing else.**
- * That import is the entire mechanism now, and it looks removable to anyone
- * tidying unused imports — it is not. The check used to ride along invisibly:
- * the old `shared/src/index.ts` barrel re-exported this module, so importing
- * anything from the barrel ran it. The barrel is gone, and no file imports a
- * symbol from this directory.
+ * That import is the entire mechanism, and it looks removable to anyone tidying
+ * unused imports — it is not. No file imports a symbol from this directory.
  *
  * A second source would call `registerSource` itself after importing here. The
  * registry rejects a duplicate id rather than letting one source silently shadow

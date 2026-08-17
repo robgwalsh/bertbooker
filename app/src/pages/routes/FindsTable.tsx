@@ -28,31 +28,18 @@ import { dayLabel } from "../../lib/format";
 import { useIsPhone } from "../../hooks/useBreakpoints";
 
 // The one table that renders stored award finds. **One caller:** the Routes
-// page (a route's current finds, route implied by its heading). The second was
-// a general database browser — many routes at once, which is what the route and
-// provenance columns used to be for — and it is gone, being a worse second
-// answer to a question the Routes page already answers off the same `findsCte`.
-// Those two columns went with it; see `FindsTableOptions`.
+// page (a route's current finds, route implied by its heading).
 //
 // Extracted from the Routes page rather than duplicated: these cells encode real
 // decisions — cash fares shown beside miles and never ranked against them, a
 // booking link that falls back to Google Flights — and a second copy would drift
 // away from them quietly.
 //
-// The itinerary itself is drawn by `ItineraryCard`, which is why there is no
-// expander here any more: the legs, their times and their layovers are on the
-// row, not behind a chevron.
+// The itinerary itself is drawn by `ItineraryCard`: the legs, their times and
+// their layovers are on the row, not behind a chevron.
 
 /**
  * Optional columns.
- *
- * There were two more — `showRoute` (origin → destination) and `showProvenance`
- * (which source wrote the row, and when the slot was last checked). Both
- * belonged to the Database pane, which was removed; they then sat here for a
- * while described as "a second multi-route caller would need exactly them
- * back", and a column nobody renders is a column nobody notices breaking. They
- * are gone. `showProvenance` in particular had stopped meaning anything: with
- * one source, the source half of it is a constant.
  *
  * `showMap` defaults **on** while an added column would default off, and the
  * asymmetry is the rule to keep: a removal's absent value has to mean "as
@@ -112,7 +99,7 @@ function FindRow({
   return (
     <TableRow hover>
       {/* The DEPARTURE date, and the only place it appears — the card next to it
-          used to restate the arrival date, which is the same day on all but a
+          does not restate the arrival date, which is the same day on all but a
           red-eye. What survives there is the `+N` beside the arrival time, which
           is the part this column can't say. */}
       <TableCell sx={{ ...DATE_CELL, verticalAlign: "top", pt: 2 }}>

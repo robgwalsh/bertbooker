@@ -26,8 +26,8 @@ describe("flightLabel", () => {
 });
 
 describe("flightAwareUrl", () => {
-  // The bug this map was added for: FlightAware files Delta under DAL, and the
-  // IATA ident it used to link to is not a page.
+  // FlightAware files Delta under DAL, and a URL built from the IATA ident is
+  // not a page.
   it("translates IATA to the ICAO ident FlightAware canonicalizes on", () => {
     expect(flightAwareUrl(seg("DL", "5678"))).toBe(
       "https://www.flightaware.com/live/flight/DAL5678",

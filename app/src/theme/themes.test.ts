@@ -115,9 +115,8 @@ describe("themeById", () => {
   });
 
   it("returns the default rather than undefined for anything else", () => {
-    // The promise the whole fallback chain rests on: a stored id that no longer
-    // exists still renders an app — which is what every browser that had chosen
-    // one of the retired pre-port themes is relying on right now.
+    // The promise the whole fallback chain rests on: a stored id that names no
+    // current theme still renders an app.
     expect(themeById(undefined).id).toBe(DEFAULT_THEME_ID);
     expect(themeById("does-not-exist").id).toBe(DEFAULT_THEME_ID);
     expect(themeById("midnight-aurora").id).toBe(DEFAULT_THEME_ID);

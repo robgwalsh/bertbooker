@@ -104,9 +104,8 @@ export function coverageSlices(task: SourceTaskReport): CoverageSlice[] {
  * recorded inside that slice and did not report again is genuinely gone.
  *
  * Scoped to ONE SOURCE. `previous` must already be filtered to the task's
- * source, which is what makes this strictly safer than the pre-pivot blanket
- * prune: a browser source failing can no longer delete an aggregator's finds,
- * because it never had the authority to speak for them. Pure.
+ * source: one source's failure can never delete another source's finds,
+ * because it has no authority to speak for them. Pure.
  */
 export function prunable(
   previous: AvailabilityResult[],

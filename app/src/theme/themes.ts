@@ -6,10 +6,9 @@
  * resolved through its one level of inheritance, because that app
  * had already done the work this one was faking. The difference is not the
  * colours — half these names were already here — it is how MANY colours a theme
- * gets to name. A theme used to be twelve, and everything else in the app was
- * derived: a row hover was `alpha(white, 0.035)`, a selected row was the accent
- * at 12%, a filled button was the accent lightened until its label could be read
- * on it. Derived washes are grey, and grey is what "the themes don't look great"
+ * gets to name, rather than deriving the rest: a row hover, a selected row and
+ * a filled button's fill are each stated outright, not computed from `accent`.
+ * Derived washes are grey, and grey is what "the themes don't look great"
  * meant. A real editor theme states those colours outright — Solarized's
  * selection is `#00596F` and nothing you can compute from `#002B36` will land
  * there — so this catalog states them too.
@@ -31,8 +30,8 @@
  * - **Contrast is already in the numbers.** BertBrowser's catalog is contrast
  *   tested (`ThemeCatalogTests`), and where a palette's own colour failed, its
  *   author moved it and left a comment saying why — Tokyo Night's comment grey,
- *   Nord's Frost blue, Solarized's hover. Those corrections came across with the
- *   values, which is why `buildTheme` now nudges far less than it used to.
+ *   Nord's Frost blue, Solarized's hover. Those corrections come across with the
+ *   values, so `buildTheme` rarely needs to nudge anything further.
  *
  * This module is PURE and DOM-free on purpose: `preferences.ts` imports
  * `isThemeId` to validate a stored id, and the web workspace runs vitest in Node
@@ -180,13 +179,9 @@ export function themeGroup(spec: ThemeSpec): ThemeGroup {
 export const THEME_GROUPS: ThemeGroup[] = ["Core", "Dark", "Light", "Accessible"];
 
 /**
- * What an unconfigured browser gets.
- *
- * Dark+ rather than the old `midnight-aurora`, which this port retired: it was
- * the one palette in the catalog nobody else had tuned, and its whole idea — a
- * near-black slate under a coloured wash — went with the wash. A stored id that
- * no longer exists falls back here on its own (`themeById`), so nothing breaks
- * for a browser that had chosen it; it just wakes up as Dark+.
+ * What an unconfigured browser gets. A stored id that names no current theme
+ * falls back here on its own (`themeById`), so nothing breaks — it just wakes
+ * up as Dark+.
  */
 export const DEFAULT_THEME_ID = "dark-plus";
 
@@ -971,9 +966,9 @@ export const THEMES: ThemeSpec[] = [
 
 const BY_ID = new Map(THEMES.map((t) => [t.id, t]));
 
-/** Whether a stored preference value names a theme that still exists. Used by
- *  `preferences.ts` to reject anything else, which is what makes a renamed or
- *  removed theme a fallback rather than a blank app. */
+/** Whether a stored preference value names a theme that currently exists. Used
+ *  by `preferences.ts` to reject anything else, which is what makes an invalid
+ *  stored theme id fall back rather than produce a blank app. */
 export function isThemeId(id: unknown): id is string {
   return typeof id === "string" && BY_ID.has(id);
 }

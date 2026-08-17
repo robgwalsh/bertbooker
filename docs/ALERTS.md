@@ -47,15 +47,13 @@ Where things live:
 
 ## 1. Why there is a cron at all
 
-Four comments in this repo used to forbid exactly this. They said, roughly:
-*nothing is scheduled; adding a cron would recreate unattended work, and
-unattended work hides source failures.* And separately, of `source_quota`: *if
-you ever find code gating a call on this value, that is the budget guard coming
-back and it needs an argument to survive first.*
+Unattended work is a risk this codebase takes seriously, for two reasons that
+shape everything below: it can hide a source failure behind an empty result,
+and a process spending API calls with nobody watching needs a budget a person
+pressing a button does not. Both are addressed directly rather than by avoiding
+a cron altogether.
 
-**Both objections were right, and both are answered rather than deleted.**
-
-### Objection 1 — unattended work hides source failures
+### Unattended work hides source failures
 
 This is the failure this whole application is built against: **a source that
 quietly returns nothing is indistinguishable from "there is no award space on
@@ -83,7 +81,7 @@ The consequence constrains code far outside `alerts/`:
 
 > **Unattended work must never fail invisibly.** The Alerts tab and Workers Logs
 > are the entire safety net. A sweep that can fail without landing in one of them
-> re-creates the exact problem the old "no cron" rule was protecting against.
+> is a source failure with no way to notice it.
 
 Concretely, that is why `runAlertTick` is `await`ed in `scheduled()` rather than
 `ctx.waitUntil`'d (an async `scheduled` handler's promise is already awaited, so
@@ -91,19 +89,19 @@ Concretely, that is why `runAlertTick` is `await`ed in `scheduled()` rather than
 **failed invocation** in Workers Logs), why `sendEmail` returns a result instead
 of throwing, and why `alert_deliveries` records the sends that never happened.
 
-### Objection 2 — the budget guard
+### Why the budget guard lives in exactly one file
 
-The guard was deleted because *unattended work* was deleted. A person pressing
-Search does not need protecting from a call they chose to spend, and a guard in
-that path turns a deliberate action into a baffling refusal. Both halves are
-still true: the interactive search and enrich paths still **spend first and report after**.
+A person pressing Search does not need protecting from a call they chose to
+spend, and a guard on that path would turn a deliberate action into a baffling
+refusal — so the interactive search and enrich paths **spend first and report
+after**, unconditionally.
 
-What changed is that a process now spends without being watched, which is
-precisely what a budget is for. So the guard is back, in one file, scoped to one
-caller:
+A scheduled sweep is different: it spends without anyone watching, which is
+precisely the case a budget guard is for. So the guard exists, in one file,
+scoped to one caller:
 
 > **Only `alerts/budget.ts` reads the quota before spending.** A budget guard
-> anywhere else is the deleted one leaking back.
+> anywhere else duplicates the one place this codebase trusts to gate a call.
 
 `grep` for `source_quota` and you should find `recordQuota` (writers) and
 `readBudgetState` (the one reader that gates). §7 is what the guard actually
@@ -657,10 +655,8 @@ alert routes are a handful out of the table.
 `search_runs.trigger` carries a CHECK constraint: a new transition type should
 not need a migration to become storable.
 
-**Note that there is no `0007_alerts.sql`.** The eight follow-on migrations were
-folded back into `0001_init.sql` at the BertBooker rename, when both databases
-were recreated empty. Older comments referencing `0007` or `0008` mean columns
-that now live in 0001.
+All `alert_*` columns and the outbox/delivery tables are defined in
+`migrations/0001_init.sql`; there is no separate alerts migration.
 
 ---
 

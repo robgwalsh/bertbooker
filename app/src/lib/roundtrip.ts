@@ -316,10 +316,10 @@ export function splitDirections(
  * How long the whole-window trip is: `date_start` to `date_end` in nights.
  *
  * Derived, never a filter — the pane's default mode names the two dates and this
- * only puts a number on the gap for the copy to quote. (It used to be the default
- * *max nights*, which is precisely the mistake: a length that happens to equal the
+ * only puts a number on the gap for the copy to quote. Using it as the default
+ * *max nights* would be the mistake: a length that happens to equal the
  * window also matches a trip shifted a week later, gathered under the same route
- * and off the dates you can actually travel.)
+ * and off the dates you can actually travel.
  *
  * Inclusive of both endpoints in the sense that matters: a Mar 1 - Mar 31 route
  * holds legs 30 nights apart, so 30 is the answer, not 31.

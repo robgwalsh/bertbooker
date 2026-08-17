@@ -1,10 +1,9 @@
 // Status → tone, as pure data and one theme lookup. `StatusChip`, the component
 // that draws it, stays with the finds table.
 //
-// NOTE: nothing imports any of this today. It was already unused when it moved
-// here out of `FindsTable.tsx`, where a status palette living inside a table
-// file made that easy to miss. Kept rather than deleted because the vocabulary
-// it encodes is the shared one (`SourceTaskStatus` plus the run statuses), and
+// NOTE: nothing imports any of this today. Kept rather than deleted because
+// the vocabulary it encodes is the shared one (`SourceTaskStatus` plus the run
+// statuses), and
 // the next surface that reports a task's outcome should not re-derive which
 // distinctions are worth a colour. Delete it if a second release goes by with
 // no caller.

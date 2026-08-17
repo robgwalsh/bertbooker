@@ -36,15 +36,14 @@ interface RunnableSource extends SourceDescriptor {
 
 **`id` is a permanent stored value.** It is written into
 `availability_snapshots.source` and `search_coverage.source`, and prunes are
-scoped per source. Two things follow, and the second is the one that was learned
-the hard way:
+scoped per source. Two things follow:
 
 - Renaming an id without migrating both tables orphans every row it ever wrote:
   nothing would clean them and they would read as current forever.
 - **Retiring a source without deleting its rows does the same thing.** Delete the
-  code and nothing is left with the authority to prune what it wrote. That is
-  what `migrations/0002_drop_pointsyeah.sql` is, and what migration 0009 was for
-  the scrapers before it.
+  code and nothing is left with the authority to prune what it wrote. Retiring a
+  source is therefore a migration that deletes its rows, not just a code
+  deletion — `migrations/0002_drop_pointsyeah.sql` is the pattern to follow.
 
 **`programs` are foreign keys.** `registerSource` validates every entry against
 `PROGRAM_SEEDS`, because otherwise the typo surfaces as a write failing mid-run
@@ -185,8 +184,8 @@ Four things worth knowing because they constrain what a source may return:
 1. **Probe first, from the edge, with a control.** Establish that the data
    exists, logged out, and that a Cloudflare IP can get it. Hold every variable
    fixed but one. An unpaired "it was blocked" is a rumour —
-   `docs/HARVEST-POSTMORTEM.md` §6 is a list of what that costs. There is no
-   `runtime: "local"` to fall back on any more; see §1.
+   `docs/HARVEST-POSTMORTEM.md` §6 is a list of what that costs. A source that
+   fails this test does not get added; see §1.
 2. **Map its programs onto `PROGRAM_SEEDS`.** A program that is not seeded is not
    storable; add it to *both* `api/src/domain/programs.ts` and
    `seed/programs.sql`, which mirror each other.

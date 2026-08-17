@@ -30,7 +30,8 @@ import {
  * **This displays and does not enforce.** Nothing here or downstream refuses a
  * search when the meter is low — see the `source_quota` note in
  * migrations/0001_init.sql.
- * Code that gates a call on this number is the deleted budget guard returning.
+ * Code that gates a call on this number does not belong here — only
+ * `alerts/budget.ts` reads quota before spending; see docs/ALERTS.md.
  */
 export function QuotaIndicator() {
   const q = useQuery({

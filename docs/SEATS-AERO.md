@@ -11,8 +11,9 @@ that drive both.
 
 A Pro key buys **1000 calls per UTC day**, resetting at 00:00 UTC. Every response
 carries the remaining count in `X-RateLimit-Remaining`. That number is a
-**display, not a guard** — nothing in the codebase reads it to refuse a call, and
-code that does is the deleted budget guard coming back (§9).
+**display, not a guard**: nothing in the interactive search/enrich paths reads
+it to refuse a call — the one place that does read it before spending is
+`api/src/alerts/budget.ts`, and nowhere else (§9).
 
 ---
 
@@ -71,10 +72,10 @@ each chunk pages until hasMore is false, at most 10 (SEATSAERO_MAX_PAGES)
   range, because the true number depends on how many rows the window holds —
   which is the thing a search finds out.
 
-The page size is the one number that moved recently. Measured 2026-08-10: a
+The page size is chosen for memory, not call count. Measured 2026-08-10: a
 summary row is ~2.2 KB, the same row with its trips ~9.9 KB. At `take=1000` that
-is a 10 MB response the Worker must hold as text and again as parsed objects, so
-`take` dropped to 500 and `MAX_PAGES` rose to 10 — the same 5000-row ceiling per
+would be a 10 MB response the Worker must hold as text and again as parsed
+objects, so `take` is 500 and `MAX_PAGES` is 10 — the same 5000-row ceiling per
 chunk, at twice the calls. That trade is overwhelmingly worth it: the only other
 way to learn the same routing is `/trips/{id}` at one call *per row*.
 
@@ -147,11 +148,11 @@ half via `callMetadata`.
 
 ### Resuming, not capping
 
-A Worker has a per-request subrequest budget. This used to be bounded
-structurally (5 chunks × 5 pages = 25, full stop); with the smaller page a search
-can reach 50 calls, which is no longer a number to leave to luck.
+A Worker has a per-request subrequest budget, and a full search can reach 50
+calls (5 chunks × up to 10 pages each) — more than fits comfortably in one
+request.
 
-So the search became **resumable**. After `MAX_CALLS_PER_REQUEST` (25) the
+So the search is **resumable**. After `MAX_CALLS_PER_REQUEST` (25) the
 endpoint stops *between* tasks — never mid-task, or a task's calls are spent for
 nothing — and emits `run_continue` with the next index. The run row stays
 `running` with `finished_at` NULL, and totals **accumulate** across requests
@@ -233,7 +234,7 @@ task's notes, so unmapped breadth shows up as a number rather than as silence.
 
 ## 5. `include_trips` — routing for free
 
-Since 2026-08-10 a search asks for `include_trips=true`, so flight numbers,
+A search asks for `include_trips=true`, so flight numbers,
 connection airports, aircraft, fare classes and total duration arrive **with the
 search, for no extra metered call**. All 12 sources in the measured response
 presented populated trips.
@@ -510,16 +511,14 @@ failing:
 
 - **`SEATSAERO_SOURCE_ID` (`seatsaero`) must never be renamed.** It is a
   permanent database value: every row it ever wrote carries it and pruning is
-  scoped by it. A new name orphans all of them, and nothing would ever prune rows
-  that would sit there looking current forever. It *was* renamed once, from
-  `api:seatsaero`, and that took a migration (`0009`, since folded into
-  `0001_init.sql` — see `docs/HARVEST-POSTMORTEM.md` §7) touching four tables.
-  The SPA then kept comparing against the OLD id for months: `quotaLeft` matched
-  nothing, so the app-bar chip silently showed a raw string instead of a number.
-  If you rename it, `PRIMARY_METERED_SOURCE` in `app/src/lib/quota.ts` follows
-  automatically — it is `export const PRIMARY_METERED_SOURCE = SEATSAERO_SOURCE_ID`
-  now, imported through `shared/src/wire/seatsaero.ts`. It was a hand-typed copy
-  when this happened, which is exactly why it is not one any more.
+  scoped by it. A new name would orphan all of them, and nothing would ever
+  prune rows that would sit there looking current forever. Renaming it would
+  require a migration touching every table that stores it. `app/src/lib/quota.ts`'s
+  `PRIMARY_METERED_SOURCE` derives from `SEATSAERO_SOURCE_ID` through
+  `shared/src/wire/seatsaero.ts` rather than repeating the literal, specifically
+  so the SPA's quota chip cannot drift out of sync with the database value by
+  hand (see `docs/HARVEST-POSTMORTEM.md` §7 for the incident that motivated
+  this).
 - **`UpdatedAt` → `sourceFetchedAt`.** Never the fetch time.
 - **`raw_hash` is never touched by enrichment.**
 - **The program map is verified live**, and unmapped sources are dropped.

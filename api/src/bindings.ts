@@ -23,11 +23,10 @@ export interface Env {
    *  a line in `api/.dev.vars`). The input keying material for the
    *  session JWT's signing key.
    *
-   *  It exists because the password used to be the HMAC key directly, which made
-   *  every token an offline oracle on the password: a leaked token is a known
-   *  message under a human-chosen key, grindable at billions of guesses a
-   *  second. A high-entropy key breaks that link — a leaked token now says
-   *  nothing about `APP_PASSWORD`.
+   *  A high-entropy key here is what keeps a leaked session token from being
+   *  an offline cracking oracle on `APP_PASSWORD`: signing with the password
+   *  directly would make a leaked token a known message under a human-chosen
+   *  key, grindable at billions of guesses a second.
    *
    *  Unset => 503, the same fail-closed posture `APP_PASSWORD` takes. Falling
    *  back to a password-derived key would restore exactly the weakness this

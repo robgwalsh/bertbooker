@@ -85,12 +85,9 @@ function PreferencesDialog({ open, onClose }: { open: boolean; onClose: () => vo
             }
             label="Show Map column"
           />
-          {/* The scope is still spelled out even though the Routes page is now
+          {/* The scope is still spelled out even though the Routes page is
               the only table that draws finds — a "Show X" switch reads as
-              app-wide, and naming where it applies costs one line. It used to be
-              genuinely narrower than the label (a general database browser
-              kept its map either way); that pane is gone, and this is the
-              sentence that would go on lying about it. */}
+              app-wide, and naming where it applies costs one line. */}
           <Typography variant="caption" color="text.secondary">
             The route map drawn beside each itinerary on the Routes page.
           </Typography>
@@ -230,9 +227,8 @@ function ThemeSwatch({ spec, selected }: { spec: ThemeSpec; selected: boolean })
           <Box sx={{ width: 24, bgcolor: spec.tabIdle, borderRight: `1px solid ${spec.border}` }} />
         </Box>
         {/* Page: the sidebar on the left with one selected row in it, "code" on
-            the right. The selected row is what shows off the half of the palette
-            that used to be computed — a real selection colour rather than a wash
-            of the accent. */}
+            the right. The selected row is what shows off the stated selection
+            colour rather than a wash of the accent. */}
         <Box sx={{ display: "flex", height: 46 }}>
           <Stack
             spacing={0.4}

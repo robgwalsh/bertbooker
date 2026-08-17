@@ -57,10 +57,9 @@ export interface RunState {
    *  of the window was never actually looked at. */
   runStatus?: "ok" | "partial" | "failed" | "aborted";
   /** The Worker stopped inside its subrequest budget and `searchRoute` is
-   *  re-asking from `nextIndex`. Cleared by the next `chunk_start`. The frame
-   *  was previously dropped on the floor, which was survivable while a log of
-   *  calls was scrolling past; against a still progress bar a pause of several
-   *  seconds reads as a hang. */
+   *  re-asking from `nextIndex`. Cleared by the next `chunk_start`. Surfacing
+   *  this matters: against a still progress bar, a pause of several seconds
+   *  reads as a hang. */
   paused?: boolean;
   error?: string;
 }

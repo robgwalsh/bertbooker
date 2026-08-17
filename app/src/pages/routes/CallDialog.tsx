@@ -59,7 +59,7 @@ function HeaderTable({ headers }: { headers: Record<string, string> }) {
  *
  * This is the thing that turns "775 offers" into something checkable: when a find
  * looks wrong, or a cabin is missing, the answer is in the payload the parser was
- * handed, and it used to be unreachable without re-running the call by hand.
+ * handed.
  *
  * The body is session state, streamed alongside the results — it is not stored,
  * and a reload loses it. `search_tasks.capture_json` keeps the metadata.

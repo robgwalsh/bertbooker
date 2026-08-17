@@ -4,9 +4,8 @@
  * **There is no credential in this file, and that is the point.** The session is
  * an `HttpOnly` cookie the Worker sets at login: the browser attaches it to every
  * same-origin request automatically, and no script — ours, or one that got onto
- * the page — can read it. It used to be a bearer token in `localStorage`, which
- * meant an XSS could copy it once and replay it from anywhere for the remaining
- * eight hours.
+ * the page — can read it. A bearer token in `localStorage` would let an XSS
+ * copy it once and replay it from anywhere for the remaining eight hours.
  *
  * What is left here is a **hint**: the expiry the Worker reported at login. It
  * unlocks nothing, and the Worker re-derives the real answer from the cookie on

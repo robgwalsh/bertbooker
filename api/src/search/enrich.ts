@@ -35,8 +35,7 @@ import { recordQuota } from "../db/runs.js";
  *    straight back to the person who clicked, as a status code. What stays
  *    durable is `enriched_at` — the record that a call was spent.
  *  - **It never consults the quota before spending.** `source_quota` is a
- *    display. Code that reads it to refuse a call is the deleted budget guard
- *    coming back.
+ *    display only; only `alerts/budget.ts` reads it to decide whether to spend.
  */
 
 /** Defined in `shared/src/wire/enrich.ts`, where the docblock lives. The SPA

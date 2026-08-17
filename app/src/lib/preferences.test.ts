@@ -83,7 +83,7 @@ describe("parsePreferences — themeId", () => {
   });
 
   it("falls back for an id that isn't in the catalog", () => {
-    // A theme that was renamed or removed, and the hand-edited case.
+    // An id not in the catalog, and the hand-edited case.
     expect(parsePreferences('{"themeId":"solarized-mauve"}').themeId).toBe(DEFAULT_THEME_ID);
     expect(parsePreferences('{"themeId":""}').themeId).toBe(DEFAULT_THEME_ID);
     expect(parsePreferences('{"themeId":42}').themeId).toBe(DEFAULT_THEME_ID);

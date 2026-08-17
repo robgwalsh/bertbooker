@@ -34,9 +34,9 @@ export const SEATSAERO_CHUNK_DAYS = 90;
  *
  * Five, not eight: `effectiveSearchWindow` already clamps the window to
  * `today + HORIZON_DAYS`, so at most 366 days survive planning and 5 × 90d covers
- * every one of them. The cap matters more than it used to — each chunk costs
- * Worker subrequests now, and the worst case wants to stay comfortably inside the
- * platform's budget (5 chunks × MAX_PAGES = 25 outbound calls).
+ * every one of them. Each chunk costs Worker subrequests, and the worst case
+ * needs to stay comfortably inside the platform's budget (5 chunks × MAX_PAGES
+ * = 25 outbound calls).
  */
 export const SEATSAERO_MAX_CHUNKS = 5;
 
@@ -72,7 +72,7 @@ export const SEATSAERO_MAX_CAPTURE_BYTES = 1_000_000;
  *
  * This exists because "3 API calls" is a number you can't act on. When a search
  * comes back thinner than expected the question is always *which call, how long,
- * and what did it actually say* — and the answer used to be nowhere.
+ * and what did it actually say*, and this is where that answer lives.
  *
  * Failed calls are recorded too, with whatever came back. A 500's body is often
  * the only explanation you get.

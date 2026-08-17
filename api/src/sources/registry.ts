@@ -8,11 +8,6 @@ import type { SourceDescriptor } from "./types.js";
  * produce. It holds one entry, seats.aero, and its live job is the validation
  * `registerSource` performs on the way in — see `sources/index.ts`.
  *
- * It used to do more: two runners read it, one asking for `runtime: "worker"`
- * and the other for `"local"`, so that neither could execute the other's
- * sources. With one runtime that partition has no meaning, and
- * `runnableSources` / `resolveRunnable` went with it.
- *
  * Registration is explicit rather than by directory scan — a source that isn't
  * named in `sources/index.ts` (or registered by an embedder) does not exist, and
  * that is easier to reason about than an import side effect.

@@ -8,10 +8,8 @@ import { csrf } from "hono/csrf";
 // source's program list surfaces as a write failing halfway through a search
 // instead of as a worker that refuses to boot.
 //
-// It used to happen invisibly — `shared/src/index.ts` re-exported
-// `sources/index.js`, so merely importing the barrel ran it. The barrel is gone
-// and nothing else imports a symbol from `sources/`, so this line is now the
-// whole of the mechanism. Deleting it as an unused import removes the check.
+// Nothing else imports a symbol from `sources/`, so this line is the whole of
+// the mechanism. Deleting it as an unused import removes the check.
 import "./sources/index.js";
 import type { Env, Vars } from "./bindings.js";
 import { identity } from "./middleware/identity.js";
@@ -48,9 +46,8 @@ import { trackedRoutes } from "./endpoints/trackedRoutes.js";
 //
 // Something DOES run on a schedule: the alerts cron (`alerts/sweep.ts`, and the
 // `scheduled` handler on the default export below) re-searches routes marked
-// for alerts. That reverses a rule this comment used to state flatly, and
-// docs/ALERTS.md §1 is the argument — including why the deleted quota budget
-// guard came back with it, scoped to that one caller.
+// for alerts. `alerts/budget.ts` reads the quota before spending, scoped to
+// that one caller — see docs/ALERTS.md §1 and §7.
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -136,11 +133,8 @@ app.route("/", trackedRoutes);
 /*
  * `POST /api/tracked-routes/:id/search` lives in `endpoints/search.ts`.
  *
- * It once lived here, running every provider inline and streaming NDJSON back,
- * and was moved out when it became clear a Worker cannot read a carrier's own
- * site: United returns Akamai 428 and Delta 444 even from a residential IP. That
- * part has not changed, and scraping is no longer attempted at all — see
- * docs/HARVEST-POSTMORTEM.md for why it was abandoned rather than fixed.
+ * A Worker cannot read a carrier's own site: United returns Akamai 428 and
+ * Delta 444 even from a residential IP — see docs/HARVEST-POSTMORTEM.md.
  *
  * What the Worker does run rests on a different fact: seats.aero is a keyed
  * vendor API, not a carrier site, and does not care where the request

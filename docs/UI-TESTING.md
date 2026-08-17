@@ -53,29 +53,22 @@ is at the keyboard the moment a test fails. Read a report deliberately, with
 
 ## 2. Headless and ephemeral, and it must stay both
 
-This repo used to hold a second Playwright browser, and it was the opposite of
-this one on every axis: **headed** (parked off-screen at
-`--window-position=-32000,-32000`) and a **persistent** context rooted at
-`.playwright-profile/`, because commercial anti-bot is tuned to catch headless
-Chrome and a warm profile is what kept an airline answering.
+The harness uses `chromium.launch()` + `newContext()`, never
+`launchPersistentContext`. Both properties matter and neither should be relaxed:
 
-That browser and the scrapers it drove are gone (`docs/HARVEST-POSTMORTEM.md`),
-and none of its choices was ever right here:
-
-- There is no anti-bot on the Vite dev server. Headless is simply better, because
-  a window that does not exist cannot be interrupted.
+- There is no anti-bot on the Vite dev server, so headless is simply better — a
+  window that does not exist cannot be interrupted.
 - **A persistent context locks its directory**, so two runs could not overlap,
   for no gain — there is no reputation to accumulate against localhost.
 
-So the harness uses `chromium.launch()` + `newContext()`, never
-`launchPersistentContext`. If you are reintroducing browser automation for
-anything other than the local SPA, do not point it at this harness.
+If you are reintroducing browser automation for anything other than the local
+SPA, do not point it at this harness.
 
-One thing that carries over: **the installed Chrome, never a downloaded one.**
-`channel: "chrome"` resolves the real browser, and `@playwright/test` is installed
-with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so its postinstall does not fetch ~1GB
-of bundled Chromium and Firefox and WebKit that nothing here would use. If a
-launch ever fails, the fix is **install Chrome** — *not* `npx playwright install`,
+**The installed Chrome, never a downloaded one.** `channel: "chrome"` resolves
+the real browser, and `@playwright/test` is installed with
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` so its postinstall does not fetch ~1GB of
+bundled Chromium and Firefox and WebKit that nothing here would use. If a launch
+ever fails, the fix is **install Chrome** — *not* `npx playwright install`,
 which downloads precisely the browser this config declines to use.
 
 ## 3. The two servers
@@ -186,8 +179,7 @@ One same-origin failure is expected and filtered by URL:
 
 - **`/favicon.ico`** — the SPA ships none.
 
-There used to be a second, `/daemon/*`, for a local process the SPA polled. Both
-are gone; the app now talks to exactly one origin.
+The app talks to exactly one same-origin path prefix, `/api`.
 
 ## 6. The suite
 
@@ -260,10 +252,9 @@ picture of a different app.
 
 **A non-default `--width` is stamped into the filename** as `--w<n>`, so a phone
 shot and its desktop twin can sit in one directory. The default 1440 is *not*
-stamped, so every filename that existed before is unchanged. (This is worth
-knowing about because before it existed, `--width 390` silently overwrote the
-1440px shot of the same page — the two pictures you most want side by side were
-the two that collided.)
+stamped. Without the stamp, `--width 390` would silently overwrite the 1440px
+shot of the same page — the two pictures you most want side by side would be the
+two that collide.
 
 Comparing widths is the main way the responsive layouts get reviewed at all:
 below `sm` the two finds tables stop being tables and render as cards, and no

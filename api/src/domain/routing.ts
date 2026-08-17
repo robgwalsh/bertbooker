@@ -1,8 +1,8 @@
-// From `wire/`, NOT from `providers/seatsaero.js`. This one import used to pull
-// the whole 1436-line provider — and `fetch` with it — into every program that
-// touched `RoutePair`, which since the wire module exists includes the SPA's.
-// The docblock below claims this file knows nothing about fetch; that is only
-// true because of this line.
+// From `wire/`, NOT from `providers/seatsaero.js` — importing from the provider
+// would pull the whole 1436-line module, and `fetch` with it, into every
+// program that touches `RoutePair`, including the SPA's. The docblock below
+// claims this file knows nothing about fetch; that is only true because of
+// this line.
 import { SEATSAERO_MAX_PAGES } from "../../../shared/src/wire/seatsaero.js";
 
 /**
@@ -23,10 +23,9 @@ import { SEATSAERO_MAX_PAGES } from "../../../shared/src/wire/seatsaero.js";
  */
 
 // `RoutePair`, `RouteSpec` and the two caps are declared in `./wire/routing.ts`
-// and re-exported here, so every consumer of this module is unchanged. The SPA
-// reads all four — and because the caps are VALUES rather than types, this file
-// was the only module outside `wire/` whose runtime code reached the browser's
-// module graph at all. It no longer does.
+// and re-exported here, so every consumer of this module sees them in one
+// place. The SPA reads all four; the caps are VALUES rather than types, so
+// they carry runtime code, not just type information.
 import { MAX_DESTINATIONS, MAX_ORIGINS } from "../../../shared/src/wire/routing.js";
 import type { RoutePair, RouteSpec } from "../../../shared/src/wire/routing.js";
 

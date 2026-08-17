@@ -2,13 +2,9 @@ import type { AvailabilityResult } from "../domain/types.js";
 
 // What a completed unit of gathering work looks like on its way into the
 // database. One producer — the Worker's own seats.aero search — hands these to
-// `applyTask` in-process.
-//
-// This was once a WIRE contract, because a second source ran on a laptop and
-// POSTed its results to `/api/ingest/*`. That source is gone and so is the
-// endpoint; what survives is the shape, because the properties it encodes are
-// about honesty rather than transport: a task that was refused must be
-// distinguishable from one that looked and found nothing, whoever ran it.
+// `applyTask` in-process. The properties it encodes are about honesty rather
+// than transport: a task that was refused must be distinguishable from one
+// that looked and found nothing.
 //
 // The display half of this IS part of the wire contract: `SourceTaskStatus` and
 // `RunStatus` are DECLARED in `../wire/domain.ts`, which the SPA imports, and

@@ -33,10 +33,10 @@ function RailRoute({
 }: {
   route: TrackedRoute;
   names: Map<string, AirportName>;
-  /** Sits immediately right of the CODES, on their own line. It used to be a
-   *  sibling of this whole block, which put it past the widest of the two lines
-   *  — and the city line under `SEA/PDX ⇄ NRT/HND` is much the wider, so the
-   *  mark ended up floating in the middle of the row, attached to nothing. */
+  /** Sits immediately right of the CODES, on their own line. As a sibling of
+   *  this whole block it would sit past the widest of the two lines — and the
+   *  city line under `SEA/PDX ⇄ NRT/HND` is much the wider — so the mark would
+   *  float in the middle of the row, attached to nothing. */
   mark?: React.ReactNode;
 }) {
   const origins = parseCodes(route.origins, route.origin);

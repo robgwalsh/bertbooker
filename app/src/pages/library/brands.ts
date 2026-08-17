@@ -4,7 +4,7 @@
 //
 // The currencies' own issuer domains are NOT here: they live in
 // `lib/currencies.ts` beside `CurrencyIcon`'s other inputs, because every page
-// draws those marks and this one is no longer their only reader.
+// draws those marks and this one is not their only reader.
 
 import type { Theme } from "@mui/material/styles";
 import { readable } from "../../theme/build";

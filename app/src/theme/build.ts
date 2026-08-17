@@ -68,11 +68,10 @@ export const MONO_FONT =
 /**
  * A wash of the foreground over a surface — the app's "one step raised" idiom.
  *
- * Still here, but for a much smaller job than it used to do: the map's control
- * chrome and a couple of overlay scrims, where there is no palette token for
- * "slightly lighter than whatever this is". Interaction states are NOT this any
- * more — a hovered row is `spec.hover`, a chosen one is `spec.selected`. Reach
- * for a token first and this second.
+ * Used narrowly: the map's control chrome and a couple of overlay scrims,
+ * where there is no palette token for "slightly lighter than whatever this
+ * is". Interaction states are NOT this — a hovered row is `spec.hover`, a
+ * chosen one is `spec.selected`. Reach for a token first and this second.
  */
 export function tint(theme: Theme, opacity: number): string {
   return alpha(
@@ -111,7 +110,7 @@ export function readable(color: string, theme: Theme, against?: string): string 
  *
  * `buildTheme` runs this over the roles that are painted as TEXT — the four
  * statuses, the bright accent, secondary text — against BOTH grounds they can
- * land on. It fires far less than it used to: the ported palettes are contrast
+ * land on. It fires rarely: the ported palettes are contrast
  * tested at their source, and where one of them failed, its author moved the
  * value and left a comment (Tokyo Night's comment grey, Nord's Frost blue). This
  * stays as the backstop for the app's own additions — the hand-picked `success`
@@ -215,7 +214,7 @@ export function buildTheme(spec: ThemeSpec): Theme {
       // `primary` is a GROUND. `main` is what a contained button is painted in
       // and `contrastText` is what survives on top of it — which is why the
       // palette states both rather than letting MUI guess a black-or-white from
-      // a colour that used to be chosen for reading, not for sitting on.
+      // a colour chosen for legibility as text, not as a fill.
       // Text and outlined buttons opt back out to `ink` below.
       primary: {
         main: spec.accent,

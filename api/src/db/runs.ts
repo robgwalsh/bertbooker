@@ -179,9 +179,8 @@ export async function recordTask(
  * call they deliberately asked for.
  *
  * It has exactly ONE reader that consults it before spending, and that reader is
- * `alerts/budget.ts` — the scheduled sweep, which spends with nobody watching
- * and is the only thing here a budget was ever for. Anywhere else is the deleted
- * guard leaking back into the paths it was deleted from. docs/ALERTS.md §7.
+ * `alerts/budget.ts` — the scheduled sweep, which spends with nobody watching.
+ * A budget guard anywhere else is out of place. docs/ALERTS.md §7.
  */
 export async function recordQuota(
   db: D1Database,

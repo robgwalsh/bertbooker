@@ -16,12 +16,12 @@ import type { AirportName, TrackedRoute } from "../../api";
 /**
  * One airport in the header diagram: the CODE as plain text, and nothing else.
  *
- * It used to be a chip — tinted background, border — with the full airport name
- * and the city/country stacked underneath. That made the header the busiest
- * thing on the page for information most glances do not need: you know what PIT
- * is, and when you don't, the tooltip still says it in full. So the lookup is
- * not wasted, only quieter — `airportLine` remains the title, and the rail keeps
- * its one-line city subtitle for telling two similar routes apart.
+ * A tinted chip with the full airport name and city/country stacked
+ * underneath would make the header the busiest thing on the page for
+ * information most glances do not need: you know what PIT is, and when you
+ * don't, the tooltip still says it in full. So the lookup is not wasted, only
+ * quieter — `airportLine` remains the title, and the rail keeps its one-line
+ * city subtitle for telling two similar routes apart.
  *
  * The codes carry the emphasis themselves (18px, bold, tracked out), so the
  * chrome was doing nothing the type was not already doing.
@@ -69,11 +69,11 @@ function AirportPill({ code, names }: { code: string; names: Map<string, Airport
  *  monitoring. Mirrored rather than a `⇄` glyph so it stays the same visual
  *  language as the one-way case. */
 function Connector({ roundTrip }: { roundTrip?: boolean }) {
-  // One rail width for both cases. It used to be 24 round-trip / 34 one-way,
-  // which made the connector — and therefore the whole diagram — 20px narrower
-  // for a round trip than a one-way, so selecting a different route in the rail
-  // shifted everything to its right. The two-plane stack is the same width as
-  // the one-plane one, so a constant rail is a constant connector.
+  // One rail width for both cases: a width that differed between round-trip
+  // and one-way would make the connector — and therefore the whole diagram —
+  // narrower for one case than the other, so selecting a different route in
+  // the rail would shift everything to its right. The two-plane stack is the
+  // same width as the one-plane one, so a constant rail is a constant connector.
   const rail = {
     width: 30,
     height: 2,

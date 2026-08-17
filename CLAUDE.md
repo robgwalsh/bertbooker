@@ -30,23 +30,23 @@ There is one more writer, and it finds nothing. **Enrich**
 claims no coverage and prunes nothing, which is what keeps it out of the sentence
 above.
 
-**And one thing does now run on a schedule.** **Alerts**
+**One thing runs on a schedule.** **Alerts**
 (`api/src/alerts/`) is a Cron Trigger that re-searches the routes marked
 for alerts and emails a digest when something changes. It is the same Search
 engine (`search/run.ts`, two callers and one behaviour) and the same ingest
-pipeline — the only new thing is that nobody pressed a button.
-**`docs/ALERTS.md` is that process in full**, and §1 of it is the argument
-against the four comments in this repo that forbade exactly this. Read it before
+pipeline, running with nobody pressing a button.
+**`docs/ALERTS.md` is that process in full**, including the reasoning for
+running unattended work at all. Read it before
 touching anything under `api/src/alerts` or the cron in
 `wrangler.toml`. Two rules from it that constrain code elsewhere:
 
 - **Unattended work must never fail invisibly.** No email is sent when a sweep
   breaks — only when it finds something — so the Alerts tab and Workers Logs are
-  the entire safety net. A sweep that can fail without landing there re-creates
-  the exact problem the old "no cron" rule was protecting against.
+  the entire safety net. A sweep that can fail without landing there is
+  invisible everywhere.
 - **Only `alerts/budget.ts` reads the quota before spending.** The interactive
-  paths still spend first and report after; a budget guard anywhere else is the
-  deleted one leaking back.
+  paths still spend first and report after; do not add a budget guard anywhere
+  else.
 
 One more consequence constrains almost every change here:
 
@@ -62,8 +62,8 @@ One more consequence constrains almost every change here:
   exception list: **inbound data — seats.aero**, allowed because it is a keyed
   vendor API that authenticates the *key*, not the client; **outbound
   notification — Resend**, which is not a data source at all but a delivery
-  channel on the same footing. There is no longer a `runtime: "local"` escape
-  hatch for a source that fails this test — it simply does not get added.
+  channel on the same footing. A source that fails this test simply does not
+  get added — there is no local-execution escape hatch for it.
 
 This file is orientation and invariants. The depth lives in `docs/`:
 `SOURCES.md` (**the source contract** — what a source is, what may be added, the
@@ -71,7 +71,7 @@ ingest rules, adding one; the one place any of that is written down),
 `SEATS-AERO.md` (**the whole Partner API integration** — search, enrich, quota,
 every payload trap; likewise the one place),
 `ALERTS.md` (**the whole scheduled sweep** — the argument for having a cron at
-all, the pacing model, the reinstated budget guard, the outbox and the digest;
+all, the pacing model, the budget guard, the outbox and the digest;
 the one place any of that is written down),
 `UI-TESTING.md` (**how to run and look at the SPA with nobody at the keyboard** —
 the headless harness, the session seeding, and the things it must never touch;
@@ -163,30 +163,18 @@ read by the Worker that produces it and the SPA that consumes it. **It is also
 the whole of `shared/`** — `shared/src/wire/` is the only directory under
 `shared/src/`, which is what makes "the SPA imports the wire contract" a fact
 about the tree rather than a rule with an exception list.
-
-It exists because those shapes used to be written down twice. `app/src/api/`
-hand-mirrored ~25 types out of `api/src` and `shared/`, and its own banner
-recorded what that cost: `PRIMARY_METERED_SOURCE` sat on a stale source id after
-a migration renamed it, every quota lookup silently matched nothing, and it went
-unnoticed for months. For `AlertSchedule` there was no second copy at all — the
-Worker built a four-level object literal by hand and the SPA's interface was the
-only written-down form of it.
-
 Three rules keep it working:
 
 - **The SPA imports `shared/`, never `api/`.** There is nothing under `shared/`
-  that a browser cannot run, so this needs no list of forbidden modules; it used
-  to need one, naming the root barrel, `ingest/index.ts` and `sources/index.ts`,
-  and all three now live in `api/src/`. The import happens in `app/src/api/*`,
-  which re-exports the types so no page or component names a path in `shared/`.
+  that a browser cannot run, so this needs no list of forbidden modules. The
+  import happens in `app/src/api/*`, which re-exports the types so no page or
+  component names a path in `shared/`.
 - **Every wire declaration is DECLARED in `wire/`, not borrowed from elsewhere.**
-  The modules in that directory import only each other. This is the rule that
-  keeps the first one true: `wire/domain.ts` used to re-export `Cabin`,
-  `ChangeSummary`, `RoutePair`, `SweepPacing` and four more out of the backend
-  half of `shared/`, which pinned seven Worker-only files inside a directory the
-  SPA reads. The direction is now the one `wire/seatsaero.ts` established — the
-  declaration lives in `wire/` and the backend module re-exports it, so `api/`
-  imports its own domain vocabulary from `api/src/domain/*` exactly as before.
+  The modules in that directory import only each other, which is what keeps
+  the first rule true — nothing in `wire/` reaches into a Worker-only file.
+  The declaration lives in `wire/` and the backend module re-exports it (the
+  pattern `wire/seatsaero.ts` sets), so `api/` imports its own domain
+  vocabulary from `api/src/domain/*`.
 - **The Worker is annotated against it** — `const body: T = {…}` on hand-built
   literals, `.all<T>()` on D1 reads. That is what turns the types from
   documentation into a guarantee; without it, drift would only have moved rather
@@ -200,24 +188,20 @@ in the repo — no DOM, no `@cloudflare/workers-types` — and it is the only pa
 that catches **both** failure modes. `tsc -p app` catches a stray `D1Database`
 (loudly, but at the far end of a chain); nothing else catches a wire file
 reaching `fetch`/`Response`, because app's lib includes DOM and it would simply
-re-drag the 1361-line `providers/seatsaero.ts` into the SPA's bundle. That is not
-hypothetical: `routing.ts` and `alerts/pace.ts` each imported a single integer
-from that file, so `RoutePair` and `SweepPacing` dragged the whole provider along
-behind them. `shared/tsconfig.json` then checks the same files a second time WITH
+re-drag the 1361-line `providers/seatsaero.ts` into the SPA's bundle. This isn't
+theoretical: a single type imported from a Worker-only file is enough to drag
+the whole provider along behind it. `shared/tsconfig.json` then checks the same files a second time WITH
 DOM and workers-types: that pass proves they compose with the Worker's code, the
 narrow one proves they need none of it.
 
 - **`shared/`** — `src/wire/` and nothing else: the request/response contract
   both sides read (above). **Not a package** — no `package.json`, no `exports`
-  map, nothing emitted. It used to hold the domain model, the sources, the
-  ingest pipeline and the seats.aero provider too; all of that was Worker-only
-  and is now in `api/src/`.
+  map, nothing emitted.
 - **`api/`** — the only worker, and its `wrangler.toml`. Identity is
   `APP_USER_EMAIL` and it *deliberately ignores*
   `Cf-Access-Authenticated-User-Email` — with no Access in front and no JWT
-  verification, that header is a string the client picked. The password session
-  is now the only credential: `X-Ingest-Token` and its three POST routes are
-  gone.
+  verification, that header is a string the client picked. The password
+  session is the only credential.
 - **`app/`** — the SPA and its `vite.config.ts`, three routes: Routes, Library,
   Alerts.
 
@@ -228,7 +212,7 @@ Grouped by **responsibility class**, which is the split `alerts/` always used
 
 | | |
 | --- | --- |
-| `index.ts` | **the composition root, and nothing else.** The middleware chain, the mounts, and the `fetch`/`scheduled` export. It was 861 lines holding nine inline endpoints; if you are adding a handler, it does not go here. |
+| `index.ts` | **the composition root, and nothing else.** The middleware chain, the mounts, and the `fetch`/`scheduled` export. If you are adding a handler, it does not go here. |
 | `bindings.ts` | `Env` and `Vars`. Every secret is documented on the field, including what its absence does. |
 | `middleware/` | the request pipeline: `gate.ts` (password + `/api/auth/*`), `identity.ts`, `security.ts`. |
 | `endpoints/` | one `Hono` sub-app per surface, registering **absolute** `/api/...` paths, so every mount in `index.ts` is at `"/"` and the path is greppable from the handler. **Named `endpoints/`, not `routes/`** — "route" already means a tracked route here. |
@@ -253,9 +237,9 @@ allowed to import it*:
 
 | | |
 | --- | --- |
-| `main.tsx`, `router.tsx`, `index.css` | the entry points. The shell wires pages together and owns nothing else — note it takes the Routes page's URL contract from `pages/routes/searchParams.ts` rather than declaring it, which is what broke the old cycle between the two. |
+| `main.tsx`, `router.tsx`, `index.css` | the entry points. The shell wires pages together and owns nothing else — it takes the Routes page's URL contract from `pages/routes/searchParams.ts` rather than declaring it. |
 | `api/` | **the one boundary crossing.** See *The wire contract*. |
-| `lib/` | pure logic, no JSX, no React. **`lib/` is where a thing goes when it wants a test**, because `vitest.config.ts` globs `*.test.ts` only — a `*.test.tsx` is not skipped, it is silently never collected, and the run stays green. That is why `lib/quota.ts` and `lib/statusTone.ts` exist at all: they were pure functions trapped inside `.tsx` component files where no test could reach them. |
+| `lib/` | pure logic, no JSX, no React. **`lib/` is where a thing goes when it wants a test**, because `vitest.config.ts` globs `*.test.ts` only — a `*.test.tsx` is not skipped, it is silently never collected, and the run stays green. |
 | `hooks/` | shared React hooks — the two named viewport seams, the airport-name lookup, the debounce. |
 | `components/` | presentation used by more than one page. |
 | `pages/<page>/` | **page-private, co-located with its only consumer.** The finds tables, the itinerary card, the route map and the two stream hooks live under `pages/routes/` because the Routes page is the only thing that reads a stored find. The Airports pane is under `pages/library/airports/` because it is a Library *tab*, not a route in `routeTree`. |
@@ -280,8 +264,8 @@ upserted by every coverage-claiming task.
   that collapse resolves trivially, and it is kept anyway, because it is what
   makes **retiring** a source a data question with a right answer: delete the
   code and nothing is left with authority to prune what it wrote, so its rows
-  read as current forever. `migrations/0002_drop_pointsyeah.sql` is that delete;
-  migration 0009 was the same delete for the scrapers.
+  read as current forever. `migrations/0002_drop_pointsyeah.sql` and
+  migration 0009 are that delete, already applied.
 
 ### Ingest (`api/src/ingest/apply.ts`)
 
@@ -318,13 +302,9 @@ under-claims rather than over-claims.
 ### Reading (`api/src/db/finds.ts`)
 
 Every read of a stored find goes through **one CTE** (`findsCte`), so no two
-surfaces can disagree about what a current find is. There used to be three
-readers — the dashboard, a general database browser, and `GET /api/finds`. The
-browser went first; `GET /api/finds` and `GET /api/finds/sources` followed it,
-having sat with no client and no test for long enough that nothing would have
-noticed either breaking. **The dashboard is the only reader now**, which is the
-better arrangement: a change to this CTE is exercised by the surface that
-matters. The CTE is the same shape: `per_source` (latest per
+surfaces can disagree about what a current find is. **The dashboard is the
+only reader**, which is the arrangement that keeps it exercised: a change
+to this CTE is exercised by the surface that matters. The CTE has one shape: `per_source` (latest per
 route/program/cabin/**source**) → `cash_any` (freshest known fare, any source) →
 `coverage` (MAX `checked_at`) → `finds` (winner by freshest `source_fetched_at`,
 cash price `COALESCE`d forward). A cash fare is an attribute of the itinerary,
@@ -335,15 +315,15 @@ price would blink in and out as sources take turns being freshest.
 say which currencies can *become* the program's miles; a known **cash fare** says
 the seat can be *bought* through any card's travel portal regardless.
 `bookableCurrencies` (`providers/filter.ts`) is the union, and the SQL mirrors it
-in `ROUTE_FINDS_MATCH`'s currency clause — **keep the two in step.** It was three
-expressions until `GET /api/finds` went and took `BOOKABLE_WITH_CLAUSE` with it.
-Note that nothing calls `bookableCurrencies` at runtime any more (every filtering
-caller is on the read side and speaks SQL); it is kept as the testable statement
-of the rule, which is why `filter.test.ts` is the thing that pins it.
+in `ROUTE_FINDS_MATCH`'s currency clause — **keep the two in step.**
+Nothing calls `bookableCurrencies` at runtime — every filtering caller is on
+the read side and speaks SQL — so it is kept as the testable statement of
+the rule, which is why `filter.test.ts` pins it.
 Filtering on `bookableWith` alone hides exactly what cash pricing exists to
-surface: Alaska is Bilt-only, so a Chase-filtered route showed *nothing* from it
-until the fare counted. Delta is the extreme case — SkyMiles takes none of the
-couple's currencies, so only a cash fare can ever make a Delta seat reachable.
+surface: Alaska is Bilt-only, so a Chase-filtered route would show nothing
+from it without the fare counting. Delta is the extreme case — SkyMiles
+takes none of the couple's currencies, so only a cash fare can ever make a
+Delta seat reachable.
 
 ## Non-obvious gotchas
 
@@ -368,10 +348,9 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   `shared/` the same way (`../../shared/src/wire/index.js`). esbuild (wrangler)
   and Vite (vitest) rewrite the extension. Keep the `.js` suffix on relative
   imports.
-- **There is no barrel in `api/src/`, and that is deliberate.**
-  `shared/src/index.ts` used to re-export the whole domain, and seven files each
-  pulled 10–20 symbols through one opaque line — you could not tell which
-  subsystem any of them came from. Imports now name the owning module
+- **There is no barrel in `api/src/`, and that is deliberate.** A barrel that
+  re-exports the whole domain hides which subsystem an imported symbol comes
+  from. Imports name the owning module
   (`../providers/seatsaero.js`, `../domain/routing.js`). Don't reintroduce one.
 - **`api/src/index.ts` imports `./sources/index.js` for its SIDE EFFECT**, and
   that line is the whole of a real check. `sources/index.ts` calls
@@ -413,18 +392,15 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   top-level wrangler key.
 - **Migrations are one-time and tracked; never edit an applied one.**
   `migrations/0001_init.sql` is the base schema and `0002_drop_pointsyeah.sql` is
-  the first real delta on top of it. 0001 was collapsed back to a single file at
-  the BertBooker rename, when both databases were recreated empty — the eight
-  follow-on migrations that had accumulated are folded into it and gone from git.
-  That was a one-off licensed by having no data to preserve, not a habit.
+  the first real delta on top of it.
   **0001 is the record of what was APPLIED, not a description of the live
   schema**: it still creates `search_logs` and `search_tasks.artifact_path`,
   which 0002 drops. Both are annotated `DROPPED BY 0002` in place — annotate,
   don't delete, or a fresh database and a migrated one stop agreeing.
 - **Retiring a source is a migration, not just a deletion.** Prunes are scoped
   per source, so deleting a source's code leaves nothing with the authority to
-  clean up its rows and they read as current forever. `0002` is that cleanup for
-  `pointsyeah`; migration 0009 was it for the scrapers.
+  clean up its rows and they read as current forever. `migrations/0002_drop_pointsyeah.sql`
+  and migration 0009 are that cleanup, already applied.
 - **Local dev addressing on Windows differs per server.** Wrangler binds IPv4, so
   use `127.0.0.1:8787` (`localhost` → IPv6 `::1` hangs). Vite binds IPv6, so use
   `localhost:5173` (`127.0.0.1` is refused). Opposite, and both right.
@@ -437,20 +413,19 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   it. `scripts/free-port.mjs` kills the whole tree (matched by repo path, so
   other projects are untouched) and runs as `predev:api`; `npm run dev:api:stop`
   tears one down by hand.
-- **Vite proxies exactly one prefix, `/api`, and a second one is a trap.** There
-  used to be a `/daemon` proxy to a local process, deliberately NOT named
-  `/harvest` — the SPA had a page at that path, and a proxy prefix that shadows a
-  client route makes the page unreachable. Both are gone; if you add a proxy,
-  check its prefix against `routeTree` in `app/src/router.tsx` first.
+- **Vite proxies exactly one prefix, `/api`, and a second one is a trap.** A
+  proxy prefix that shadows a client route makes that page unreachable. If you
+  add a proxy, check its prefix against `routeTree` in `app/src/router.tsx`
+  first.
 - **`identity` refuses everything when `APP_USER_EMAIL` is unset**, and the
   symptom is every page rendering its shell over a wall of `401 unauthenticated`
   — not a password prompt, because the gate already passed. It is required in
   `api/.dev.vars` for local dev, not just in production.
 - **The session key is HKDF over `SESSION_SECRET`, SALTED WITH THE PASSWORD**,
   and both halves of that are load-bearing. The random secret is what stops a
-  leaked token being an offline cracking oracle on `APP_PASSWORD` — which is
-  exactly what the old scheme was, signing an `<expiry>.<HMAC>` token with the
-  password directly over a message an attacker already knows. The password in
+  leaked token being an offline cracking oracle on `APP_PASSWORD` — signing a
+  token with the password directly, over a message an attacker already knows,
+  would be exactly that oracle. The password in
   the salt is what keeps rotating `APP_PASSWORD` a revocation: it changes the
   key, so every live session dies. Dropping either one still signs and verifies
   perfectly, which is why `gate.test.ts` pins both.
@@ -466,11 +441,10 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   line below `app.use("/api/*", gate)` and login becomes unreachable — you
   would need the password to ask for the password.
 - **`api/.dev.vars` is the only environment file**, and it sits beside the
-  `wrangler.toml` that loads it. There used to be a repo-root `.env` too — the
-  *gatherer's*, which workerd never saw — and the classic symptom was putting
-  `APP_PASSWORD` in it, setting it for nobody, and watching a definitely-correct
-  password be rejected as `bad_password`. Both that file and its `.env.example`
-  are gone. Production's copies are `wrangler secret put`.
+  `wrangler.toml` that loads it. Putting `APP_PASSWORD` anywhere else sets it
+  for nobody — workerd only reads this file — and a definitely-correct
+  password gets rejected as `bad_password`. Production's copies are
+  `wrangler secret put`.
 - **`wrangler dev` does not reload `.dev.vars`.** Editing a secret and watching
   the old value still work is not a caching bug in the gate — restart the API.
 - **Two things stream NDJSON** — the Worker's search
@@ -491,21 +465,18 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   award space".
 - **`app/src/api/index.ts` is the SPA's only door to the Worker** — every other
   file imports from `./api` and knows nothing about the boundary. It assembles
-  the `api` object from the modules beside it and re-exports the wire types from
-  `shared/src/wire/`, which is why splitting the old 935-line `api.ts` into a
-  directory touched no call site: `api.ts` became `api/index.ts` and the
-  specifier is unchanged. It used to hand-mirror the types instead; see *The
-  wire contract* for why it no longer does, and what enforces that.
+  the `api` object from the modules beside it and re-exports the wire types
+  from `shared/src/wire/`; see *The wire contract* for what enforces that.
 - **The shell pads nothing and scrolls nothing; each page owns both.** `Layout`
   (`router.tsx`) is a fixed-height flex column — tab strip, then all the room
   that's left — and the document never scrolls (`html, body, #root` are 100%).
   Pages that are DOCUMENTS wrap themselves in `PagePad` (`components/PagePad.tsx`), which
-  supplies the old page margin and is their scroll container. The Routes page
+  supplies the page margin and is their scroll container. The Routes page
   doesn't: it is a workbench, a full-height sidebar beside an editor pane, each
   with its own `overflow` from `md` up and one shared 1px rule between them. The
   panes are told apart by GROUND, not by a gap — the rail is
   `background.chrome`, the editor is `background.default`. That is why
-  `STICKY_NAV_TOP` no longer adds `APP_BAR_HEIGHT`: a sticky child is offset
+  `STICKY_NAV_TOP` does not add `APP_BAR_HEIGHT`: a sticky child is offset
   from its own scroller, which already starts below the bar.
 - **The app has TWO named viewport seams and no other media queries**
   (`useIsPhone` = below `sm`, `useIsNarrow` = below `md`, both in `app/src/hooks/useBreakpoints.ts`).
@@ -531,16 +502,13 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   `marginBottom: -1` that joins the open tab to its page. So the bar is balanced
   by dropping the quota chip, and `e2e/mobile.spec.ts` measures the tab strip
   against `[data-testid="app-bar-controls"]`. **Three is the count**, dev and
-  deployed alike; a fourth tab fails that test. It was four until the Harvest tab
-  went, and the one that went was the only one that had ever been dev-only.
+  deployed alike; a fourth tab fails that test.
 - **The card layouts must not drift from the columns they replace.** The cell
   bodies that encode decisions — cash quoted beside miles and never ranked
   against it, a round trip's total split by direction — live in
-  `app/src/pages/routes/findCells.tsx` and are rendered by both. ("Never checked" told apart
-  from "checked and empty" was a third; it lived in `FindProvenance`, which went
-  with the Source / checked column. If that column returns, that distinction is
-  the part to bring back with it.) `app/src/pages/routes/findKey.ts` is the shared React key for the same reason: each
-  table now has two call sites, and a key that drifts silently reuses the wrong
+  `app/src/pages/routes/findCells.tsx` and are rendered by both.
+  `app/src/pages/routes/findKey.ts` is the shared React key for the same reason: each
+  table has two call sites, and a key that drifts silently reuses the wrong
   element across the breakpoint. The **Map** is the one column with no card
   equivalent; `showMap` is forced off there, which also drops the
   `/api/airports/lookup` those coordinates exist for.
@@ -564,23 +532,23 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   - **`accent` is a GROUND, not ink.** It is dark enough to carry `onAccent`
     (VS Code's `#0E639C`, not its `#3794FF`), so `palette.primary` is the fill
     a contained button gets and `contrastText` is what survives on it. The
-    bright half is `indicator`, exported as `palette.secondary` — that is what
-    every `color="primary"` *text* site was changed to. Collapsing the two is
-    what made every filled button look washed out, and
-    `themes.contrast.test.ts` now checks `primary` as a ground (`contrastText`
-    on it) rather than as a label, which is the assertion that used to force it.
+    bright half is `indicator`, exported as `palette.secondary` — every
+    `color="primary"` *text* site should use that, not `primary`, or the
+    button reads as washed out.
+    `themes.contrast.test.ts` checks `primary` as a ground (`contrastText`
+    on it) rather than as a label.
   - **Interaction states are stated, not derived.** `spec.hover`,
     `spec.selected`, `spec.selectedIdle`, `spec.raised`, `spec.inputBg` are
     opaque palette colours, wired into `palette.action` so every MUI list, menu
-    and table picks them up. The old build computed them (`alpha(white, 0.035)`,
-    `alpha(accent, 0.11)`), and a wash carries no hue — which is exactly why
-    nineteen distinct palettes all produced the same slightly-flat grey app.
+    and table picks them up. A computed wash (`alpha(white, 0.035)`,
+    `alpha(accent, 0.11)`) carries no hue, which is why these are stated
+    tokens rather than derived from the accent colour.
     `tint(theme, n)` still exists for the map's controls, where there is no
     token for "slightly lighter than whatever this is"; reach for a token first.
   `readable()` nudges a *brand* literal — Bilt's teal, oneworld's gold — only as
   far as it must to be legible, keeping the hue so "the teal one" still means
-  Bilt; `buildTheme` runs the same nudge over the ink roles. It fires far less
-  than it used to, because the ported palettes are contrast tested at their
+  Bilt; `buildTheme` runs the same nudge over the ink roles. It fires rarely,
+  because the ported palettes are already contrast tested at their
   source. `themes.contrast.test.ts` asserts on the BUILT theme — the catalog is
   allowed to fail it, the painted app is not. Leaflet and the trip list's
   `RouteMap` are the two deliberate exceptions: Leaflet gets a hand-written
@@ -611,26 +579,18 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   off.** The Map column is a *removal*, so its absent value has to mean "as
   before", while an added column's has to mean "as before" the other way round —
   the two cannot share a default. That asymmetry is the rule to keep when adding
-  the next option. The caller that made it bite was a general database browser,
-  which passed nothing and kept its map; that pane is gone and the Routes page is
-  the only caller left. `showRoute` and `showProvenance` went with the pane —
-  they had had no call site for a while, and a column nobody renders is a column
-  nobody notices breaking (`showProvenance` had also stopped meaning anything,
-  since its source half is a constant now). `showMap` is still a prop rather than
-  a preference read inside the table, which is the separation that let two
-  callers differ, and `RoundTripTable` takes the same prop because the two tables
-  share a column order. Hiding it also skips `useAirportNames` — those
-  coordinates feed nothing but the maps.
-- **There is exactly ONE browser here now, and it is headless and ephemeral.**
+  the next option. The Routes page is the only caller.
+  `showMap` is a prop rather than a preference read inside the table, so two
+  callers can differ, and `RoundTripTable` takes the same prop because the
+  two tables share a column order. Hiding it also skips `useAirportNames` —
+  those coordinates feed nothing but the maps.
+- **There is exactly ONE browser here, and it is headless and ephemeral.**
   The UI harness (`e2e/`) uses `chromium.launch()` + `newContext()` because
   localhost has no anti-bot and a window that does not exist cannot interrupt
-  whoever is using the machine. There used to be a second — headed, parked at
-  `--window-position=-32000,-32000`, a **persistent** context at
-  `.playwright-profile/` — and every one of those choices was for commercial
-  anti-bot, which nothing here fights any more. Do not reintroduce a persistent
-  context for the harness: it **locks its directory**, so two runs could not
-  overlap. The one rule that carries over is the INSTALLED Chrome
-  (`channel: "chrome"`), never a downloaded one, which is why `@playwright/test`
+  whoever is using the machine. Do not introduce a persistent
+  context for the harness: it **locks its directory**, so two runs cannot
+  overlap. Use the INSTALLED Chrome
+  (`channel: "chrome"`), never a downloaded one — which is why `@playwright/test`
   is installed with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. A failed launch means
   install Chrome, not `npx playwright install`. See `docs/UI-TESTING.md`.
 - **A valid session cookie with no `localStorage` hint still shows the login

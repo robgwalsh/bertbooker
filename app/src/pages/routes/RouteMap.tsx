@@ -371,10 +371,10 @@ export const ROUTE_MAP_CELL_WIDTH = ROUTE_MAP_WIDTH + ROUTE_MAP_INSET * 2;
 /**
  * The map as a table cell that CANNOT make its row taller.
  *
- * A fixed-height map was the tallest thing in most rows — a nonstop's itinerary
- * card is well under the 132px the widget used to insist on — so the table grew
- * to fit a picture instead of its data. The row should be as tall as the
- * itinerary needs and the map should take what is left.
+ * A fixed-height map is the tallest thing in most rows — a nonstop's itinerary
+ * card is well under the 132px the widget wants — so without this, the table
+ * would grow to fit a picture instead of its data. The row should be as tall
+ * as the itinerary needs and the map should take what is left.
  *
  * Two halves make that work, and both are load-bearing:
  *

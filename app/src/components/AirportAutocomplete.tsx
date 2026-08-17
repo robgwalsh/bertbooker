@@ -12,7 +12,6 @@ import {
 import { api, type AirportInfo } from "../api";
 import { countryName, flagEmoji } from "../lib/format";
 // Shared, so the async lookup fires on pause rather than on every keystroke.
-// This used to be a local copy here and an identical one in the Airports pane.
 import { useDebounced } from "../hooks/useDebounced";
 
 const optionLabel = (a: AirportInfo) =>

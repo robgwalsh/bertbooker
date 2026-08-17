@@ -85,8 +85,7 @@ test.describe("at 390px", () => {
     // 1440; this is the half that would break first if that ever changed.
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
     // All three tabs still reachable at 390 — none is scrolled out or covered.
-    // The dev and deployed bars carry the same three; there is no longer a
-    // dev-only tab, so this is the whole strip.
+    // The dev and deployed bars carry the same three; this is the whole strip.
     for (const tab of ["Routes", "Library", "Alerts"]) {
       await expect(page.getByRole("link", { name: tab })).toBeVisible();
     }

@@ -134,16 +134,10 @@ const DATE_CELL = {
 /**
  * One trip, as TWO table rows — outbound then return, inside their own `tbody`.
  *
- * It used to be one row wrapping a two-track CSS grid of its own, and that is
- * what made this table disagree with the one-way one: the date, the itinerary,
- * the miles and the bookable currencies all lived inside a single `Trip` cell,
- * so "the date column" here was a line inside a box rather than a column. You
- * could not read the two tables the same way left to right, and nothing lined up
- * between them.
- *
- * Real columns cost a second `<tr>` per trip and give the alignment back for
- * free — no grid track has to be guessed at, and both tables now run Date →
- * Itinerary → Map → Cabin → Program → … → Cost → Book with.
+ * Real columns cost a second `<tr>` per trip and give this table the same
+ * left-to-right alignment as the one-way one — no grid track has to be
+ * guessed at, and both tables run Date → Itinerary → Map → Cabin → Program →
+ * … → Cost → Book with.
  *
  * What is true of the TRIP rather than of one leg straddles both rows with
  * `rowSpan={2}`: the map (a round trip is one journey), the cabin (pairing
@@ -455,15 +449,13 @@ export function RoundTripTable({
     // the Routes page's workbench note.
     <Box>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
-        {/* Everything on this band centres on one line. The mode toggle used to
-            carry a "Trip" caption stacked above it, which made the first item
-            taller than the rest and left the buttons hanging low against the
-            copy beside them — and "Whole window / Custom" says what the control
-            is without a label over it. (The caption was deliberately "Trip"
-            rather than "Trip length", because only one of the two modes is a
-            length; the other is two fixed dates. That distinction now rests
-            entirely on the copy beside the buttons, which names those dates
-            outright — keep it saying so.) */}
+        {/* Everything on this band centres on one line: the mode toggle carries
+            no caption above it, so nothing makes the first item taller than the
+            rest or leaves the buttons hanging low against the copy beside them.
+            "Whole window / Custom" says what the control is without a label
+            over it. Only one of the two modes is a length; the other is two
+            fixed dates, and that distinction rests entirely on the copy beside
+            the buttons, which names those dates outright — keep it saying so. */}
         <Stack direction={{ xs: "column", sm: "row" }} spacing={3} sx={{ alignItems: "center" }}>
           <Box sx={{ flexShrink: 0 }}>
             {/* Two different QUESTIONS, not a wide default and a narrow one:

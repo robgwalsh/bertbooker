@@ -10,21 +10,15 @@
 // which is why splitting this module into `api/` did not touch a single call
 // site: `api.ts` became `api/index.ts` and the specifier is unchanged.
 //
-// The types below used to be declared here, hand-mirrored out of `api/src` and
-// `shared/`, with a banner explaining that the SPA could not import them. It
-// also recorded what that cost: `PRIMARY_METERED_SOURCE` sat on a stale source
-// id for months after a migration renamed it, and every quota lookup silently
-// matched nothing. **That incident is why `shared/src/wire/` exists.** There is
-// one definition now, and the Worker is annotated against it, so the two halves
-// of a response cannot drift apart in silence.
+// The types below are declared in `shared/src/wire/`, not here. There is one
+// definition, and the Worker is annotated against it, so the two halves of a
+// response cannot drift apart in silence.
 //
-// `shared/src/wire/` is the ONLY thing under `shared/` — the Worker-only half
-// (`providers/`, `ingest/`, `sources/`, the domain logic) now lives in
-// `api/src/`, so the old list of specifically-forbidden modules is gone with it.
-// What remains is the one rule worth keeping: **the SPA imports `shared/`, never
-// `api/`.** A path that climbs into `api/src` reaches `D1Database` and `fetch`
-// and fails `tsc -p app` — loudly, but at the far end of whatever chain got it
-// there. See the banner in `shared/src/wire/index.ts`.
+// `shared/src/wire/` is the ONLY thing under `shared/`. The rule worth
+// keeping is: **the SPA imports `shared/`, never `api/`.** A path that climbs
+// into `api/src` reaches `D1Database` and `fetch` and fails `tsc -p app` —
+// loudly, but at the far end of whatever chain got it there. See the banner
+// in `shared/src/wire/index.ts`.
 //
 // Note every type line below is `export type`. `app/tsconfig.json` sets
 // `isolatedModules`, so a bare `export { SomeType }` is an error — and the

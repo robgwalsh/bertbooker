@@ -22,10 +22,8 @@ import { TickPanel } from "./TickPanel";
  * **This page is the feature's safety mechanism, not its dashboard.** The app
  * sends no email when a sweep fails — only when it finds something — so a
  * scheduler that is blocked, refused, or quietly failing produces exactly the
- * same silence as one that ran and found nothing. `wrangler.toml` used to
- * forbid cron on precisely that ground ("unattended work hides source
- * failures"), and this page is the answer: every sweep, every skip and every
- * dropped digest is on it, by name.
+ * same silence as one that ran and found nothing. This page is the answer:
+ * every sweep, every skip and every dropped digest is on it, by name.
  *
  * **So the ordering here is deliberate — problems first, cadence second, routes
  * third, history last.** Anything that would make the mail stop is above the

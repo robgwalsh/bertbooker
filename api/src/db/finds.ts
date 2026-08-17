@@ -131,8 +131,7 @@ finds AS (
  * `api/src/providers/filter.ts`. The two halves must stay in step: the portal
  * branch is what makes an Alaska find (Bilt-only) visible to a Chase-filtered
  * view once its dollar price is known, which is the entire reason cash pricing
- * exists. There used to be a third expression here, `BOOKABLE_WITH_CLAUSE`, for
- * `GET /api/finds`; that endpoint is gone and so is it.
+ * exists.
  *
  * This one is a shared constant because the dashboard join and the alert sweep
  * are asking exactly the same question — *what would this route show me?* — and

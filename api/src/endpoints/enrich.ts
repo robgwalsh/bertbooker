@@ -22,7 +22,7 @@ import { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";
 export const enrich = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 /** Defined in `shared/src/wire/enrich.ts`, re-exported here for this module's
- *  consumers. Both halves used to be written down twice. */
+ *  consumers. */
 export type { EnrichEvent } from "../../../shared/src/wire/enrich.js";
 import type { EnrichEvent } from "../../../shared/src/wire/enrich.js";
 
@@ -71,7 +71,7 @@ enrich.post("/api/finds/enrich", async (c) => {
 // ---------------------------------------------------------------------------
 
 /** Defined in `shared/src/wire/enrich.ts`, re-exported here for this module's
- *  consumers. Both halves used to be written down twice. */
+ *  consumers. */
 
 interface TargetRow {
   origin: string;

@@ -8,10 +8,9 @@ import { FIND_COLUMNS, ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte } from "..
  * The Routes page's whole payload: the user's monitors, and the current best
  * finds tied to each.
  *
- * **The only reader of `findsCte`.** There used to be three — this, a general
- * database browser, and `GET /api/finds` — and the other two went. That is the
- * better arrangement: a change to that CTE is now exercised by the surface that
- * matters rather than by an endpoint nobody was watching. See `db/finds.ts`.
+ * **The only reader of `findsCte`.** A change to that CTE is exercised by the
+ * surface that matters rather than by an endpoint nobody is watching. See
+ * `db/finds.ts`.
  */
 export const dashboard = new Hono<{ Bindings: Env; Variables: Vars }>();
 

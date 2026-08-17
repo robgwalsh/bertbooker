@@ -88,13 +88,9 @@ export interface SourceCtx {
 /**
  * Identity. Every source has one of these, and the registry is the catalogue.
  *
- * There used to be a `runtime: "worker" | "local"` field here, because a second
- * source could not run on Cloudflare and had to be driven from a laptop. That
- * source is gone and so is the field — but the rule it encoded still decides
- * what may be added, and docs/SOURCES.md states it: this Worker may call a
- * service that authenticates the CREDENTIAL, and may not call one that judges
- * the CLIENT. A source that fails that test does not get a different runtime
- * now; it does not get added.
+ * docs/SOURCES.md states the rule that decides what may be added: this Worker
+ * may call a service that authenticates the CREDENTIAL, and may not call one
+ * that judges the CLIENT. A source that fails that test does not get added.
  */
 export interface SourceDescriptor {
   /** Stable id, and the value stored in `availability_snapshots.source` and

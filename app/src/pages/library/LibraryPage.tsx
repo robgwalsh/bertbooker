@@ -91,7 +91,7 @@ export function Library() {
   }
 
   // A document, not a workbench — so unlike the Routes page it asks the shell
-  // for the page margin and the scroll container it used to get for free.
+  // for the page margin and the scroll container.
   return (
     <PagePad>
     <Stack

@@ -5,11 +5,9 @@ import type { QuotaPage, SourceQuota } from "../../../shared/src/wire/index.js";
 /**
  * What's left of each metered source's daily API allowance.
  *
- * This has its own file because it once shared one with the ingest endpoints,
- * purely by proximity, and was very nearly deleted alongside them. It is not an
- * ingest endpoint: it reads `source_quota` and nothing else, and it feeds the
- * app-bar quota chip on Routes and Alerts and in the itinerary drawer. Losing it
- * would have taken the chip out with no error raised anywhere.
+ * It is not an ingest endpoint: it reads `source_quota` and nothing else, and
+ * it feeds the app-bar quota chip on Routes and Alerts and in the itinerary
+ * drawer.
  *
  * A read, so no ingest token — the `identity` middleware on `/api/*` already
  * covers it. Returns the last week so the card can say "no calls today" against

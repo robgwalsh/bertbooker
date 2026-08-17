@@ -29,8 +29,7 @@ function rangeList(chunks: ChunkState[]): string {
  * sentence names the dates in words as well as painting them: the bar says
  * "something is wrong here", the sentence says what it means for the table.
  *
- * The per-call detail this panel used to print inline lives in
- * `SearchCallsDialog`, behind the button below.
+ * The per-call detail lives in `SearchCallsDialog`, behind the button below.
  */
 export function SearchProgress({
   run,

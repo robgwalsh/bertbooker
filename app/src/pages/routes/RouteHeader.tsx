@@ -18,11 +18,9 @@ import type { AirportName, AlertScheduleRoute, TrackedRoute } from "../../api";
 /**
  * One field of the header's spec, as a bare value.
  *
- * There used to be an overline label above each of these, which is what made a
- * row of chips a legible record of choices — and what made the header two rows
- * tall. The label became the tooltip: the values are self-describing (a date
- * range, cabin chips, card marks) and the sentence explaining each is one hover
- * away, on the value itself rather than on a caption above it.
+ * Unlabelled: the values are self-describing (a date range, cabin chips, card
+ * marks) and the sentence explaining each is one hover away, as a tooltip on
+ * the value itself rather than a caption above it.
  */
 function SpecValue({
   help,
@@ -196,9 +194,9 @@ export function RouteHeader({
           <RouteDiagram route={route} names={names} onEditSide={onEdit} />
         </Box>
 
-        {/* The spec, unlabelled. Every value keeps the help text its overline
-            used to carry, so nothing about the route became unexplained — only
-            unlabelled, which is what buys the row back. */}
+        {/* The spec, unlabelled. Every value keeps its help text as a tooltip,
+            so nothing about the route goes unexplained — only unlabelled,
+            which is what buys the row back. */}
         <Stack
           direction="row"
           spacing={1}

@@ -1,12 +1,9 @@
 // HTTP transport for fetch-based sources: issue the request, classify the
 // response, and refuse to hand a challenge page to a parser.
 //
-// This used to fall back to a home relay (tools/relay/) when a Cloudflare
-// datacenter IP got scored badly. That whole apparatus is gone along with the
-// scrapers it existed for (docs/HARVEST-POSTMORTEM.md). What survives is the
-// part that was always the valuable half — telling "the source said no" apart
-// from "the source said there is no award space", which are the same empty
-// result set and opposite facts.
+// The valuable part is telling "the source said no" apart from "the source
+// said there is no award space" (docs/HARVEST-POSTMORTEM.md) — which are the
+// same empty result set and opposite facts.
 //
 // `detectBlock` is pure and is the single most important thing to keep tested:
 // a false negative means we parse a challenge page as award data, and a false
@@ -98,8 +95,9 @@ const PEEK_BYTES = 2048;
  * `403`/`429`/`451`/`503` are the usual denial codes. `428 Precondition
  * Required` is Akamai's "we want a JS challenge solved" — United returns it.
  * `444` is Akamai's edge deny (Delta returns it on every shopping endpoint);
- * it was previously caught only by the "access denied" body marker, so a
- * carrier that denied with an empty body would have read as a bad recipe.
+ * checking the status code directly, rather than only the "access denied"
+ * body marker, is what keeps a carrier that denies with an empty body from
+ * reading as a bad recipe.
  * A 200 carrying HTML where the caller expects JSON means we were served a
  * challenge or interstitial rather than the API.
  */

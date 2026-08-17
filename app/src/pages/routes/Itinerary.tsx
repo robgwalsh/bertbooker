@@ -19,11 +19,10 @@ import {
 
 // The itinerary drawn in place, as the finds table's widest cell.
 //
-// It replaces an expander: a multi-leg find used to hide its legs behind a
-// chevron and re-render them as aligned sub-rows, which meant the shape of a
-// trip — how long, how many stops, how brutal the connection — was invisible
-// until you opened it, one row at a time. Drawn, the whole set is comparable at
-// a glance, and the columns to the right of it are unchanged.
+// Drawn rather than hidden behind an expander: the shape of a trip — how long,
+// how many stops, how brutal the connection — is visible without opening
+// anything, so the whole set is comparable at a glance. The columns to the
+// right of it are unchanged.
 //
 // The two controls that act on the *itinerary* — fetch it, or go and book it —
 // live here too rather than in a column at the far right of the table. Enriching
@@ -407,11 +406,11 @@ function FlightCode({ s }: { s: Segment }) {
  *
  * A leg is real when it NAMES A FLIGHT — not when we happen to know its clock.
  *
- * Those used to be the same test, and are not any more. A trip embedded in a
- * search response carries only the whole trip's endpoints, so a SFO-SEA-NRT
- * itinerary arrives with a time on its first departure and its last arrival and
- * none in between. Filtering on `departsAt` would have kept leg one and silently
- * drawn a two-leg award as a nonstop to the wrong city.
+ * A trip embedded in a search response carries only the whole trip's
+ * endpoints, so a SFO-SEA-NRT itinerary arrives with a time on its first
+ * departure and its last arrival and none in between. Filtering on
+ * `departsAt` instead would keep leg one and silently draw a two-leg award
+ * as a nonstop to the wrong city.
  *
  * Exported because the route map beside the card has to draw the same routing
  * the card does. Two copies of this predicate would eventually disagree, and the

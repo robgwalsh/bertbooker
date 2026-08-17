@@ -1,18 +1,11 @@
 // The domain vocabulary the wire speaks — DECLARED here, not borrowed.
 //
-// This file used to be a re-export hub: every line was `export type … from
-// "../types.js"` (or `../diff.js`, `../ingest/types.js`, `../routing.js`,
-// `../alerts/pace.js`, `../data/*.js`), pointing at declarations that lived in
-// the backend half of `shared/`. That direction was backwards, and it was the
-// only thing keeping seven Worker-only modules inside a directory named
-// `shared/`: their bodies (`diffAvailability`, `planRoute`, `PROGRAM_SEEDS`)
-// never ran in a browser, but `wire/` quoted a type name out of each, so none of
-// them could move.
-//
-// The direction is now the one `./seatsaero.ts` established: **the shared
-// declaration lives in `wire/`, and the backend module re-exports it.** So
-// `api/src/domain/types.ts` re-exports `Cabin` and `Segment` from here, and
-// every existing `api/` import of those names is unchanged.
+// `Cabin`, `Segment`, and the rest of the shared domain vocabulary are
+// declared in this file; `api/src/domain/types.ts` re-exports them from here,
+// the same direction `./seatsaero.ts` uses. Declaring them here keeps
+// Worker-only code (`diffAvailability`, `planRoute`, `PROGRAM_SEEDS` — none of
+// which run in a browser) out of `shared/`: nothing in `wire/` needs to quote
+// a type name out of it.
 //
 // Everything below is a type or a string union — no runtime code, nothing that
 // names `fetch` or `D1Database`. `../tsconfig.wire.json` compiles this directory

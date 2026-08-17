@@ -10,12 +10,10 @@ import type { Env, Vars } from "../bindings.js";
  * routes, no per-person login. `gate` decides who gets in; this decides only
  * whose rows they are, and the answer is always the same rows.
  *
- * **`Cf-Access-Authenticated-User-Email` is deliberately NOT read.** It used to
- * be, back when Cloudflare Access fronted this worker and the header could only
- * have come from Access. Access is gone, nothing here verifies an Access JWT,
- * and an unverified header is just a string the client chose — so honouring it
- * would let anyone past the gate claim any identity they liked. Reinstating it
- * means reinstating Access *and* verifying the JWT, not deleting this comment.
+ * **`Cf-Access-Authenticated-User-Email` is deliberately NOT read.** Nothing
+ * here verifies an Access JWT, and an unverified header is just a string the
+ * client chose — so honouring it would let anyone past the gate claim any
+ * identity they liked.
  *
  * On first sight of an email we upsert a `users` row so foreign keys hold.
  */

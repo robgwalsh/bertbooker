@@ -71,10 +71,9 @@ function ChunkBlock({ chunk, onOpenCall }: { chunk: ChunkState; onOpenCall: (c: 
 /**
  * Every range and every seats.aero call behind one search, in full.
  *
- * This is what the progress band used to print inline. It stopped earning that
- * space once the integration was proven — but it is still the only way to answer
- * "why does this find look wrong", and the only way to watch a slow call while
- * it is still in flight, which is why it is one button away rather than gone.
+ * It is the only way to answer "why does this find look wrong", and the only
+ * way to watch a slow call while it is still in flight — which is why it is
+ * one button away rather than folded into the main view.
  *
  * It takes `run` straight off `useRouteSearch`'s state rather than a snapshot,
  * so it fills in LIVE while the search is still going: no extra state, no second

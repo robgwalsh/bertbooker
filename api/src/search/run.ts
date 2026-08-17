@@ -54,11 +54,8 @@ export type { SearchTotals } from "../db/runs.js";
 
 /** What the SPA sees. Newline-delimited JSON, one object per line.
  *
- *  DEFINED IN `shared/src/wire/search.ts` and re-exported here, so this module's
- *  consumers (`endpoints/search.ts` re-exports it again) are unchanged. It used to be
- *  declared here and mirrored by hand in the SPA; the mirror is gone, and with
- *  it the note that used to sit on this line naming a type — `RouteSearchEvent`
- *  — that had not existed for some time. */
+ *  DEFINED IN `shared/src/wire/search.ts` and re-exported here for this
+ *  module's consumers (`endpoints/search.ts` re-exports it again). */
 export type { SearchEvent } from "../../../shared/src/wire/search.js";
 // Again as a plain import: `export … from` re-exports without binding the name
 // in this module, and the run loop below is typed in terms of it.
@@ -83,10 +80,9 @@ export const CAPTURE_BUDGET_BYTES = 6_000_000;
  * Outbound seats.aero calls one HTTP request will make before handing back a
  * `run_continue`.
  *
- * A Worker has a per-request subrequest budget, and this used to be bounded
- * structurally: 5 chunks × 5 pages = 25, full stop. `include_trips` forces a
- * smaller page, so a chunk now takes up to 10 of them and 5 chunks can reach 50
- * calls — no longer a number to leave to luck.
+ * A Worker has a per-request subrequest budget. `include_trips` forces a
+ * smaller page, so a chunk can take up to 10 of them and 5 chunks can reach 50
+ * calls — a number that has to be tracked explicitly, not left to luck.
  *
  * So the search became resumable instead of capped. Every task is durable the
  * moment `applyTask` returns, so stopping between tasks costs nothing and the

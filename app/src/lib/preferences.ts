@@ -91,8 +91,8 @@ export function parsePreferences(raw: string | null): Preferences {
       typeof o.showMapColumn === "boolean"
         ? o.showMapColumn
         : DEFAULT_PREFERENCES.showMapColumn,
-    // Checked against the CATALOG, not just against `string`: a theme that was
-    // removed, renamed, or never existed has to fall back to one that renders,
+    // Checked against the CATALOG, not just against `string`: a theme id absent
+    // from the catalog has to fall back to one that renders,
     // and `isThemeId` is the only thing that can tell the difference. The same
     // guard is what lets `themeById` promise it never returns undefined.
     themeId: isThemeId(o.themeId) ? o.themeId : DEFAULT_PREFERENCES.themeId,

@@ -1,11 +1,10 @@
 // The Routes page's URL contract.
 //
-// **It lives with the page, not with the router**, and that is a deliberate
-// reversal. It used to sit in `router.tsx`, which meant the shell imported
-// `MAX_NIGHTS`/`MAX_NIGHTS_SPAN` out of the page's round-trip logic while the
-// page imported `RoutesSearchParams` back out of the shell — a cycle in which
-// the shell knew about a page's reading preferences. Now the page owns its own
-// params and the router only wires them up.
+// **It lives with the page, not with the router.** Keeping it in `router.tsx`
+// would mean the shell importing `MAX_NIGHTS`/`MAX_NIGHTS_SPAN` out of the
+// page's round-trip logic while the page imports `RoutesSearchParams` back
+// out of the shell — a cycle in which the shell knows about a page's reading
+// preferences. The page owns its own params; the router only wires them up.
 
 import { MAX_NIGHTS, MAX_NIGHTS_SPAN } from "../../lib/roundtrip";
 

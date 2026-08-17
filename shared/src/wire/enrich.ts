@@ -13,10 +13,9 @@ import type { SourceTaskStatus } from "./domain.js";
  * When it bites, the run says so (`capped`, with the true total). A silently
  * truncated sweep reads as "everything is enriched now", which it is not.
  *
- * The SPA quotes this in the confirm dialog so the cost is stated before the
- * request is made. It used to hold its own copy of the number; the server
- * enforces it either way, but two constants meant the dialog could quote a
- * figure the Worker had stopped honouring.
+ * The SPA quotes this constant directly in the confirm dialog, rather than
+ * keeping its own copy, so the cost stated before the request can never drift
+ * from what the Worker actually enforces.
  */
 export const ENRICH_MAX_PER_RUN = 25;
 

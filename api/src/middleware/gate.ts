@@ -20,13 +20,13 @@ import type { LoginResult, SessionState } from "../../../shared/src/wire/index.j
  *   by this same worker, but a bundle all the same — and can hide nothing; only
  *   the server can compare against the secret.
  * - **The session is signed with a key the password cannot be recovered from.**
- *   It used to be signed with `APP_PASSWORD` *directly*, which quietly made every
- *   token an offline cracking oracle: the message is public and predictable, so
- *   anyone holding one token could grind candidate passwords at billions per
- *   second against it and walk away with the secret that guards everything else.
- *   The key is now HKDF over a high-entropy `SESSION_SECRET`, **salted with the
- *   password's digest** — which keeps the one useful thing the old scheme had,
- *   namely that rotating `APP_PASSWORD` changes the key and signs everyone out.
+ *   Signing directly with `APP_PASSWORD` would make every token an offline
+ *   cracking oracle: the message is public and predictable, so anyone holding
+ *   one token could grind candidate passwords at billions per second against it
+ *   and walk away with the secret that guards everything else. The key is HKDF
+ *   over a high-entropy `SESSION_SECRET`, **salted with the password's
+ *   digest** — which is what keeps rotating `APP_PASSWORD` a revocation: it
+ *   changes the key, so every live session dies.
  * - **The session never touches JavaScript.** It is an `HttpOnly`,
  *   `SameSite=Strict` cookie, so an XSS on this page cannot read it, copy it, or
  *   replay it from somewhere else eight hours later. The SPA holds nothing but an

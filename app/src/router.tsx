@@ -172,7 +172,6 @@ function Layout() {
             <NavLink to="/" activeOptions={{ exact: true }}>
               Routes
             </NavLink>
-            <NavLink to="/library">Library</NavLink>
             {/* The one tab that reports on work nobody triggered. It carries a
                 dot when a sweep is failing, because no email is ever sent about
                 that — this strip is where you would first notice. */}
@@ -180,6 +179,7 @@ function Layout() {
               Alerts
               <AlertsHealthDot />
             </NavLink>
+            <NavLink to="/library">Library</NavLink>
           </Box>
           {/* The metered allowance belongs to the app, not to a page: Search
               spends it from Routes and every enrich control in the finds table

@@ -135,6 +135,22 @@ function RailAlertBell({ alert }: { alert?: AlertScheduleRoute }) {
   );
 }
 
+/**
+ * What a rail row's chip is counting, which is NOT the same thing for the two
+ * kinds of route.
+ *
+ * A one-way route's chip counts stored finds — each row of its table is one
+ * bookable answer. A round-trip route's counts PAIRS, because that route's pane
+ * never offers a single leg: its finds are one-way legs and what you choose from
+ * is the join over both directions. `roundTrip` is carried so the tooltip can
+ * say which of the two a number is; the label is the bare number either way,
+ * because the rail has no room for a unit.
+ */
+export interface RouteCount {
+  found: number;
+  roundTrip: boolean;
+}
+
 export function RouteNav({
   routes,
   counts,
@@ -145,7 +161,7 @@ export function RouteNav({
   onAdd,
 }: {
   routes: TrackedRoute[];
-  counts: Map<number, number>;
+  counts: Map<number, RouteCount>;
   /** The same lookup the header's pills read, so the rail and the detail pane
    *  can't name one airport two ways. */
   names: Map<string, AirportName>;
@@ -237,7 +253,8 @@ export function RouteNav({
           scrolling itself is what a list screen does. */}
       <List disablePadding sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {routes.map((r) => {
-          const found = counts.get(r.id) ?? 0;
+          const count = counts.get(r.id);
+          const found = count?.found ?? 0;
           return (
             <ListItemButton
               key={r.id}
@@ -310,7 +327,17 @@ export function RouteNav({
                 </Box>
                 <Box sx={{ ml: "auto", flexShrink: 0 }}>
                   {found > 0 ? (
-                    <Chip size="small" variant="outlined" color="success" label={found} />
+                    // The number alone can't say what it counts, and the two
+                    // kinds of route count different things — see `RouteCount`.
+                    <Tooltip
+                      title={
+                        count?.roundTrip
+                          ? `${found} round trip${found === 1 ? "" : "s"} — pairs of a stored outbound and return, not single legs`
+                          : `${found} find${found === 1 ? "" : "s"} stored in this window`
+                      }
+                    >
+                      <Chip size="small" variant="outlined" color="success" label={found} />
+                    </Tooltip>
                   ) : (
                     // "Nobody has looked" and "looked, nothing there" are
                     // different answers, and the rail is where you notice.

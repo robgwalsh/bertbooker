@@ -37,6 +37,7 @@ import { useAirportNames } from "../../hooks/useAirportNames";
 import { usePreferences } from "../../lib/preferences";
 import { PRIMARY_METERED_SOURCE } from "../../lib/quota";
 import { parseCodes } from "../../lib/routeShape";
+import { pairRoundTrips, splitDirections } from "../../lib/roundtrip";
 import { FindsTable } from "./FindsTable";
 import { RoundTripTable } from "./RoundTripTable";
 import { useRouteSearch } from "./useRouteSearch";
@@ -49,7 +50,7 @@ import { EnrichProgress } from "./EnrichProgress";
 import { SearchProgress } from "./SearchProgress";
 import { SectionHeading } from "./SectionHeading";
 import { RouteHeader } from "./RouteHeader";
-import { RouteNav } from "./RouteNav";
+import { RouteNav, type RouteCount } from "./RouteNav";
 import { RAIL_MAX_WIDTH } from "./constants";
 import { estimateCalls } from "./estimate";
 import { directionArrow, sideLabel } from "./labels";
@@ -200,8 +201,6 @@ export function Routes() {
     arr.push(f);
     findsByRoute.set(f.tracked_route_id, arr);
   }
-  const counts = new Map([...findsByRoute].map(([id, fs]) => [id, fs.length]));
-
   // Fall back to the first route rather than an empty pane: `?route=` can name a
   // route that has since been deleted, or a number someone typed.
   //
@@ -214,6 +213,38 @@ export function Routes() {
   const selected =
     data.trackedRoutes.find((r) => r.id === routeParam) ??
     (narrow ? undefined : data.trackedRoutes[0]);
+
+  // What the rail's chip counts — and for a ROUND-TRIP route it is deliberately
+  // NOT the number of stored finds.
+  //
+  // Those finds are one-way legs, and a round-trip route's pane never shows one
+  // of them on its own: what you pick from is the set of PAIRS, which is a join
+  // over both directions and is usually a very different number. Counting rows
+  // there overstated a route whose legs mostly don't join up (dozens of finds,
+  // no trip) and could understate one whose few legs pair many ways. Same
+  // pairing the pane runs, so the chip and the table it opens can't disagree.
+  //
+  // `considered` rather than `pairs.length`: the pairing caps what it RETURNS at
+  // 200 cheapest, and the chip is answering "how many are there", not "how many
+  // fit on screen".
+  const counts = new Map<number, RouteCount>(
+    data.trackedRoutes.map((r) => {
+      const fs = findsByRoute.get(r.id) ?? [];
+      if (r.round_trip !== 1) return [r.id, { found: fs.length, roundTrip: false }];
+      const { outbound, inbound } = splitDirections(r, fs);
+      // The trip length is a reading preference belonging to whichever route is
+      // OPEN, so every other row is counted the way its pane would open — the
+      // whole-window trip, the same default `RoundTripTable` starts on.
+      const paired = pairRoundTrips(
+        outbound,
+        inbound,
+        nights && r.id === selected?.id
+          ? { mode: "nights", minNights: nights[0], maxNights: nights[1] }
+          : { mode: "dates", departOn: r.date_start, returnOn: r.date_end },
+      );
+      return [r.id, { found: paired.considered, roundTrip: true }];
+    }),
+  );
 
   return (
     // The workbench: a sidebar and an editor, sharing one 1px rule and nothing

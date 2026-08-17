@@ -148,7 +148,6 @@ export function RouteFormFields({
                   : (e.target.value as unknown as string[]),
             })
           }
-          helperText="Which cabins to monitor. Empty = any."
           slotProps={{
             inputLabel: { shrink: true },
             select: {
@@ -195,7 +194,6 @@ export function RouteFormFields({
                   : (e.target.value as unknown as string[]),
             })
           }
-          helperText="Only space bookable with these. Empty = any card."
           slotProps={{
             inputLabel: { shrink: true },
             select: {
@@ -246,7 +244,6 @@ export function RouteFormFields({
           ref={focusOn("minSeats")}
           value={form.minSeats}
           onChange={(e) => setForm({ ...form, minSeats: Number(e.target.value) })}
-          helperText="Hide space for fewer travellers"
           slotProps={{ inputLabel: { shrink: true } }}
         >
           {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -298,7 +295,7 @@ export function RouteFormFields({
             }
             label={
               <Box>
-                <Typography variant="body2">Round trip — watch both directions</Typography>
+                <Typography variant="body2">Round trip</Typography>
               </Box>
             }
           />
@@ -323,12 +320,6 @@ export function RouteFormFields({
             label={
               <Box>
                 <Typography variant="body2">Email me when this route changes</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Re-searched automatically. If this route has not been searched
-                  in the last day the first sweep is silent, establishing a
-                  baseline to compare against; otherwise the existing results are
-                  the baseline and the next sweep can email straight away.
-                </Typography>
               </Box>
             }
           />
@@ -352,11 +343,6 @@ export function RouteFormFields({
                 })
               }
               error={form.alertOn.length === 0}
-              helperText={
-                form.alertOn.length === 0
-                  ? "Pick at least one, or nothing will ever be sent."
-                  : "Which changes are worth an email."
-              }
               slotProps={{
                 inputLabel: { shrink: true },
                 select: {
@@ -395,7 +381,6 @@ export function RouteFormFields({
               ref={focusOn("alertMinDropPct")}
               value={form.alertMinDropPct}
               onChange={(e) => setForm({ ...form, alertMinDropPct: Number(e.target.value) })}
-              helperText="Award prices wobble; small moves are noise."
               slotProps={{ inputLabel: { shrink: true } }}
             >
               {[0, 5, 10, 15, 20, 25, 50].map((n) => (

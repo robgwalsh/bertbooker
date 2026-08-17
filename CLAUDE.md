@@ -442,14 +442,6 @@ couple's currencies, so only a cash fare can ever make a Delta seat reachable.
   `/harvest` — the SPA had a page at that path, and a proxy prefix that shadows a
   client route makes the page unreachable. Both are gone; if you add a proxy,
   check its prefix against `routeTree` in `app/src/router.tsx` first.
-- **The password gate fails closed, and that is the point** (`middleware/gate.ts`). An
-  unset `APP_PASSWORD` answers **503 `no_app_password`** on every `/api/*` route
-  rather than waving traffic through: a gate that evaporated when unconfigured
-  would publish the entire app on one missed `wrangler secret put`. The SPA
-  renders that 503 as a named misconfiguration, never as a password prompt. It is
-  also now the **only** credential — `INGEST_TOKEN`, which took the opposite
-  "unset = no check" posture because it guarded one endpoint rather than the
-  whole app, went with `/api/ingest/*`.
 - **`identity` refuses everything when `APP_USER_EMAIL` is unset**, and the
   symptom is every page rendering its shell over a wall of `401 unauthenticated`
   — not a password prompt, because the gate already passed. It is required in

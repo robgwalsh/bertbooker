@@ -171,12 +171,6 @@ crons = ["*/15 * * * *"]
 # traffic through. A gate that vanishes when unconfigured would publish the whole
 # app on one missed deploy step.
 #
-# (There was a second credential, INGEST_TOKEN, which a local gatherer presented
-# to /api/ingest/*. It took the opposite posture — unset meant no check — because
-# it relaxed one endpoint rather than the whole app. Gatherer, endpoints and
-# secret are all gone; `wrangler secret delete INGEST_TOKEN` if yours still has
-# one.)
-#
 # SESSION_SECRET is 32 random bytes (base64url) — the keying material for the
 # 8-hour session cookie's signature. Also a secret, also fail-closed
 # (503 no_session_secret), and also NOT here:

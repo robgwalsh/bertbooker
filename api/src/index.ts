@@ -45,13 +45,6 @@ import { trackedRoutes } from "./endpoints/trackedRoutes.js";
 //   OUTBOUND NOTIFICATION — Resend (`alerts/email.ts`): not a data source at all, but a
 //     delivery channel, on exactly the same keyed-vendor footing.
 //
-// That test is now the ONLY gate on adding a source, because there is nowhere
-// else for one to run. There used to be: a source whose posture against a
-// datacenter IP was unmeasured declared `runtime: "local"`, ran from a laptop
-// and POSTed to `/api/ingest/*`. PointsYeah was the one such source, and
-// removing it took the runtime field, the ingest endpoints and INGEST_TOKEN
-// with it. A source that cannot pass the credential-vs-client test does not get
-// a different home now; it does not get added. docs/SOURCES.md.
 //
 // Something DOES run on a schedule: the alerts cron (`alerts/sweep.ts`, and the
 // `scheduled` handler on the default export below) re-searches routes marked
@@ -61,15 +54,7 @@ import { trackedRoutes } from "./endpoints/trackedRoutes.js";
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-// Deployed the SPA is same-origin (this worker serves it, see the default export
-// below) and this buys little. In dev the browser is on Vite's :5173, which
-// proxies /api to wrangler's :8787 — also one origin as far as the browser is
-// concerned. What this is really doing now is refusing everyone ELSE.
-//
-// `origin: "*"` had to go the moment the session became a cookie: a wildcard
-// cannot be combined with credentials, and browsers reject the pair outright.
-// `corsOrigin` echoes back only this worker's own origin (whichever host it is
-// answering on) or the dev server. See security.ts.
+// Deployed the SPA is same-origin
 app.use(
   "/api/*",
   cors({
@@ -162,18 +147,6 @@ app.route("/", trackedRoutes);
  * originates. So a tracked route is something the server can execute.
  */
 
-/*
- * There were two more routes here — `GET /api/finds`, a paged query over every
- * stored find, and `GET /api/finds/sources`, a tally of who had ever written
- * one. Both backed a general database browser that was removed as a worse
- * duplicate of the dashboard's own reader, and both then sat with no SPA caller
- * and no test for long enough that nothing would have noticed either breaking.
- *
- * They are gone rather than kept-just-in-case. `findsCte` is still the one
- * reader every surface shares (`db/finds.ts`); the dashboard is now the only
- * caller of it, which means a change to that CTE is exercised by the surface
- * that matters instead of by an endpoint nobody was watching.
- */
 
 /**
  * Everything above is the API. Everything else this worker answers is the SPA,

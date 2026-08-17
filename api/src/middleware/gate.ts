@@ -37,11 +37,6 @@ import type { LoginResult, SessionState } from "../../../shared/src/wire/index.j
  *   as "no gate" — would mean one forgotten `wrangler secret put` silently
  *   publishes the whole app, and a security control whose failure mode is
  *   silence is not a security control.
- *
- * There is no second credential. `INGEST_TOKEN` used to be one: a local source
- * runner proved itself with it and skipped the password session entirely, on
- * every POST to `/api/ingest/*`. That runner and those endpoints are gone, so
- * the password is now the only way past this middleware.
  */
 
 /** How long a successful login lasts. */

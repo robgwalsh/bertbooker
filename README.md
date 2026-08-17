@@ -1,23 +1,8 @@
 # BertBooker
 
-**A self-hosted award-travel availability tracker**
+A self-hosted award-travel availability tracker. Run locally or with a free Cloudflare account with your own API keys.
 
-You save the routes you care about, and BertBooker keeps a database of what award
-space actually exists on them: which program, which cabin, how many miles, how
-many seats, and — the part most tools leave out — **which of your credit cards
-can actually book it**, whether by transferring points or by buying the seat
-outright through a travel portal.
-
-Run locally or on a free Cloudflare account, with your own
-API keys.
-
-```
-Routes    a dashboard of the routes you track, each with its current finds
-Library   a browsable flight database, plus airports and programs reference
-Alerts    a scheduled sweep that emails you a digest when something changes
-```
-If you want award search without running anything, use
-[seats.aero](https://seats.aero) directly — this app is a client of it.
+It has a flexible 'sources' api for using data from any combination of sources. It comes comes with one source implemented: a seats.aero api integration.
 
 ## What you need
 
@@ -38,8 +23,6 @@ If you want award search without running anything, use
 - [`docs/ALERTS.md`](docs/ALERTS.md) — the scheduled sweep: pacing, the budget
   guard, the digest
 - [`docs/UI-TESTING.md`](docs/UI-TESTING.md) — driving the SPA headless, with
-  nobody at the keyboard
-- [`docs/HARVEST-POSTMORTEM.md`](docs/HARVEST-POSTMORTEM.md) — notes about airline scrapers and we this repo doesn't have any.
 
 ## Architecture
 

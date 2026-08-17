@@ -44,6 +44,7 @@ import { useRouteEnrich } from "./useRouteEnrich";
 import { AddRouteDialog } from "./AddRouteDialog";
 import { EditRouteDialog } from "./EditRouteDialog";
 import { CallDialog } from "./CallDialog";
+import { SearchCallsDialog } from "./SearchCallsDialog";
 import { EnrichProgress } from "./EnrichProgress";
 import { SearchProgress } from "./SearchProgress";
 import { SectionHeading } from "./SectionHeading";
@@ -91,6 +92,9 @@ export function Routes() {
   } | null>(null);
   // Held here rather than per-route so only one payload is ever mounted.
   const [openCall, setOpenCall] = useState<SearchCall | null>(null);
+  // Which route's call log is open. The ROUTE ID, not the run — the dialog reads
+  // through `search.runs[callsFor]` so it keeps filling in while the search runs.
+  const [callsFor, setCallsFor] = useState<number | null>(null);
   // Streams, not request/responses — their partial state is the point, so they
   // live outside TanStack Query. See useRouteSearch / useRouteEnrich.
   //
@@ -451,7 +455,7 @@ export function Routes() {
                   {run && (
                     <SearchProgress
                       run={run}
-                      onOpenCall={setOpenCall}
+                      onShowCalls={() => setCallsFor(r.id)}
                       onDismiss={running ? undefined : () => search.dismiss(r.id)}
                     />
                   )}
@@ -615,6 +619,14 @@ export function Routes() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Mounted BEFORE `CallDialog`, which is the drill-down opened from inside
+          it and has to stack on top. */}
+      <SearchCallsDialog
+        run={callsFor == null ? undefined : search.runs[callsFor]}
+        onOpenCall={setOpenCall}
+        onClose={() => setCallsFor(null)}
+      />
 
       <CallDialog call={openCall} onClose={() => setOpenCall(null)} />
 

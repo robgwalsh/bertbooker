@@ -56,6 +56,12 @@ export interface RunState {
   /** Terminal run status once `run_done` lands. `partial` matters: it means some
    *  of the window was never actually looked at. */
   runStatus?: "ok" | "partial" | "failed" | "aborted";
+  /** The Worker stopped inside its subrequest budget and `searchRoute` is
+   *  re-asking from `nextIndex`. Cleared by the next `chunk_start`. The frame
+   *  was previously dropped on the floor, which was survivable while a log of
+   *  calls was scrolling past; against a still progress bar a pause of several
+   *  seconds reads as a hang. */
+  paused?: boolean;
   error?: string;
 }
 
@@ -107,14 +113,25 @@ export function useRouteSearch(): RouteSearch {
                   runId: f.runId,
                   pairs: f.pairs,
                   // Building the whole plan up front is what lets the panel say
-                  // "3 of 5" instead of growing a row at a time.
+                  // "3 of 5" instead of growing a row at a time, and is what
+                  // lets the date bar be drawn to its full width immediately.
                   //
-                  // Rebuilt only when the shape changes: a resumed request sends
-                  // `run_start` again, and re-creating the array would throw away
-                  // every finished chunk the user is looking at.
+                  // Merged rather than rebuilt when the shape holds: a resumed
+                  // request sends `run_start` again, and re-creating the array
+                  // would throw away every finished chunk the user is looking at.
+                  // The DATES are taken from the new plan either way — the plan
+                  // is recomputed per request against a fresh `today`, so a run
+                  // resuming across UTC midnight re-plans with every boundary
+                  // shifted a day, and the bar would otherwise keep drawing the
+                  // old ones.
                   chunks:
                     s.chunks.length === f.total
-                      ? s.chunks
+                      ? s.chunks.map((c, i) => {
+                          const planned = f.chunks[i % f.chunks.length]!;
+                          return c.start === planned.start && c.end === planned.end
+                            ? c
+                            : { ...c, start: planned.start, end: planned.end };
+                        })
                       : Array.from({ length: f.total }, (_, i) => ({
                           start: f.chunks[i % f.chunks.length]!.start,
                           end: f.chunks[i % f.chunks.length]!.end,
@@ -139,6 +156,7 @@ export function useRouteSearch(): RouteSearch {
                 const f = e as Extract<SearchEvent, { type: "chunk_start" }>;
                 patch((s) => ({
                   ...s,
+                  paused: false,
                   chunks: s.chunks.map((c, i) =>
                     i === f.index
                       ? {
@@ -180,6 +198,14 @@ export function useRouteSearch(): RouteSearch {
                 patch((s) => ({ ...s, remaining: f.remaining, limit: f.limit }));
                 break;
               }
+              case "run_continue": {
+                // Not a terminal state for the UI: `searchRoute` re-issues from
+                // `nextIndex` under the same run id and keeps yielding into this
+                // same loop. All this does is give the panel something to say
+                // during the gap between requests.
+                patch((s) => ({ ...s, paused: true }));
+                break;
+              }
               case "run_done": {
                 const f = e as Extract<SearchEvent, { type: "run_done" }>;
                 settled = true;
@@ -190,6 +216,7 @@ export function useRouteSearch(): RouteSearch {
                 patch((s) => ({
                   ...s,
                   status: "done",
+                  paused: false,
                   runStatus: f.status,
                   offersFound: s.chunks.reduce((n, c) => n + (c.offersFound ?? 0), 0),
                   snapshotsWritten: s.chunks.reduce((n, c) => n + (c.snapshotsWritten ?? 0), 0),
@@ -199,7 +226,7 @@ export function useRouteSearch(): RouteSearch {
               case "error": {
                 const f = e as Extract<SearchEvent, { type: "error" }>;
                 settled = true;
-                patch((s) => ({ ...s, status: "error", error: f.message }));
+                patch((s) => ({ ...s, status: "error", paused: false, error: f.message }));
                 break;
               }
             }

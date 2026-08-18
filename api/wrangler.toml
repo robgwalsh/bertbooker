@@ -10,6 +10,9 @@ compatibility_flags = ["nodejs_compat"]
 # domain below. Both sit behind the same password gate, so this is a debugging
 # convenience rather than a hole; set false if you want exactly one hostname.
 workers_dev = true
+# <version>-bertbooker.<subdomain>.workers.dev, one per deployed version. Same
+# posture as workers_dev above — behind the same gate, so left on.
+preview_urls = true
 
 # D1: create with `wrangler d1 create bertbooker_db`, then paste the id below,
 # REPLACING the one that is there. The committed id is the author's own — it is
@@ -75,13 +78,17 @@ run_worker_first = true
 # The redirect matches the `www.` prefix rather than a literal, so it needs no
 # edit for your domain.
 #
-# [[routes]]
-# pattern = "example.com"
-# custom_domain = true
-#
-# [[routes]]
-# pattern = "www.example.com"
-# custom_domain = true
+[[routes]]
+pattern = "bertbooker.com"
+custom_domain = true
+enabled = true
+previews_enabled = false
+
+[[routes]]
+pattern = "www.bertbooker.com"
+custom_domain = true
+enabled = true
+previews_enabled = false
 
 # Workers Logs. `wrangler tail bertbooker`.
 #

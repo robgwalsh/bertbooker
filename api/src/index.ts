@@ -24,6 +24,7 @@ import { enrich } from "./endpoints/enrich.js";
 import { alerts } from "./endpoints/alerts.js";
 import { reference } from "./endpoints/reference.js";
 import { airports } from "./endpoints/airports.js";
+import { seatsaeroRoutes } from "./endpoints/seatsaeroRoutes.js";
 import { dashboard } from "./endpoints/dashboard.js";
 import { trackedRoutes } from "./endpoints/trackedRoutes.js";
 
@@ -121,6 +122,12 @@ app.route("/", reference);
 // The ~72k-row OurAirports table: the Library pane, the autocompletes, and the
 // coordinates the trip list's route maps draw from.
 app.route("/", airports);
+
+// The seats.aero route graph behind the Library's seats.aero pane: which pairs
+// each program is monitored on. Owns `/api/seatsaero/*`, which collides with
+// nothing, so this position is for reading order only — it sits beside
+// `airports` because both are reference data the Library browses.
+app.route("/", seatsaeroRoutes);
 
 // The Routes page's payload — monitors joined to their current finds. The only
 // reader of `findsCte`.

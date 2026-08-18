@@ -73,6 +73,9 @@ every payload trap; likewise the one place),
 `ALERTS.md` (**the whole scheduled sweep** — the argument for having a cron at
 all, the pacing model, the budget guard, the outbox and the digest;
 the one place any of that is written down),
+`SEATS-AERO.md` §12 also covers **the route graph** — `GET /partnerapi/routes`,
+the per-source cache behind the Library's seats.aero pane, and why `200 []` is an
+answer rather than a failure,
 `UI-TESTING.md` (**how to run and look at the SPA with nobody at the keyboard** —
 the headless harness, the session seeding, and the things it must never touch;
 the one place any of that is written down),
@@ -203,7 +206,9 @@ narrow one proves they need none of it.
   verification, that header is a string the client picked. The password
   session is the only credential.
 - **`app/`** — the SPA and its `vite.config.ts`, three routes: Routes, Library,
-  Alerts.
+  Alerts. Library has six tabs; **seats.aero** is the only one that is about a
+  vendor rather than about reference data, and the only one that can spend a
+  call — on Refresh, or on picking a program nobody has fetched yet.
 
 ### Inside `api/src/`
 
@@ -242,7 +247,7 @@ allowed to import it*:
 | `lib/` | pure logic, no JSX, no React. **`lib/` is where a thing goes when it wants a test**, because `vitest.config.ts` globs `*.test.ts` only — a `*.test.tsx` is not skipped, it is silently never collected, and the run stays green. |
 | `hooks/` | shared React hooks — the two named viewport seams, the airport-name lookup, the debounce. |
 | `components/` | presentation used by more than one page. |
-| `pages/<page>/` | **page-private, co-located with its only consumer.** The finds tables, the itinerary card, the route map and the two stream hooks live under `pages/routes/` because the Routes page is the only thing that reads a stored find. The Airports pane is under `pages/library/airports/` because it is a Library *tab*, not a route in `routeTree`. |
+| `pages/<page>/` | **page-private, co-located with its only consumer.** The finds tables, the itinerary card, the route map and the two stream hooks live under `pages/routes/` because the Routes page is the only thing that reads a stored find. The Airports pane is under `pages/library/airports/` and the seats.aero route-graph pane under `pages/library/seatsaero/`, because both are Library *tabs*, not routes in `routeTree`. |
 | `theme/` | `themes.ts` is the palette catalog, `build.ts` is the only place the app's shape is decided. |
 | `data/` | **generated, and path-pinned** — `scripts/build-world-geometry.mjs` writes `app/src/data/worldGeometry.ts` by that exact path. Do not move this directory. |
 
@@ -264,8 +269,8 @@ upserted by every coverage-claiming task.
   that collapse resolves trivially, and it is kept anyway, because it is what
   makes **retiring** a source a data question with a right answer: delete the
   code and nothing is left with authority to prune what it wrote, so its rows
-  read as current forever. `migrations/0002_drop_pointsyeah.sql` and
-  migration 0009 are that delete, already applied.
+  read as current forever. `migrations/0002_drop_pointsyeah.sql` is that delete,
+  already applied.
 
 ### Ingest (`api/src/ingest/apply.ts`)
 
@@ -366,11 +371,17 @@ Delta seat reachable.
   `npm run build:airports`. The `airports` table is standalone reference data
   behind the Airports pane, the origin/destination autocompletes and the map.
 - **`app/src/data/worldGeometry.ts` is GENERATED — do not hand-edit.** Re-run
-  `npm run build:world`. It is the vector basemap `RouteMap` draws (Natural
-  Earth, public domain, simplified to ~54KB) and it is committed so the build
-  needs no network. It is *not* interchangeable with the Airports pane's
-  Leaflet map: that one is tiles over the network under pan and zoom, this one
-  is a fixed inert picture rendered fifteen times per page of the trip list.
+  `npm run build:world`. It is the vector basemap (Natural Earth, public domain,
+  simplified to ~54KB), committed so the build needs no network, and it now
+  feeds **two** maps through two different functions in
+  `lib/routeMapGeometry.ts`: `basemapPaths()` projects and culls it into the SVG
+  the trip list's `RouteMap` draws fifteen times a page, and `basemapRings()`
+  hands it to Leaflet unprojected for the seats.aero pane's route graph. Both
+  paint it in the same green-over-blue literals, exported from that same module
+  so the two cannot drift.
+  The one map it does *not* feed is the **Airports pane's**, which is raster
+  tiles over the network — the reason `*.basemaps.cartocdn.com` is in the CSP,
+  and the reason that map alone cares about the theme's light/dark polarity.
 - **The trip list's route maps get their coordinates from
   `/api/airports/lookup`**, which is why that endpoint returns lat/lon beside
   the names. One lookup per *table*, keyed on the visible page's codes — a
@@ -397,10 +408,32 @@ Delta seat reachable.
   schema**: it still creates `search_logs` and `search_tasks.artifact_path`,
   which 0002 drops. Both are annotated `DROPPED BY 0002` in place — annotate,
   don't delete, or a fresh database and a migrated one stop agreeing.
+  `0003_seatsaero_routes.sql` is the route-graph cache — purely additive, and
+  the next number is 0004.
+- **`empty` is a SUCCESS, and the route-graph tables exist to say so.**
+  seats.aero answers `200 []` for a source name it does not recognise, so
+  "no rows for X" is ambiguous between *never asked* and *that name is wrong*
+  unless the fetch itself is recorded. `seatsaero_route_fetches` is that record;
+  rendering `empty` as an error destroys the one signal the pane is for.
+  `docs/SEATS-AERO.md` §12.
+- **`POST /api/seatsaero/sources/:source/fetch` is METERED**, and it is the only
+  path under `/api/seatsaero/*` that is. It is listed in `METERED_PATTERNS`
+  (`e2e/fixtures.ts`) beside search and enrich — a UI test that reaches it fails
+  rather than quietly spending a call. **Two things reach it**: the Refresh
+  button, and *picking a program nobody has fetched yet*. That second one is why
+  no spec in `e2e/seatsaero.spec.ts` may touch the source dropdown's options,
+  and why the auto-fetch fires on an explicit selection and never on mount —
+  opening the tab has to stay free, because the harness clicks it every run.
+  `docs/SEATS-AERO.md` §12 has the other two guards.
+- **D1 allows 100 bound parameters per query, not SQLite's 999**, and 1,000
+  queries per Worker invocation with batch statements counting. That is why the
+  route-graph writer binds a 500-row chunk as ONE JSON parameter and expands it
+  with `json_each` (`api/src/db/routeGraph.ts`) instead of a multi-row `VALUES`,
+  which would fit twelve rows and need ~700 statements for one program.
 - **Retiring a source is a migration, not just a deletion.** Prunes are scoped
   per source, so deleting a source's code leaves nothing with the authority to
   clean up its rows and they read as current forever. `migrations/0002_drop_pointsyeah.sql`
-  and migration 0009 are that cleanup, already applied.
+  is that cleanup, already applied.
 - **Local dev addressing on Windows differs per server.** Wrangler binds IPv4, so
   use `127.0.0.1:8787` (`localhost` → IPv6 `::1` hangs). Vite binds IPv6, so use
   `localhost:5173` (`127.0.0.1` is refused). Opposite, and both right.
@@ -570,7 +603,10 @@ Delta seat reachable.
   disagreement would be a bug with no fix. Not the URL either, which is where
   the Routes page keeps state you would want to *link* (`route`,
   `minNights`/`maxNights`); a preference should appear in no link and survive
-  every navigation. `getSnapshot` must keep returning the **cached** object —
+  every navigation. `defaultAirport` is the one preference whose valid values
+  are a SHAPE rather than a boolean or a closed set — three letters or `""` —
+  so `parsePreferences` checks it with `isAirportCode` and `""` is honoured as a
+  deliberate choice rather than falling back. `getSnapshot` must keep returning the **cached** object —
   a freshly parsed one per call re-renders forever. `parsePreferences` takes the
   raw string rather than reading storage so it is testable: **the whole vitest
   run is Node**, with no DOM and no `localStorage` (`vitest.config.ts` is one

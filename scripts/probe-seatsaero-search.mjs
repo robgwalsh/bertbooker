@@ -80,7 +80,7 @@ usage: node scripts/probe-seatsaero-search.mjs --from <IATA[,IATA]> --to <IATA[,
   --no-write          probe and report, write nothing
 
 ledger probes (one call each, no fixture unless --out is given):
-  --routes <source>   GET /partnerapi/routes?source=<name>   (undocumented)
+  --routes <source>   GET /partnerapi/routes?source=<name>
   --bulk <source>     GET /partnerapi/availability?source=<name>
 `);
   process.exit(msg ? 1 : 0);
@@ -332,9 +332,13 @@ function verdict(results) {
 
 // --- ledger probes ---------------------------------------------------------
 
-/** `GET /partnerapi/routes?source=X` is undocumented — it has been used here to
- *  validate source names, never captured. Its payload is the route graph a
- *  program claims to fly, so what it actually contains matters. */
+/** `GET /partnerapi/routes?source=X` — the route graph a program claims to fly.
+ *  Documented at developers.seats.aero/reference/get-routes-1, though the
+ *  published example advertises a `NumDaysOut` field the live payload has not
+ *  been observed to send; `measureRoutes` reports which keys actually arrive.
+ *
+ *  Two answers matter and they look alike from the outside: a graph, and
+ *  `200 []` — which is what an unrecognised source name returns, silently. */
 async function probeRoutes(source, apiKey) {
   const url = `${BASE}/routes?source=${encodeURIComponent(source)}`;
   console.log(`\n· routes (${source})\n  GET ${url}`);
@@ -344,16 +348,104 @@ async function probeRoutes(source, apiKey) {
     body = JSON.parse(wire.text);
   } catch {
     console.log(`    ! not JSON: ${wire.text.slice(0, 200)}`);
-    return { url, wire, body: wire.text.slice(0, 2000) };
+    return { url, wire, body: wire.text.slice(0, 2000), measured: null };
   }
   const rows = Array.isArray(body) ? body : (body.data ?? []);
   console.log(`    top-level: ${Array.isArray(body) ? "array" : Object.keys(body).join(", ")}`);
-  console.log(`    routes: ${Array.isArray(rows) ? rows.length : "not an array"}`);
-  if (Array.isArray(rows) && rows[0]) {
-    console.log(`    route[0] keys: ${Object.keys(rows[0]).join(", ")}`);
-    console.log(`    route[0]: ${JSON.stringify(rows[0])}`);
+  if (!Array.isArray(rows)) {
+    console.log("    ! rows is not an array");
+    return { url, wire, body, measured: null };
   }
-  return { url, wire, body };
+  const measured = measureRoutes(rows, wire);
+  reportRoutes(measured, rows);
+  return { url, wire, body, measured };
+}
+
+/**
+ * Everything about the WHOLE payload that a trimmed fixture can no longer show.
+ *
+ * The fixture keeps 25 rows; the schema questions are about all 8,000. Which
+ * keys are ever present, whether a pair repeats within one source (it decides
+ * the primary key), and whether a distance is fractional (it decides INTEGER vs
+ * REAL) cannot be re-derived from the committed file, so they are measured here
+ * and travel with it.
+ */
+function measureRoutes(rows, wire) {
+  const keys = new Map();
+  const pairs = new Set();
+  const ids = new Set();
+  const sources = new Set();
+  const regions = new Set();
+  const daysOut = new Set();
+  let fractionalDistance = 0;
+  let missingEndpoint = 0;
+  let minDistance = Infinity;
+  let maxDistance = -Infinity;
+
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    for (const k of Object.keys(r)) keys.set(k, (keys.get(k) ?? 0) + 1);
+    const o = r.OriginAirport;
+    const d = r.DestinationAirport;
+    if (!o || !d) missingEndpoint++;
+    else pairs.add(`${o}-${d}`);
+    if (r.ID) ids.add(r.ID);
+    if (r.Source) sources.add(r.Source);
+    if (r.OriginRegion) regions.add(r.OriginRegion);
+    if (r.DestinationRegion) regions.add(r.DestinationRegion);
+    if (r.NumDaysOut !== undefined) daysOut.add(r.NumDaysOut);
+    const dist = r.Distance;
+    if (typeof dist === "number") {
+      if (!Number.isInteger(dist)) fractionalDistance++;
+      if (dist < minDistance) minDistance = dist;
+      if (dist > maxDistance) maxDistance = dist;
+    }
+  }
+
+  return {
+    rows: rows.length,
+    bytes: wire.text.length,
+    durationMs: wire.durationMs,
+    keys: Object.fromEntries(keys),
+    distinctPairs: pairs.size,
+    distinctIds: ids.size,
+    sources: [...sources],
+    regions: [...regions].sort(),
+    numDaysOutValues: [...daysOut].sort((a, b) => Number(a) - Number(b)),
+    fractionalDistance,
+    missingEndpoint,
+    minDistance: Number.isFinite(minDistance) ? minDistance : null,
+    maxDistance: Number.isFinite(maxDistance) ? maxDistance : null,
+  };
+}
+
+function reportRoutes(m, rows) {
+  console.log(`    routes: ${m.rows}`);
+  if (!m.rows) {
+    console.log("    → EMPTY. Either this program flies nowhere, or — far more");
+    console.log("      likely — seats.aero does not recognise this source name.");
+    console.log("      It answers 200 with [] either way; that is the trap.");
+    return;
+  }
+  console.log(`    keys (count of rows carrying each):`);
+  for (const [k, n] of Object.entries(m.keys)) {
+    console.log(`      ${k}: ${n}${n === m.rows ? "" : `  ← NOT on every row`}`);
+  }
+  if (!("NumDaysOut" in m.keys)) {
+    console.log("    ! NumDaysOut is ABSENT from every row, though the published");
+    console.log("      example shows it. Anything planned around a per-route");
+    console.log("      monitoring horizon has no data behind it.");
+  } else {
+    console.log(`    NumDaysOut values: ${m.numDaysOutValues.join(", ")}`);
+  }
+  console.log(`    distinct pairs: ${m.distinctPairs}${m.distinctPairs === m.rows ? "  (unique — PK can be (source,origin,destination))" : `  ← ${m.rows - m.distinctPairs} DUPLICATE pairs`}`);
+  console.log(`    distinct IDs: ${m.distinctIds}${m.distinctIds === m.rows ? "" : "  ← IDs repeat"}`);
+  console.log(`    Source values: ${m.sources.join(", ")}`);
+  console.log(`    distance: ${m.minDistance}–${m.maxDistance}${m.fractionalDistance ? `  ← ${m.fractionalDistance} FRACTIONAL (column must be REAL)` : "  (all integers)"}`);
+  console.log(`    rows missing an endpoint: ${m.missingEndpoint}`);
+  console.log(`    regions (${m.regions.length}): ${m.regions.join(" · ")}`);
+  console.log(`    size: ${kb(m.bytes)} for ${m.rows} rows = ${Math.round(m.bytes / m.rows)} bytes/row`);
+  void rows;
 }
 
 /** Bulk Availability — "Retrieve a large amount of availability objects from one
@@ -401,12 +493,13 @@ async function main() {
   const trim = Number(args.trim ?? 3);
 
   if (typeof args.routes === "string") {
-    const { url, wire, body } = await probeRoutes(args.routes, apiKey);
+    const { url, wire, body, measured } = await probeRoutes(args.routes, apiKey);
     if (typeof args.out === "string") {
-      writeFixture(args, args.out, `Real GET /partnerapi/routes?source=${args.routes}. Key redacted, arrays trimmed.`, {
+      writeFixture(args, args.out, `Real GET /partnerapi/routes?source=${args.routes}. Key redacted, arrays trimmed — \`measured\` describes the WHOLE payload, which the trimmed body no longer can.`, {
         request: { url, method: "GET", headers: { "Partner-Authorization": REDACTED } },
         status: wire.status,
         headers: redactHeaders(wire.headers),
+        measured,
         body: trimDeep(body, trim),
       });
     }

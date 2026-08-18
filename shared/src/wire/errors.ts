@@ -47,6 +47,9 @@ export type ApiErrorCode =
   | "recipient_not_allowed"
   | "no_alert_from"
   | "no_resend_api_key"
+  // Route graph
+  | "unknown_source"
+  | "routes_fetch_failed"
   // Generic
   | "not_found"
   | "bad_request";

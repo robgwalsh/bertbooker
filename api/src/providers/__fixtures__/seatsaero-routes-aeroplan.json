@@ -1,0 +1,162 @@
+{
+  "capturedAt": "2026-08-18T02:51:21.933Z",
+  "note": "Real GET /partnerapi/routes?source=aeroplan. Key redacted, arrays trimmed — `measured` describes the WHOLE payload, which the trimmed body no longer can.",
+  "request": {
+    "url": "https://seats.aero/partnerapi/routes?source=aeroplan",
+    "method": "GET",
+    "headers": {
+      "Partner-Authorization": "<redacted>"
+    }
+  },
+  "status": 200,
+  "headers": {
+    "alt-svc": "h3=\":443\"; ma=86400",
+    "cache-control": "public, max-age=60",
+    "cf-cache-status": "DYNAMIC",
+    "cf-ray": "a2cd9dca0cb65670-PIT",
+    "connection": "keep-alive",
+    "content-encoding": "gzip",
+    "content-type": "application/json",
+    "cross-origin-opener-policy": "same-origin",
+    "date": "Tue, 18 Aug 2026 02:51:22 GMT",
+    "referrer-policy": "no-referrer",
+    "server": "cloudflare",
+    "set-cookie": "<redacted>",
+    "speculation-rules": "\"/cdn-cgi/speculation\"",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+    "transfer-encoding": "chunked",
+    "vary": "Origin, Accept-Encoding",
+    "x-content-type-options": "nosniff",
+    "x-debug": "610ae7fa",
+    "x-frame-options": "DENY",
+    "x-ratelimit-limit": "1000",
+    "x-ratelimit-remaining": "976",
+    "x-ratelimit-reset": "76117",
+    "x-xss-protection": "1; mode=block"
+  },
+  "measured": {
+    "rows": 8338,
+    "bytes": 1494921,
+    "durationMs": 168,
+    "keys": {
+      "ID": 8338,
+      "OriginAirport": 8338,
+      "OriginRegion": 8338,
+      "DestinationAirport": 8338,
+      "DestinationRegion": 8338,
+      "Distance": 8338,
+      "Source": 8338
+    },
+    "distinctPairs": 8338,
+    "distinctIds": 8338,
+    "sources": [
+      "aeroplan"
+    ],
+    "regions": [
+      "Africa",
+      "Asia",
+      "Europe",
+      "North America",
+      "Oceania",
+      "South America"
+    ],
+    "numDaysOutValues": [],
+    "fractionalDistance": 0,
+    "missingEndpoint": 0,
+    "minDistance": 0,
+    "maxDistance": 10933
+  },
+  "body": [
+    {
+      "ID": "2OgDZKKJO8xO0Gd67UogPLwJR6G",
+      "OriginAirport": "CAI",
+      "OriginRegion": "Africa",
+      "DestinationAirport": "AMM",
+      "DestinationRegion": "Asia",
+      "Distance": 293,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "3ArH3fnGgiBC7bjPew3UyQFQjWS",
+      "OriginAirport": "CLT",
+      "OriginRegion": "North America",
+      "DestinationAirport": "IAD",
+      "DestinationRegion": "North America",
+      "Distance": 322,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "31Pfq2U1eEQqqU850f0MwZPhpzh",
+      "OriginAirport": "KIX",
+      "OriginRegion": "Asia",
+      "DestinationAirport": "NKG",
+      "DestinationRegion": "Asia",
+      "Distance": 966,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "3ELuWN17Y39PM6FFm77zcmN9gmw",
+      "OriginAirport": "MEL",
+      "OriginRegion": "Oceania",
+      "DestinationAirport": "SZX",
+      "DestinationRegion": "Asia",
+      "Distance": 4634,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "39FoF7srOwd0xdC9zCzbvCvQOkr",
+      "OriginAirport": "IAD",
+      "OriginRegion": "North America",
+      "DestinationAirport": "YHZ",
+      "DestinationRegion": "North America",
+      "Distance": 824,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "2OsedTtStxZiG6xp9JEQQoLQBUj",
+      "OriginAirport": "SEZ",
+      "OriginRegion": "Africa",
+      "DestinationAirport": "IST",
+      "DestinationRegion": "Europe",
+      "Distance": 3581,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "2OgO26N2YvbVbEQqNnP77AqsOtb",
+      "OriginAirport": "DXB",
+      "OriginRegion": "Asia",
+      "DestinationAirport": "EZE",
+      "DestinationRegion": "South America",
+      "Distance": 8506,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "2YfZvgEPpriLxHzQVq6vxHxDM6n",
+      "OriginAirport": "MAD",
+      "OriginRegion": "Europe",
+      "DestinationAirport": "BRU",
+      "DestinationRegion": "Europe",
+      "Distance": 818,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "31yrPHcrohHtUxQwIU5NC0BkhRb",
+      "OriginAirport": "BNA",
+      "OriginRegion": "North America",
+      "DestinationAirport": "IAD",
+      "DestinationRegion": "North America",
+      "Distance": 541,
+      "Source": "aeroplan"
+    },
+    {
+      "ID": "2cqMlUC74vegjwUqbXJSatYMPBx",
+      "OriginAirport": "YVP",
+      "OriginRegion": "North America",
+      "DestinationAirport": "YUL",
+      "DestinationRegion": "North America",
+      "Distance": 901,
+      "Source": "aeroplan"
+    },
+    "<trimmed 8328 more>"
+  ]
+}

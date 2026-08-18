@@ -23,6 +23,7 @@ it to refuse a call — the one place that does read it before spending is
 |---|---|---|---|
 | `GET /partnerapi/search` (Cached Search) | 1 call per page | a page of availability across ~20 programs, a whole date range, several airports | **yes — this is Search** |
 | `GET /partnerapi/trips/{id}` (Get Trips) | 1 call **per availability row** | the real legs, including per-leg times | **yes — on a click** |
+| `GET /partnerapi/routes` (Get Routes) | 1 call **per source** | every city pair that program's inventory is monitored on | **yes — the Library's seats.aero pane** (§12) |
 | `POST /partnerapi/live` | 1 call per (route, date, program), 5–15s | a real-time query against the airline | **no** |
 
 Cached Search is by far the best value the API offers, which is why a year-long
@@ -527,6 +528,159 @@ failing:
   never sent.
 - **Quota is a display.** Anything that reads it before spending is the budget
   guard returning.
+
+---
+
+## 12. The route graph
+
+`GET /partnerapi/routes?source=<name>` returns every city pair a program's award
+inventory is monitored on. It backs the Library's **seats.aero** pane, and it is
+appended as §12 rather than inserted so the section numbers `CLAUDE.md` and
+`docs/ALERTS.md` cite do not move.
+
+### What it actually returns
+
+A **bare array** — not a `{data}` envelope — of objects with seven fields:
+`ID`, `OriginAirport`, `OriginRegion`, `DestinationAirport`, `DestinationRegion`,
+`Distance`, `Source`. Measured live on 2026-08-18: `alaska` 8,130 rows / 1.43 MB,
+`aeroplan` 8,338 rows / 1.46 MB, ~180 bytes a row. Both fixtures are committed
+under `api/src/providers/__fixtures__/`, each carrying a `measured` block that
+describes the WHOLE payload, because the committed body is trimmed to 25 rows.
+
+Three measured facts the schema depends on, none of them guessable:
+
+- **Pairs are unique within a source** (8,130/8,130 and 8,338/8,338 distinct), so
+  `seatsaero_routes` can key on `(source, origin, destination)`.
+- **`Distance` is an integer**, so the column is `INTEGER`. The unit is
+  **statute miles**, and that is INFERRED, not documented: the API reference's
+  own example gives TPE–PNH as 1423, and that pair's great circle is 2290 km =
+  1423 mi.
+- **`NumDaysOut` does not exist.** The published example at
+  `developers.seats.aero/reference/get-routes-1` shows `NumDaysOut: 60`, and zero
+  of those 16,468 rows carried it — `aeroplan` included, which is the very source
+  that example is written from. A per-route monitoring horizon is the obvious
+  thing to want here and the data is simply not there.
+  `seatsaero-routes.test.ts` pins its absence so a future reader does not go
+  looking twice.
+
+### `200 []` is an answer, not a failure
+
+**seats.aero returns HTTP 200 with an empty array for a source name it does not
+recognise.** No error, no 404. That is the same trap §4 records: `britishairways`,
+`ana`, `cathay` and `eva` all look right and all return nothing.
+
+So the fetch itself is written down, in `seatsaero_route_fetches`, one row per
+source, with a status of `ok` / `empty` / `failed`. Without that row, "no routes
+for X" means either *we never asked* or *that name is wrong*, and nothing
+downstream can tell which. **`empty` is a success and must never render as an
+error** — it is the most informative thing this surface reports.
+
+Verified live: fetching `britishairways` records `status: "empty"`,
+`http_status: 200`, `bytes: 2`.
+
+### The write
+
+One metered call, then a delete-and-replace inside a **single `db.batch()`** —
+one implicit transaction, so a source is never observed half-replaced and a
+failure leaves the previous graph standing. The payload is the program's whole
+network, so a merge would leave pairs it has stopped flying standing forever.
+
+Rows are inserted through **`json_each`**, binding a chunk of 500 as one JSON
+parameter. That is not cleverness, it is arithmetic: **D1 allows 100 bound
+parameters per query** (not SQLite's 999) and **1,000 queries per Worker
+invocation**, with batch statements counting toward the second. Eight columns
+would fit twelve rows per `INSERT … VALUES`, so a measured graph would be ~700
+statements; `json_each` makes it 17, at two binds each. Measured end to end at
+**343 ms for 8,130 rows**, of which 186 ms was seats.aero.
+
+`recordQuota` is called with no run row, exactly as enrichment does (§8) — this
+is interactive work, and it reports its own failure to whoever triggered it.
+
+### The pane
+
+`/api/seatsaero/*` (`api/src/endpoints/seatsaeroRoutes.ts`). **Exactly one path
+spends anything**: `POST /api/seatsaero/sources/:source/fetch`. It is in
+`METERED_PATTERNS` in `e2e/fixtures.ts`, so a UI test that reaches it fails
+loudly instead of quietly spending. Everything else is a D1 read — which is the
+whole reason the graph is cached rather than proxied: browsing 26 programs live
+would be 26 calls every time the tab was opened.
+
+**Two things reach that path, and one of them is a selection.** Picking a program
+nobody has ever fetched fetches it, because the alternative is a pane that
+answers every question with "nothing is known yet" until a second button is
+pressed. It neither names its cost nor asks first — this app spends first and
+reports after everywhere else, and `alerts/budget.ts` stays the only reader that
+checks a budget before spending. Three guards in `SourceBar.tsx` are what keep
+that from being a call spent by accident, and all three are load-bearing:
+
+- It fires on an explicit **selection, never on mount.** Opening the tab must
+  cost nothing — the UI harness clicks it on every run, and `e2e/seatsaero.spec.ts`
+  leans on exactly this. It is also why no spec there may pick a source.
+- Only a source with **no fetch record at all.** A `failed` one has been asked
+  already; retrying is what Refresh is for, and auto-retrying would spend a call
+  every time someone flipped back to it.
+- **Once per source per session** (`autoFetched`), so a fetch that errors before
+  it can record anything cannot become a loop.
+
+The pane tells "never fetched" from "being fetched right now" with
+`useIsMutating` on the mutation's key rather than by lifting the mutation out of
+the component that owns the button.
+
+**The map draws a vector basemap, and reaches no tile server.** It is the same
+`data/worldGeometry.ts` the trip list's `RouteMap` draws, through
+`basemapRings()` in `lib/routeMapGeometry.ts`, in the same green land over blue
+water — which is the point: a raster tile is a PNG and nothing downstream can
+recolour it, so a map that wants its own cartography cannot have tiles. The
+sibling `AirportMap` still does, and `*.basemaps.cartocdn.com` is in the CSP for
+that one alone. Three consequences worth knowing:
+
+- Leaflet repeats tiles across copies of the world for free and repeats vectors
+  not at all, so the geometry is handed over again at **±360°** or the world ends
+  in open water at the antimeridian.
+- All the rings of a layer go into **one** `Polygon`, with
+  `fillRule: "nonzero"` (they are separate landmasses, not a shape with holes,
+  and Natural Earth does not promise a consistent winding) and
+  `interactive: false` (or Leaflet hit-tests every vertex on every mouse move).
+- Everything painted over the basemap is a **fixed** colour, arcs included. The
+  ground is no longer the theme's, so a theme whose accent is a deep blue would
+  sink into the ocean.
+
+The table and the map share one `routeFilter` WHERE builder, the way
+`/api/airports` and `/api/airports/geo` share `airportFilter`. Unlike that one,
+`source` is **required** — a route graph is per program by nature, and the
+cross-source question has its own surface.
+
+**A three-letter free-text token is matched as a CODE and nothing else.**
+Substring-matching one against airport names is close to useless: `PIT` appears
+in "Aspen-**Pit**kin County", "Beijing Ca**pit**al" and "Cherry Ca**pit**al", so
+asking for Pittsburgh returned Aspen, Beijing and Traverse City. Anything longer
+keeps the name/city search. This is the common case rather than the edge one —
+the `defaultAirport` preference (`app/src/lib/preferences.ts`, seeded into this
+filter) produces exactly such a token. Pinned by `seatsaeroRoutes.test.ts`.
+
+The list sits **beside** the map from `md` up and takes only the width its
+columns need (`width: max-content`, `flex: 0 0 auto`); a `minWidth: 100%`
+alongside that would silently defeat it and spread the columns back out. None of these is gated on
+`isLocalRequest`: the Airports pane is dev-only and this one ships, which is also
+why the map gets its coordinates from this endpoint's own join to `airports`
+rather than calling `/api/airports/geo`, which would 404 in production.
+
+### Reach, which is NOT coverage
+
+`assessGraphReach` (`api/src/domain/graphReach.ts`) asks whether the pairs a
+tracked route covers are in anybody's graph. **Do not call this coverage.**
+`search_coverage` means *did WE look at (route, date, program), and when* — a
+stored fact about our own searching that licenses a prune. This is a fact about
+the SOURCE'S network, true before anyone searches anything, and it can never
+license a prune.
+
+It expands routes with `searchPairs`, the same function the search plans with, so
+the panel cannot report on a pair the search never asks about. A route's verdict
+is its **worst pair's**: SEA/PDX→NRT/HND is four independent pairs, and one of
+them in nobody's graph is a named hole rather than a route that is mostly fine.
+`unknown` is a real verdict — with nothing fetched there is nothing to conclude,
+and a `failed` source is excluded from the fetched set because an incomplete
+graph must never be evidence of absence.
 
 ---
 

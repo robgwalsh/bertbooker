@@ -47,6 +47,20 @@ export type {
   AirportInfo,
   AirportName,
   AirportGeo,
+  // The seats.aero route graph
+  RouteGraphSource,
+  RouteFetchRecord,
+  RouteFetchStatus,
+  RouteFetchResult,
+  RouteGraphRow,
+  RouteGraphEdge,
+  RouteGraphGeo,
+  PairCoverage,
+  PairProgram,
+  PairReach,
+  RouteReach,
+  ReachReport,
+  ReachVerdict,
   // Domain vocabulary
   SourceTaskStatus,
   RunStatus,
@@ -88,6 +102,7 @@ export {
 
 export { ApiError } from "./client";
 export type { AirportSearchOpts } from "./airports";
+export type { RouteGraphOpts } from "./routeGraph";
 export { searchRoute } from "./search";
 export { enrichRoute } from "./enrich";
 
@@ -104,6 +119,14 @@ import {
 import { searchRoute } from "./search";
 import { enrichFind, enrichRoute } from "./enrich";
 import { alertDeliveries, alertRunTick, alertRuns, alertSchedule } from "./alerts";
+import {
+  fetchRouteGraph,
+  routeGraph,
+  routeGraphGeo,
+  routeGraphPair,
+  routeGraphReach,
+  routeGraphSources,
+} from "./routeGraph";
 
 /**
  * Every call the SPA can make, in one object.
@@ -142,6 +165,17 @@ export const api = {
   enrichRoute,
 
   quota,
+
+  // ---- The seats.aero route graph (Library) ----
+  routeGraphSources,
+  routeGraph,
+  routeGraphGeo,
+  routeGraphPair,
+  routeGraphReach,
+
+  /** **METERED** — one seats.aero call, replacing one source's stored graph.
+   *  The only call on this page that spends anything. */
+  fetchRouteGraph,
 
   // ---- Alerts: the scheduled sweep ----
   alertSchedule,

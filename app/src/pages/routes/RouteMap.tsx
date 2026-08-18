@@ -8,6 +8,11 @@ import {
   routeArc,
   toPercent,
   unwrapPaths,
+  BORDER,
+  COAST,
+  LAND_FILL,
+  ROUTE_COLOR,
+  WATER,
   type GeoPoint,
 } from "../../lib/routeMapGeometry";
 
@@ -41,24 +46,6 @@ import {
  *  This height is only the fallback for a caller that sizes nothing. */
 export const ROUTE_MAP_WIDTH = 232;
 export const ROUTE_MAP_HEIGHT = 132;
-
-/**
- * Cartography, not chrome, so these are literals rather than theme roles — the
- * app's palette has no "ocean". Green land and blue water as asked, pitched
- * dark enough to sit in a dark table without glowing: the route line is the only
- * thing here meant to catch the eye, and it is the theme's teal precisely
- * because nothing on a green-and-blue map competes with it.
- */
-const WATER = "#13304a";
-const LAND = "#2f6247";
-const COAST = "#57997a";
-const BORDER = "#ffffff";
-
-/** Default line colour, and the second one for the rare map that draws two
- *  paths. Indigo is the theme's primary; both read clearly over green and blue,
- *  and neither is a colour the basemap uses. */
-export const ROUTE_COLOR = "#38e0c8";
-export const ROUTE_ALT_COLOR = "#9aa8ff";
 
 export interface RouteStop {
   code: string;
@@ -236,7 +223,7 @@ export function RouteMap({
           aria-label={`Map of ${summary}`}
           style={{ display: "block", pointerEvents: "none" }}
         >
-          <path d={basemap.land} fill={LAND} stroke={COAST} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
+          <path d={basemap.land} fill={LAND_FILL} stroke={COAST} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
           {/* Lakes are painted back in as water AFTER the land, which is why they
               are a separate layer rather than holes in the coastline rings: the
               Great Lakes and the Caspian are how a domestic route reads as being

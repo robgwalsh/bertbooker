@@ -52,6 +52,18 @@ export interface Preferences {
    * renaming one silently resets everyone who chose it (see `ThemeSpec.id`).
    */
   themeId: string;
+  /**
+   * The airport this browser starts from — an IATA code, or `""` for none.
+   *
+   * A preference rather than a constant because "home" is the one thing about
+   * this app that is genuinely per-person, and rather than URL state because it
+   * should appear in no link and survive every navigation (see the note at the
+   * top of this file). Currently seeds the seats.aero pane's search box.
+   *
+   * Stored UPPERCASE and validated as three letters, so a stored value is
+   * always something a query can be built from without re-checking it.
+   */
+  defaultAirport: string;
 }
 
 /** What an unconfigured browser gets. Every field must have one: `parsePreferences`
@@ -59,7 +71,25 @@ export interface Preferences {
 export const DEFAULT_PREFERENCES: Preferences = {
   showMapColumn: true,
   themeId: DEFAULT_THEME_ID,
+  // The author's home airport. The only opinionated default in this file, and
+  // it is one because an empty box is a worse first run than a wrong city that
+  // takes one edit to fix — the setting is right there in the dialog.
+  defaultAirport: "PIT",
 };
+
+/** An IATA code, or `""` for "no default". The one shape a stored value may
+ *  have, so every reader can use it directly. */
+export function isAirportCode(v: unknown): v is string {
+  return typeof v === "string" && (v === "" || /^[A-Z]{3}$/.test(v));
+}
+
+/** Normalize what someone typed into that shape. Anything that is not three
+ *  letters becomes `""` rather than being stored half-written — the field is
+ *  edited a character at a time, and `"PI"` must not be saved as a code. */
+export function normalizeAirportCode(raw: string): string {
+  const v = raw.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(v) ? v : "";
+}
 
 /**
  * Read a stored blob into a `Preferences`.
@@ -96,6 +126,14 @@ export function parsePreferences(raw: string | null): Preferences {
     // and `isThemeId` is the only thing that can tell the difference. The same
     // guard is what lets `themeById` promise it never returns undefined.
     themeId: isThemeId(o.themeId) ? o.themeId : DEFAULT_PREFERENCES.themeId,
+    // Checked against the SHAPE, not just against `string`. A stored "pit" or
+    // "Pittsburgh" would otherwise reach a query builder that expects a code,
+    // and the failure would surface as an empty result rather than as a bad
+    // setting. Note the fallback is the default, so clearing the field
+    // deliberately (`""`) has to be honoured: `isAirportCode` admits it.
+    defaultAirport: isAirportCode(o.defaultAirport)
+      ? o.defaultAirport
+      : DEFAULT_PREFERENCES.defaultAirport,
   };
 }
 

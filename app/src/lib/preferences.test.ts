@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PREFERENCES,
+  normalizeAirportCode,
   parsePreferences,
   serializePreferences,
   type Preferences,
@@ -59,11 +60,45 @@ describe("parsePreferences", () => {
   });
 
   it("round-trips through serialize", () => {
-    const prefs: Preferences = { showMapColumn: false, themeId: "nord" };
+    const prefs: Preferences = { showMapColumn: false, themeId: "nord", defaultAirport: "SEA" };
     expect(parsePreferences(serializePreferences(prefs))).toEqual(prefs);
     expect(parsePreferences(serializePreferences(DEFAULT_PREFERENCES))).toEqual(
       DEFAULT_PREFERENCES,
     );
+  });
+});
+
+// `defaultAirport` is the only preference whose valid values are a SHAPE rather
+// than a boolean or a closed set, so it is the one that can be stored in a form
+// a query builder would silently choke on.
+describe("defaultAirport", () => {
+  const parsed = (v: unknown) =>
+    parsePreferences(JSON.stringify({ defaultAirport: v })).defaultAirport;
+
+  it("keeps a three-letter code", () => {
+    expect(parsed("SEA")).toBe("SEA");
+  });
+
+  it("honours an explicitly cleared value", () => {
+    // `""` is a considered choice — "start from nowhere in particular" — and
+    // must not fall back to the default, or the setting could never be cleared.
+    expect(parsed("")).toBe("");
+  });
+
+  it("falls back rather than storing something a query cannot use", () => {
+    // Lowercase, a city name and a half-typed code all reach a query builder
+    // that expects a code; the failure would surface as an empty result rather
+    // than as a bad setting.
+    for (const bad of ["pit", "Pittsburgh", "PI", "PITT", 42, null]) {
+      expect(parsed(bad)).toBe(DEFAULT_PREFERENCES.defaultAirport);
+    }
+  });
+
+  it("normalizes what someone types", () => {
+    expect(normalizeAirportCode(" sea ")).toBe("SEA");
+    // Not three letters yet — stored as "none" rather than as a partial code.
+    expect(normalizeAirportCode("SE")).toBe("");
+    expect(normalizeAirportCode("")).toBe("");
   });
 });
 

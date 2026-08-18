@@ -24,6 +24,11 @@ import type { AirportGeo } from "../../../api";
 import { countryName, flagEmoji } from "../../../lib/format";
 import { TYPE_LABEL } from "../../../lib/airportTypes";
 import { tint } from "../../../theme/build";
+import {
+  TILE_ATTRIBUTION,
+  TILE_URL,
+  leafletStyles,
+} from "../../../components/leafletChrome";
 
 // One airport carried as a supercluster point's properties.
 type AirportProps = { airport: AirportGeo };
@@ -215,58 +220,6 @@ function Legend({ types }: { types: Set<string> }) {
   );
 }
 
-/**
- * Leaflet's own chrome — popups, zoom controls, attribution — repainted in the
- * app's theme.
- *
- * Leaflet ships its own stylesheet and knows nothing about MUI, so this is the
- * one place in the app that has to restate the palette as plain CSS. It reads
- * the live theme rather than the near-black it was written against, which is
- * what stops a light theme from opening a black popup over a white map.
- */
-const leafletStyles = (theme: Theme) => (
-  <GlobalStyles
-    styles={{
-      ".leaflet-container": {
-        background: theme.palette.background.default,
-        fontFamily: "inherit",
-      },
-      ".leaflet-popup-content-wrapper, .leaflet-popup-tip": {
-        background: theme.palette.background.paper,
-        color: theme.palette.text.primary,
-        boxShadow: `0 8px 30px ${alpha("#000000", theme.palette.mode === "dark" ? 0.5 : 0.18)}`,
-      },
-      ".leaflet-popup-content": { margin: "12px 14px" },
-      ".leaflet-container a.leaflet-popup-close-button": {
-        color: theme.palette.text.secondary,
-      },
-      ".leaflet-bar a": {
-        background: theme.palette.background.paper,
-        color: theme.palette.text.primary,
-        borderColor: theme.palette.divider,
-      },
-      ".leaflet-bar a:hover": { background: tint(theme, 0.08) },
-      ".leaflet-control-attribution": {
-        background: alpha(theme.palette.background.default, 0.7),
-        color: theme.palette.text.secondary,
-      },
-      ".leaflet-control-attribution a": { color: theme.palette.secondary.main },
-    }}
-  />
-);
-
-/**
- * CARTO's basemap, in the theme's polarity.
- *
- * The tiles are raster images — nothing downstream can recolour them — so a
- * light theme has to ask the tile server for a different map rather than restyle
- * the one it got. This is the whole reason `AirportMap` cares about `mode` at
- * all.
- */
-const TILE_URL: Record<"dark" | "light", string> = {
-  dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-};
 
 /**
  * Plots a set of airports, clustered client-side. Purely presentational — the
@@ -376,7 +329,7 @@ export function AirportMap({
             // a new key the old polarity stays on screen until a pan.
             key={theme.palette.mode}
             url={TILE_URL[theme.palette.mode]}
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            attribution={TILE_ATTRIBUTION}
           />
           <ClusterLayer index={index} />
           <FitToResults airports={airports} fitKey={fitKey} />

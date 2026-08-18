@@ -70,6 +70,10 @@ const PIXEL = Buffer.from(
 const METERED_PATTERNS: RegExp[] = [
   /\/api\/tracked-routes\/[^/]+\/search/,
   /\/api\/tracked-routes\/[^/]+\/enrich/,
+  // Fetching one source's route graph for the Library's seats.aero pane. One
+  // call of the same 1000, and it is a single button on a page a test visits.
+  // Every other `/api/seatsaero/*` path is a D1 read and costs nothing.
+  /\/api\/seatsaero\/sources\/[^/]+\/fetch/,
   /\/__scheduled/,
 ];
 

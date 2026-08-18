@@ -1,0 +1,297 @@
+{
+  "capturedAt": "2026-08-18T03:25:51.875Z",
+  "note": "Real GET /partnerapi/routes?source=alaska. Key redacted, arrays trimmed — `measured` describes the WHOLE payload, which the trimmed body no longer can.",
+  "request": {
+    "url": "https://seats.aero/partnerapi/routes?source=alaska",
+    "method": "GET",
+    "headers": {
+      "Partner-Authorization": "<redacted>"
+    }
+  },
+  "status": 200,
+  "headers": {
+    "alt-svc": "h3=\":443\"; ma=86400",
+    "cache-control": "public, max-age=60",
+    "cf-cache-status": "DYNAMIC",
+    "cf-ray": "a2cdd0536cd8862d-PIT",
+    "connection": "keep-alive",
+    "content-encoding": "gzip",
+    "content-type": "application/json",
+    "cross-origin-opener-policy": "same-origin",
+    "date": "Tue, 18 Aug 2026 03:25:52 GMT",
+    "referrer-policy": "no-referrer",
+    "server": "cloudflare",
+    "set-cookie": "<redacted>",
+    "speculation-rules": "\"/cdn-cgi/speculation\"",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+    "transfer-encoding": "chunked",
+    "vary": "Origin, Accept-Encoding",
+    "x-content-type-options": "nosniff",
+    "x-debug": "610ae7fa",
+    "x-frame-options": "DENY",
+    "x-ratelimit-limit": "1000",
+    "x-ratelimit-remaining": "973",
+    "x-ratelimit-reset": "74047",
+    "x-xss-protection": "1; mode=block"
+  },
+  "measured": {
+    "rows": 8130,
+    "bytes": 1459285,
+    "durationMs": 184,
+    "keys": {
+      "ID": 8130,
+      "OriginAirport": 8130,
+      "OriginRegion": 8130,
+      "DestinationAirport": 8130,
+      "DestinationRegion": 8130,
+      "Distance": 8130,
+      "Source": 8130
+    },
+    "distinctPairs": 8130,
+    "distinctIds": 8130,
+    "sources": [
+      "alaska"
+    ],
+    "regions": [
+      "Africa",
+      "Asia",
+      "Europe",
+      "North America",
+      "Oceania",
+      "South America"
+    ],
+    "numDaysOutValues": [],
+    "fractionalDistance": 0,
+    "missingEndpoint": 0,
+    "minDistance": 0,
+    "maxDistance": 10587
+  },
+  "body": [
+    {
+      "ID": "2WyeLkAtRfO62gksnhF5d1G2JJm",
+      "OriginAirport": "DCA",
+      "OriginRegion": "North America",
+      "DestinationAirport": "MKE",
+      "DestinationRegion": "North America",
+      "Distance": 633,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2wNeQzdTu0YPlrgyYTwb7gYwgPR",
+      "OriginAirport": "MAD",
+      "OriginRegion": "Europe",
+      "DestinationAirport": "FOR",
+      "DestinationRegion": "South America",
+      "Distance": 3778,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2Z0GNC2dLTGZQL3ZqspYUo9SRDW",
+      "OriginAirport": "DOH",
+      "OriginRegion": "Asia",
+      "DestinationAirport": "ATQ",
+      "DestinationRegion": "Asia",
+      "Distance": 1477,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2QdAXfTV2IAZWnD22V3ETbxd9rY",
+      "OriginAirport": "AMM",
+      "OriginRegion": "Asia",
+      "DestinationAirport": "LHR",
+      "DestinationRegion": "Europe",
+      "Distance": 2291,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2eCVR80F0siEHb7ytcNu722dEDW",
+      "OriginAirport": "BSB",
+      "OriginRegion": "South America",
+      "DestinationAirport": "CWB",
+      "DestinationRegion": "South America",
+      "Distance": 673,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2ZNZu2e1uQ2OnmyQNGPxAoshwdC",
+      "OriginAirport": "AVL",
+      "OriginRegion": "North America",
+      "DestinationAirport": "CLT",
+      "DestinationRegion": "North America",
+      "Distance": 91,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2wNeR0cuyIPgebtwMBoJRzwPVWj",
+      "OriginAirport": "REC",
+      "OriginRegion": "South America",
+      "DestinationAirport": "MAD",
+      "DestinationRegion": "Europe",
+      "Distance": 3912,
+      "Source": "alaska"
+    },
+    {
+      "ID": "3GQd74j9qT9gqf223R5QygA1aX5",
+      "OriginAirport": "PUS",
+      "OriginRegion": "Asia",
+      "DestinationAirport": "RMQ",
+      "DestinationRegion": "Asia",
+      "Distance": 906,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2UiBSqET6lmcS8jRlJlOWFHYOJZ",
+      "OriginAirport": "PRG",
+      "OriginRegion": "Europe",
+      "DestinationAirport": "DUB",
+      "DestinationRegion": "Europe",
+      "Distance": 904,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2eebZCxSZWXiXdj6HQ66JgjGyTL",
+      "OriginAirport": "LAS",
+      "OriginRegion": "North America",
+      "DestinationAirport": "PIT",
+      "DestinationRegion": "North America",
+      "Distance": 1907,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2g6SrGqxugcfpOOUlztZQhdSQQa",
+      "OriginAirport": "MRU",
+      "OriginRegion": "Africa",
+      "DestinationAirport": "LGW",
+      "DestinationRegion": "Europe",
+      "Distance": 6063,
+      "Source": "alaska"
+    },
+    {
+      "ID": "3FJyQHZreCorFXhnrsGELNmsj6b",
+      "OriginAirport": "MDW",
+      "OriginRegion": "North America",
+      "DestinationAirport": "YTZ",
+      "DestinationRegion": "North America",
+      "Distance": 442,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2Rm0saI3iyHSaNOixq99PwcjnOL",
+      "OriginAirport": "STL",
+      "OriginRegion": "North America",
+      "DestinationAirport": "PHL",
+      "DestinationRegion": "North America",
+      "Distance": 812,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2Uus8r0IAoEDpBY9cR81ja4JhVC",
+      "OriginAirport": "HKG",
+      "OriginRegion": "Asia",
+      "DestinationAirport": "FUK",
+      "DestinationRegion": "Asia",
+      "Distance": 1273,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2fJ6ODBCSkd8rk4IzFFuM5bmDBm",
+      "OriginAirport": "PHX",
+      "OriginRegion": "North America",
+      "DestinationAirport": "BDL",
+      "DestinationRegion": "North America",
+      "Distance": 2210,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2SzbmbQNiVKwtpW0RxNVNZGV4KX",
+      "OriginAirport": "MIA",
+      "OriginRegion": "North America",
+      "DestinationAirport": "MDE",
+      "DestinationRegion": "South America",
+      "Distance": 1395,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2Ros5UzdzHARjaHOYeBZ4MFaL08",
+      "OriginAirport": "SJC",
+      "OriginRegion": "North America",
+      "DestinationAirport": "LIH",
+      "DestinationRegion": "North America",
+      "Distance": 2466,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2dpMM6Ijf9MD1GXASHYfzK9y2nx",
+      "OriginAirport": "SAN",
+      "OriginRegion": "North America",
+      "DestinationAirport": "MSY",
+      "DestinationRegion": "North America",
+      "Distance": 1597,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2Yp8pNtgWNdRw2feosSwalyTQRk",
+      "OriginAirport": "EGE",
+      "OriginRegion": "North America",
+      "DestinationAirport": "AUS",
+      "DestinationRegion": "North America",
+      "Distance": 836,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2kudzjctqCiVE8r7spS4p8rbRU8",
+      "OriginAirport": "RBA",
+      "OriginRegion": "Africa",
+      "DestinationAirport": "BRU",
+      "DestinationRegion": "Europe",
+      "Distance": 1295,
+      "Source": "alaska"
+    },
+    {
+      "ID": "32MCJEjyynJXpW7Y608Xqz3FNME",
+      "OriginAirport": "PUJ",
+      "OriginRegion": "South America",
+      "DestinationAirport": "PIT",
+      "DestinationRegion": "North America",
+      "Distance": 1673,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2zIGU5xpDWzIJ08udAXe8nuyOgH",
+      "OriginAirport": "YUL",
+      "OriginRegion": "North America",
+      "DestinationAirport": "YYZ",
+      "DestinationRegion": "North America",
+      "Distance": 313,
+      "Source": "alaska"
+    },
+    {
+      "ID": "3EEjPfzFj3a4UBlBvKGdvYUpxRy",
+      "OriginAirport": "NAN",
+      "OriginRegion": "Oceania",
+      "DestinationAirport": "TVU",
+      "DestinationRegion": "Oceania",
+      "Distance": 175,
+      "Source": "alaska"
+    },
+    {
+      "ID": "31eIj5s2vNoOTPxAYzmQ8xJHGWs",
+      "OriginAirport": "DFW",
+      "OriginRegion": "North America",
+      "DestinationAirport": "ZRH",
+      "DestinationRegion": "Europe",
+      "Distance": 5234,
+      "Source": "alaska"
+    },
+    {
+      "ID": "2VWG7xIpaTnDffEW6tt5ZToutFN",
+      "OriginAirport": "SCL",
+      "OriginRegion": "South America",
+      "DestinationAirport": "MDZ",
+      "DestinationRegion": "South America",
+      "Distance": 121,
+      "Source": "alaska"
+    },
+    "<trimmed 8105 more>"
+  ]
+}

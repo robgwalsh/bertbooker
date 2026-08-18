@@ -6,6 +6,7 @@ import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
+import HubRoundedIcon from "@mui/icons-material/HubRounded";
 import { api } from "../../api";
 import { PagePad } from "../../components/PagePad";
 import { STICKY_NAV_TOP } from "../../lib/layout";
@@ -14,6 +15,7 @@ import { AirlinesSection } from "./AirlinesSection";
 import { CurrenciesSection } from "./CurrenciesSection";
 import { ProgramsSection } from "./ProgramsSection";
 import { Airports } from "./airports/AirportsPane";
+import { RouteGraphPane } from "./seatsaero/RouteGraphPane";
 
 /** Left-hand nav for the library. Each entry owns the whole content area, so a
  *  wide surface (the airline table, the airports map) gets the full width of the
@@ -31,6 +33,7 @@ const LIBRARY_TABS = [
   { key: "airlines", label: "Airlines", icon: <FlightTakeoffRoundedIcon /> },
   { key: "hotels", label: "Hotel programs", icon: <HotelRoundedIcon /> },
   { key: "airports", label: "Airports", icon: <PublicRoundedIcon /> },
+  { key: "seatsaero", label: "seats.aero", icon: <HubRoundedIcon /> },
 ] as const;
 
 export function Library() {
@@ -66,6 +69,11 @@ export function Library() {
       }
       return <Airports />;
     }
+    // Ships to production, unlike the Airports pane above: the cached graphs
+    // are a fraction of that ~72k-row table, and this pane is most useful where
+    // the real quota and the real tracked routes are. It shares no data with
+    // the programs/currencies queries, so it renders before their gates too.
+    if (active === "seatsaero") return <RouteGraphPane />;
     if (programsQ.isLoading || currenciesQ.isLoading)
       return (
         <Stack sx={{ py: 8, alignItems: "center" }}>

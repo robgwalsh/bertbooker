@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   basemapPaths,
+  basemapRings,
   decodeRing,
   frameFor,
   greatCircle,
@@ -261,6 +262,45 @@ describe("decodeRing", () => {
   it("accumulates deltas back into degrees", () => {
     // Tenths of a degree: (10, -20) then +5, +5 → (15, -15).
     expect(decodeRing("10,-20,5,5")).toEqual([1, -2, 1.5, -1.5]);
+  });
+});
+
+// The Leaflet route graph's basemap. Same geometry as `basemapPaths`, no
+// projection and no cull — the failure modes are the two conversions.
+describe("basemapRings", () => {
+  it("emits [lat, lon], not the [lon, lat] it is stored as", () => {
+    // Every latitude on earth is in range; longitudes reach ±180, so a swapped
+    // pair shows up as a latitude past the poles. Checked over the whole
+    // basemap rather than a sample, because one mis-ordered layer is the bug.
+    const rings = basemapRings();
+    for (const layer of [rings.land, rings.lakes, rings.borders]) {
+      for (const ring of layer) {
+        for (const [lat, lon] of ring) {
+          expect(Math.abs(lat)).toBeLessThanOrEqual(90);
+          expect(Math.abs(lon)).toBeLessThanOrEqual(180);
+        }
+      }
+    }
+  });
+
+  it("draws all three layers, and every ring has points", () => {
+    const rings = basemapRings();
+    expect(rings.land.length).toBeGreaterThan(100);
+    expect(rings.lakes.length).toBeGreaterThan(0);
+    expect(rings.borders.length).toBeGreaterThan(0);
+    expect(rings.land.every((r) => r.length > 0)).toBe(true);
+  });
+
+  it("repeats the world once per offset, shifted by whole turns", () => {
+    // Leaflet repeats tiles across copies of the world and vectors not at all,
+    // so the copies are the caller's job. This is what makes the map continue
+    // past the antimeridian instead of ending in open water.
+    const one = basemapRings([0]);
+    const three = basemapRings([-360, 0, 360]);
+    expect(three.land).toHaveLength(one.land.length * 3);
+    expect(three.land[0]![0]![1]).toBe(one.land[0]![0]![1]! - 360);
+    // Latitude is untouched by an offset.
+    expect(three.land[0]![0]![0]).toBe(one.land[0]![0]![0]);
   });
 });
 

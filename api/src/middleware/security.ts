@@ -84,7 +84,10 @@ const CSP = [
   "font-src 'self' https://fonts.gstatic.com",
   // images.kiwi.com — carrier logos (app/src/lib/flights.ts)
   // icons.duckduckgo.com — program/site icons (app/src/lib/currencies.ts)
-  // *.basemaps.cartocdn.com — the airports map's dark tiles (app/src/pages/library/airports/AirportMap.tsx)
+  // *.basemaps.cartocdn.com — the basemap tiles under the Airports pane's
+  //   Leaflet map, and only that one (app/src/components/leafletChrome.tsx).
+  //   The seats.aero pane's route graph draws a vector basemap compiled into
+  //   the bundle, so it reaches no tile server at all.
   "img-src 'self' data: blob: https://images.kiwi.com https://icons.duckduckgo.com https://*.basemaps.cartocdn.com",
 ].join("; ");
 

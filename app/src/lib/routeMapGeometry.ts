@@ -244,6 +244,35 @@ export function frameFor(points: GeoPoint[], aspect: number): MapFrame {
   return { kx, x: centreX - width / 2, y: centreY - height / 2, width, height };
 }
 
+// ---- Cartography ----
+
+/**
+ * The colours every map drawn from this geometry paints itself in.
+ *
+ * Literals rather than theme roles, because the app's palette has no "ocean" and
+ * no "land" — a green-and-blue map is a picture of the world, not a piece of the
+ * app's chrome. Pitched dark enough to sit in a dark table without glowing.
+ *
+ * They live here, beside the geometry, because there are now two maps drawn from
+ * it — the trip list's `RouteMap` and the seats.aero pane's `RouteGraphMap` —
+ * and the failure mode of a copy is one of them quietly drifting a shade.
+ */
+export const WATER = "#13304a";
+export const LAND_FILL = "#2f6247";
+export const COAST = "#57997a";
+export const BORDER = "#ffffff";
+
+/**
+ * Default line colour, and the second one for the rare map that draws two paths.
+ *
+ * Fixed for the same reason the basemap is: over green and blue, the line is the
+ * only thing meant to catch the eye, and a theme whose accent happened to be a
+ * deep blue would sink into the ocean. Indigo is the theme's primary; both read
+ * clearly over the basemap, and neither is a colour it uses.
+ */
+export const ROUTE_COLOR = "#38e0c8";
+export const ROUTE_ALT_COLOR = "#9aa8ff";
+
 // ---- Basemap ----
 
 interface Shape {
@@ -380,6 +409,50 @@ export function basemapPaths(frame: MapFrame): BasemapPaths {
   if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value!);
   cache.set(key, paths);
   return paths;
+}
+
+export interface BasemapRings {
+  land: [number, number][][];
+  lakes: [number, number][][];
+  borders: [number, number][][];
+}
+
+/**
+ * The same basemap as Leaflet-ready rings: `[lat, lon]`, the order Leaflet
+ * takes, rather than the `[lon, lat]` the storage uses.
+ *
+ * `basemapPaths` projects into a fixed SVG frame and culls to it; this one does
+ * neither, because a Leaflet map owns its own projection and viewport. Same
+ * geometry, two consumers with genuinely different needs — which is why the
+ * decode (`shapes()`) is shared and the rest is not.
+ *
+ * `offsets` are whole turns of longitude. Leaflet repeats raster TILES across
+ * copies of the world for free and repeats VECTORS not at all, so a map that can
+ * pan past the antimeridian has to be handed the geometry again at ±360 or the
+ * world simply stops at the edge.
+ */
+export function basemapRings(offsets: readonly number[] = [0]): BasemapRings {
+  const layers = shapes();
+
+  const convert = (layer: Shape[]): [number, number][][] => {
+    const out: [number, number][][] = [];
+    for (const offset of offsets) {
+      for (const shape of layer) {
+        const ring: [number, number][] = new Array(shape.coords.length / 2);
+        for (let i = 0; i < shape.coords.length; i += 2) {
+          ring[i / 2] = [shape.coords[i + 1]!, shape.coords[i]! + offset];
+        }
+        out.push(ring);
+      }
+    }
+    return out;
+  };
+
+  return {
+    land: convert(layers.land),
+    lakes: convert(layers.lakes),
+    borders: convert(layers.borders),
+  };
 }
 
 /**

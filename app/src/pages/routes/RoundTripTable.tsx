@@ -24,14 +24,8 @@ import type { AirportName, Find, TrackedRoute } from "../../api";
 import { TripTotalCost } from "./findCells";
 import { pairKey } from "./findKey";
 import { findStops, ItineraryCard } from "./Itinerary";
-import {
-  RouteMapFill,
-  ROUTE_ALT_COLOR,
-  ROUTE_COLOR,
-  ROUTE_MAP_CELL_WIDTH,
-  toRouteStops,
-} from "./RouteMap";
-import { isSamePath } from "../../lib/routeMapGeometry";
+import { RouteMapFill, ROUTE_MAP_CELL_WIDTH, toRouteStops } from "./RouteMap";
+import { isSamePath, ROUTE_ALT_COLOR, ROUTE_COLOR } from "../../lib/routeMapGeometry";
 import { routeSets } from "../../lib/routeShape";
 import { useAirportNames } from "../../hooks/useAirportNames";
 import {

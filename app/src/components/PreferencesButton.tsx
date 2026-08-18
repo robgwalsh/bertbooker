@@ -17,7 +17,8 @@ import {
 } from "@mui/material";
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import { setPreference, usePreferences } from "../lib/preferences";
+import { normalizeAirportCode, setPreference, usePreferences } from "../lib/preferences";
+import { AirportAutocomplete } from "./AirportAutocomplete";
 import { THEMES, THEME_GROUPS, themeGroup, type ThemeSpec } from "../theme/themes";
 import { SWITCH_ROW_ML } from "../lib/layout";
 import { useIsPhone } from "../hooks/useBreakpoints";
@@ -95,6 +96,12 @@ function PreferencesDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
         <Divider sx={{ my: 2.5 }} />
 
+        <Section title="Travel">
+          <DefaultAirportField value={prefs.defaultAirport} />
+        </Section>
+
+        <Divider sx={{ my: 2.5 }} />
+
         <Section title="Theme">
           <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>
             Applies immediately and is remembered per browser. Each swatch is the
@@ -110,6 +117,34 @@ function PreferencesDialog({ open, onClose }: { open: boolean; onClose: () => vo
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+/**
+ * The airport this browser starts from.
+ *
+ * An `AirportAutocomplete` rather than a text box, so the stored value is
+ * always a real code that came from the airports table — the same control the
+ * Routes page uses to pick a route's endpoints, which is also what makes
+ * "PIT" and "Pittsburgh" the same answer here.
+ *
+ * Writes on selection, like every other control in this dialog: a preference is
+ * not a form, and there is nothing here that could fail validation late.
+ */
+function DefaultAirportField({ value }: { value: string }) {
+  return (
+    <>
+      <AirportAutocomplete
+        label="Default airport"
+        value={value}
+        onChange={(code) => setPreference("defaultAirport", normalizeAirportCode(code))}
+        sx={{ maxWidth: 360, mt: 0.5 }}
+      />
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75 }}>
+        Where searches start from. Seeds the seats.aero tab&rsquo;s route filter; clear it to
+        start from nowhere in particular.
+      </Typography>
+    </>
   );
 }
 

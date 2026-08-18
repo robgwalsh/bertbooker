@@ -91,7 +91,10 @@ export const SEATSAERO_TAKE_WITH_TRIPS = 500;
  * silence.
  *
  * **Every key here was verified live on 2026-08-09** against
- * `GET /partnerapi/routes?source=<name>`, and that verification is not optional
+ * `GET /partnerapi/routes?source=<name>` (documented at
+ * developers.seats.aero/reference/get-routes-1, and since 2026-08-18 the
+ * Library's seats.aero pane runs the same check as a surface rather than as a
+ * terminal ritual), and that verification is not optional
  * ceremony: **the API silently ignores an unrecognised `sources` value.** It
  * answers `200 {"data":[]}` rather than erroring, so a misspelled name is not a
  * bug you find — it is a program that quietly contributes nothing forever. Four
@@ -104,11 +107,11 @@ export const SEATSAERO_TAKE_WITH_TRIPS = 500;
  *
  * Eight real sources we knowingly don't map, because each would need a new entry
  * in BOTH `data/programs.ts` and `seed/programs.sql` and none of them is
- * reachable from a currency the couple holds: `velocity`, `smiles`, `azul`,
- * `copa`, `finnair`, `saudia`, `ethiopian`, `eurobonus`. (`connectmiles` is NOT
- * one of them — it returns zero routes, same as the four names above. Copa's
- * source is `copa`; `connectmiles` is only the program's *name*, which is
- * exactly the trap `britishairways` fell into.)
+ * reachable from a currency the couple holds: `SEATSAERO_UNMAPPED_SOURCES`.
+ * (`connectmiles` is NOT one of them — it returns zero routes, same as the four
+ * names above, and sits in `SEATSAERO_ZERO_ROUTE_NAMES`. Copa's source is
+ * `copa`; `connectmiles` is only the program's *name*, which is exactly the
+ * trap `britishairways` fell into.)
  */
 export const SEATSAERO_PROGRAM_MAP: Record<string, string> = {
   aeromexico: "aeromexico",
@@ -1316,6 +1319,212 @@ export async function runSeatsAeroTrips(
     { availabilityId: expected.availabilityId },
   );
   return { ...parsed, quota, call };
+}
+
+// ---------------------------------------------------------------------------
+// The route graph — GET /partnerapi/routes?source=<name>
+// ---------------------------------------------------------------------------
+//
+// Which city pairs a program's award inventory is monitored on. Reference data,
+// not availability: it claims no coverage, writes no snapshot, and is not a
+// source under docs/SOURCES.md. It backs the Library's seats.aero pane
+// (docs/SEATS-AERO.md §12), one metered call per source, on a button press.
+//
+// Two answers come back looking alike, and telling them apart is the point:
+// a graph, and `200 []` — which is what an unrecognised source name returns,
+// silently. That is why the caller records the fetch itself and not just its
+// rows, and why an empty array must never be turned into a throw here.
+
+/** The eight sources seats.aero really has that this app does not map onto a
+ *  program, because none is reachable from a currency the couple holds. Listed
+ *  so the pane can show the whole picture rather than only our slice; promoted
+ *  out of SEATSAERO_PROGRAM_MAP's doc comment so it is data, not prose. */
+export const SEATSAERO_UNMAPPED_SOURCES: readonly string[] = [
+  "velocity",
+  "smiles",
+  "azul",
+  "copa",
+  "finnair",
+  "saudia",
+  "ethiopian",
+  "eurobonus",
+];
+
+/** Names that LOOK like sources and return `200 []`. Every one was a real guess
+ *  someone made. Kept so the pane can demonstrate what `empty` means without
+ *  the operator having to invent a wrong name. */
+export const SEATSAERO_ZERO_ROUTE_NAMES: readonly string[] = [
+  "britishairways",
+  "ana",
+  "cathay",
+  "eva",
+  "connectmiles",
+];
+
+/** Every source key the pane offers, mapped ones first. */
+export const SEATSAERO_SOURCE_CATALOGUE: readonly string[] = [
+  ...SEATSAERO_SOURCES,
+  ...SEATSAERO_UNMAPPED_SOURCES,
+];
+
+export function buildRoutesUrl(source: string): string {
+  return `${SEATSAERO_BASE}/routes?source=${encodeURIComponent(source)}`;
+}
+
+/**
+ * One pair, normalized — before it is a database row.
+ *
+ * The RAW element is `SeatsAeroRoute` above, already declared for the `Route`
+ * object nested in an availability row. That is not a coincidence to work
+ * around: `/partnerapi/routes` returns exactly that object, standalone, so the
+ * two really are the same wire shape and only one declaration is needed.
+ */
+export interface SeatsAeroGraphRoute {
+  source: string;
+  origin: string;
+  destination: string;
+  originRegion: string | null;
+  destinationRegion: string | null;
+  distanceMi: number | null;
+  routeId: string | null;
+}
+
+export interface ParsedSeatsAeroRoutes {
+  routes: SeatsAeroGraphRoute[];
+  /** Rows missing an endpoint. Dropped rather than defaulted, and counted so
+   *  the loss is a number rather than a silence. */
+  malformed: number;
+  /** Duplicate (origin, destination) pairs within one source, dropped keeping
+   *  the first. `seatsaero_routes` has that as its PRIMARY KEY, and one
+   *  duplicate would otherwise abort the whole transaction and waste the call. */
+  duplicates: number;
+}
+
+/**
+ * Parse the route graph. Pure, and the whole of what the unit test asserts on.
+ *
+ * The top level is a bare array — verified live on 2026-08-18 against `alaska`
+ * (8,130 rows) and `aeroplan` (8,338). `{data:[…]}` is accepted anyway because
+ * every other endpoint on this API wraps, and being wrong about that would look
+ * like a program that flies nowhere.
+ *
+ * **`NumDaysOut` is not read, because it does not arrive.** The published
+ * example at developers.seats.aero/reference/get-routes-1 shows it; zero of
+ * those 16,468 rows carried it, `aeroplan` included — which is the very source
+ * that example is written from. Anything wanting a per-route monitoring horizon
+ * has no data behind it here.
+ */
+export function parseSeatsAeroRoutes(body: unknown, source: string): ParsedSeatsAeroRoutes {
+  const rows = Array.isArray(body)
+    ? body
+    : Array.isArray((body as { data?: unknown[] } | null)?.data)
+      ? (body as { data: unknown[] }).data
+      : [];
+
+  const routes: SeatsAeroGraphRoute[] = [];
+  const seen = new Set<string>();
+  let malformed = 0;
+  let duplicates = 0;
+
+  for (const raw of rows) {
+    // Not every element is an object: a fixture trimmed by the probe carries a
+    // literal "<trimmed N more>" string in the array, and a parser that assumed
+    // otherwise would throw on its own test data.
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const origin = str(r.OriginAirport);
+    const destination = str(r.DestinationAirport);
+    if (!origin || !destination) {
+      malformed++;
+      continue;
+    }
+    const key = `${origin} ${destination}`;
+    if (seen.has(key)) {
+      duplicates++;
+      continue;
+    }
+    seen.add(key);
+    routes.push({
+      // The payload's own `Source`, not the requested one — the same rule the
+      // rest of this file follows about reading endpoints off the answer.
+      source: str(r.Source) || source,
+      origin,
+      destination,
+      originRegion: str(r.OriginRegion) || null,
+      destinationRegion: str(r.DestinationRegion) || null,
+      distanceMi: distance(r.Distance),
+      routeId: str(r.ID) || null,
+    });
+  }
+
+  return { routes, malformed, duplicates };
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "";
+}
+
+/** Measured as an integer on every observed row, but coerced rather than cast:
+ *  this API has already shipped one field as a string on one endpoint and a
+ *  number on another (`[C]MileageCost`). */
+function distance(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+export interface SeatsAeroRoutesOptions {
+  apiKey: string;
+  transport?: FetchLike;
+  signal?: AbortSignal;
+  now?: () => number;
+}
+
+export interface SeatsAeroRoutesResult extends ParsedSeatsAeroRoutes {
+  quota?: SourceQuotaObservation;
+  httpStatus: number;
+  durationMs: number;
+  bytes: number;
+}
+
+/**
+ * Fetch one source's graph.
+ *
+ * **Throwing is the failure protocol.** A refused call must not come back as
+ * zero routes: that is indistinguishable from the `200 []` that means "this
+ * source name is not real", and writing that verdict onto a network blip would
+ * be the one wrong answer this whole surface exists to prevent.
+ */
+export async function runSeatsAeroRoutes(
+  source: string,
+  opts: SeatsAeroRoutesOptions,
+): Promise<SeatsAeroRoutesResult> {
+  const now = opts.now ?? (() => Date.now());
+  const fetchImpl = opts.transport ?? makeTransport({});
+  const headers = seatsAeroHeaders(opts.apiKey);
+  const url = buildRoutesUrl(source);
+  const startedAt = now();
+
+  const res = await fetchImpl(url, { method: "GET", headers, signal: opts.signal });
+  const text = await res.text();
+  // Read the allowance even off a failure — a 429 is exactly when it matters.
+  const quota = parseQuotaHeaders(res.headers, SEATSAERO_SOURCE_ID, now());
+
+  if (!res.ok) {
+    throw Object.assign(new Error(`${SEATSAERO_SOURCE_ID}: HTTP ${res.status}`), {
+      httpStatus: res.status,
+      body: text.slice(0, 500),
+      quota,
+    });
+  }
+
+  return {
+    ...parseSeatsAeroRoutes(JSON.parse(text), source),
+    quota,
+    httpStatus: res.status,
+    durationMs: now() - startedAt,
+    bytes: text.length,
+  };
 }
 
 // --- small pure helpers ----------------------------------------------------

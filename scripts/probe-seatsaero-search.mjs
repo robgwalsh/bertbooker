@@ -40,7 +40,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const FIXTURE_DIR = resolve(ROOT, "shared/src/providers/__fixtures__");
+// Beside the tests that import them (`./__fixtures__/<stem>.json`). A capture
+// written anywhere else is read by nothing.
+const FIXTURE_DIR = resolve(ROOT, "api/src/providers/__fixtures__");
 const BASE = "https://seats.aero/partnerapi";
 const REDACTED = "<redacted>";
 const REQUEST_TIMEOUT_MS = 60_000;

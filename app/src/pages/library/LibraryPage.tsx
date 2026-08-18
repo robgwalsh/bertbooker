@@ -52,7 +52,20 @@ export function Library() {
   // or has failed — it shares no data with them. Only the program-backed panes
   // wait.
   function panel() {
-    if (active === "airports") return <Airports />;
+    if (active === "airports") {
+      // The Airports pane hits a ~72k-row reference table and a world geo dump —
+      // fine for local dev, not worth serving in production right now. Gated on
+      // Vite's build-time DEV flag rather than a server call, since this is a
+      // client-only UI decision with nothing to ask the Worker.
+      if (!import.meta.env.DEV) {
+        return (
+          <Alert severity="info">
+            The Airports pane is temporarily offline and will return soon.
+          </Alert>
+        );
+      }
+      return <Airports />;
+    }
     if (programsQ.isLoading || currenciesQ.isLoading)
       return (
         <Stack sx={{ py: 8, alignItems: "center" }}>

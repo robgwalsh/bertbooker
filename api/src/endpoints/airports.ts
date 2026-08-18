@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Vars } from "../bindings.js";
 import type { AirportGeo, AirportInfo, AirportName } from "../../../shared/src/wire/index.js";
+import { isLocalRequest } from "../middleware/security.js";
 
 /**
  * The Library's Airports pane, the origin/destination autocompletes, and the
@@ -13,11 +14,20 @@ import type { AirportGeo, AirportInfo, AirportName } from "../../../shared/src/w
  * ROUTE ORDER IS LOAD-BEARING within this file: `/countries`, `/geo` and
  * `/lookup` are registered before the bare `/api/airports`, and Hono runs
  * matching handlers in registration order.
+ *
+ * `/countries` and `/geo` power the Airports pane ONLY — the origin/destination
+ * autocompletes and the trip list's route maps call plain `/api/airports` and
+ * `/api/airports/lookup` respectively, never these two. The Airports pane
+ * itself is dev-only (`LibraryPage.tsx` swaps it for an "offline" message
+ * outside `import.meta.env.DEV`), so these two answer `not_found` off loopback
+ * the same way `POST /api/alerts/run` does — no reason to serve a ~72k-row
+ * country breakdown or world geo dump to a host that has no UI to show it.
  */
 export const airports = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 // ---- Airports: distinct countries (powers the country filter) ----
 airports.get("/api/airports/countries", async (c) => {
+  if (!isLocalRequest(c.req.url)) return c.json({ error: "not_found" }, 404);
   const { results } = await c.env.DB.prepare(
     `SELECT country, COUNT(*) AS count FROM airports
       WHERE country IS NOT NULL AND country != ''
@@ -100,6 +110,7 @@ function airportFilter(
 // set, clustered client-side. With no criteria at all this is the full ~72k-row
 // dump (the map's default world view) — hence `defaultToMajors: false`.
 airports.get("/api/airports/geo", async (c) => {
+  if (!isLocalRequest(c.req.url)) return c.json({ error: "not_found" }, 404);
   const { where, binds } = airportFilter((k) => c.req.query(k), { defaultToMajors: false });
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 100000, 1), 100000);
 

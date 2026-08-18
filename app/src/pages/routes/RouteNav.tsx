@@ -204,15 +204,17 @@ export function RouteNav({
           uppercase, on the chrome ground, with its one action at the right.
           `useFlexGap`, so the New button's `ml: auto` actually reaches that
           edge — Stack's default `spacing` is a margin-left on every child but
-          the first, and that margin outranks `auto`. */}
+          the first, and that margin outranks `auto`. `py: 1` and an
+          unshrunk `size="small"` button match `RouteHeader`'s own row
+          exactly — same padding, same button, so the two headers' bottom
+          rules land on one line across the sidebar/editor seam. */}
       <Stack
         direction="row"
         spacing={1}
         useFlexGap
         sx={{
           px: 1.5,
-          py: 0.75,
-          minHeight: 34,
+          py: 1,
           alignItems: "center",
           flexShrink: 0,
           borderBottom: 1,
@@ -239,7 +241,7 @@ export function RouteNav({
             color="success"
             onClick={onAdd}
             startIcon={<AddRoundedIcon fontSize="small" />}
-            sx={{ ml: "auto", minHeight: 22, py: 0, px: 0.75 }}
+            sx={{ ml: "auto" }}
           >
             New
           </Button>

@@ -50,39 +50,25 @@ npm run build:airports
 npm run db:seed:airports:local
 ```
 
-`api/.dev.vars` is gitignored and is the **only** environment file.
-
-If `APP_PASSWORD` or `SESSION_SECRET` is unset, every `/api/*` route answers
-**503** with a named reason rather than letting traffic through, and the SPA
-renders that as a misconfiguration rather than a password prompt. That is
-deliberate: a gate that evaporated when unconfigured would publish the whole app
-on one missed setup step.
+`api/.dev.vars` is gitignored and is the only environment file.
 
 ## Run locally
 
 ```sh
 npm run dev:api        # API worker → http://127.0.0.1:8787
 npm run dev:app        # SPA        → http://localhost:5173
+# Or
+npm run dev            # Runs both
 ```
-
-Or:
- ```sh
- npm run dev
- ```
 
 Open <http://localhost:5173> and sign in with the `APP_PASSWORD` you set.
 
 Note `wrangler dev` does **not** reload `.dev.vars` — edit a value and the old
 one keeps working until you restart the API.
 
-There is nothing else to start. Gathering happens inside the Worker, either
-because you pressed Search or because the cron fired.
-
 ### Local-dev notes
 
-- **Addressing differs per server, and they're opposites.** Wrangler binds IPv4,
-  so use `127.0.0.1:8787` (`localhost` can resolve to IPv6 `::1` and hang). Vite
-  binds IPv6, so use `localhost:5173` (`127.0.0.1` is refused).
+- Wrangler binds IPv4, so use `127.0.0.1:8787` (`localhost` can resolve to IPv6 `::1` and hang). Vite binds IPv6, so use `localhost:5173` (`127.0.0.1` is refused).
 - The local D1 lives under `--persist-to .wrangler-local` at the repo root. Every
   script that touches it — `dev:api` and the `db:*` ones — runs wrangler from the
   root with `--config api/wrangler.toml`; don't change one without the

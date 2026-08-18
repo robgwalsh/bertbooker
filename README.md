@@ -1,18 +1,14 @@
 # BertBooker
 
-A self-hosted award-travel availability tracker. Run locally or with a free Cloudflare account with your own API keys.
-
-It has a flexible 'sources' api for using data from any combination of sources. It comes comes with one source implemented: a seats.aero api integration.
+A self-hosted award-travel availability tracker to use with your seats.aero API key, or your own data provider. Run it locally or deploy to a free Cloudflare account.
 
 ## What you need
 
 | | |
 |---|---|
 | **seats.aero Partner API key** | **Paid**, and the app's primary source — ~20 programs, a year of dates. See [seats.aero/apidocs](https://seats.aero/apidocs) and [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md). Without it the search endpoint answers 503 rather than an empty result, so a missing key can never be mistaken for "no award space". |
-| **Node ≥ 20, npm ≥ 10** | |
-| **Cloudflare account** *(optional)* | Free tier is enough: Workers, D1 and Cron Triggers all fit inside it. `wrangler` ships as a dev dependency. |
+| **Cloudflare account** *(optional)* | Free tier is enough: Workers, D1 and Cron Triggers all fit inside it. The `wrangler` dev dependency does NOT require a cloudflare account, so you can run locally without one. |
 | **Resend account** *(optional)* | Only for the alert digest, and only with a domain you have verified for SPF/DKIM. Without it, sweeps still run and still ingest; each digest is just recorded as `skipped`. |
-| **Google Chrome** *(optional)* | Only to run the UI suite (`npm run test:ui`), which uses your installed browser rather than a downloaded one. See [`docs/UI-TESTING.md`](docs/UI-TESTING.md). |
 
 ## Documentation
 
@@ -24,26 +20,12 @@ It has a flexible 'sources' api for using data from any combination of sources. 
   guard, the digest
 - [`docs/UI-TESTING.md`](docs/UI-TESTING.md) — driving the SPA headless, with
 
-## Architecture
-
-```
-api/ (Hono, Cloudflare)  ──►  D1 (bertbooker_db)
-        ▲   │
-        │   ├──► seats.aero /partnerapi  (inbound data — the only source)
-        │   └──► api.resend.com          (outbound — the alert digest)
-        │  GET /api/dashboard · POST …/:id/search (NDJSON) · GET /api/quota
-app/ (React + Vite SPA, served by that same worker)
-
-shared/ — imported by api/, by relative path
-```
 ## First-time setup
 
 ```sh
 git clone https://github.com/robgwalsh/bertbooker.git
 cd bertbooker
 npm install
-
-npx wrangler login              # needed for D1 and for deploys
 
 # 1. Create the D1 database. Wrangler prints an id — paste it into
 #    api/wrangler.toml as `database_id`, REPLACING the one already
@@ -53,8 +35,6 @@ npx wrangler login              # needed for D1 and for deploys
 npx wrangler d1 create bertbooker_db
 
 # 2. Configure the worker. Every value is documented inline in the template.
-#    At minimum you need APP_PASSWORD, SESSION_SECRET and APP_USER_EMAIL, plus
-#    SEATS_AERO_API_KEY if you want search to do anything.
 cp api/.dev.vars.example api/.dev.vars
 
 #    SESSION_SECRET wants 32 random bytes:
@@ -70,9 +50,7 @@ npm run build:airports
 npm run db:seed:airports:local
 ```
 
-`api/.dev.vars` is gitignored and is the **only** environment file — it is the
-Worker's, sitting beside the `wrangler.toml` that loads it. There was a second at
-the repo root for the local gatherer; both are gone.
+`api/.dev.vars` is gitignored and is the **only** environment file.
 
 If `APP_PASSWORD` or `SESSION_SECRET` is unset, every `/api/*` route answers
 **503** with a named reason rather than letting traffic through, and the SPA
@@ -82,12 +60,15 @@ on one missed setup step.
 
 ## Run locally
 
-Two terminals (or your own task runner):
-
 ```sh
 npm run dev:api        # API worker → http://127.0.0.1:8787
 npm run dev:app        # SPA        → http://localhost:5173
 ```
+
+Or:
+ ```sh
+ npm run dev
+ ```
 
 Open <http://localhost:5173> and sign in with the `APP_PASSWORD` you set.
 

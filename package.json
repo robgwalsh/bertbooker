@@ -32,6 +32,8 @@
     "dev:api": "wrangler dev --config api/wrangler.toml --persist-to .wrangler-local --port 8787 --test-scheduled",
     "dev:api:stop": "node scripts/free-port.mjs 8787",
     "dev:app": "vite --config app/vite.config.ts",
+    "//dev": "Runs the API and the SPA together. Ctrl+C stops both, but wrangler dev can still leave workerd behind (see gotchas) — run dev:api:stop if the port is wedged after.",
+    "dev": "concurrently -n api,app -c blue,green \"npm:dev:api\" \"npm:dev:app\"",
     "build": "vite build --config app/vite.config.ts",
     "//deploy": "ONE artifact: the worker serves the API and the SPA. The build MUST come first — wrangler uploads app/dist as static assets, so deploying without it ships whatever bundle was lying around.",
     "deploy": "npm run build && wrangler deploy --config api/wrangler.toml",
@@ -62,6 +64,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260804.1",
     "@playwright/test": "1.62.1",
+    "concurrently": "^10.0.5",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",

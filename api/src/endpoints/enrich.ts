@@ -156,7 +156,7 @@ enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
     // ONE transport for the run: a refused key is a fact about the source, not
     // about one row, and `makeTransport` is sticky — so a 401 on the first item
     // costs one call, not twenty-five.
-    const transport: FetchLike = makeTransport({ expectJson: true });
+    const transport: FetchLike = makeTransport();
     const totals = { enriched: 0, failed: 0, empty: 0, calls: 0 };
     let lastQuota: number | undefined;
 

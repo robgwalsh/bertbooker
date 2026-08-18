@@ -22,13 +22,6 @@ import {
 // ---------------------------------------------------------------------------
 // seats.aero Partner API.
 //
-// **This is the one data source, and the Cloudflare Worker calls it directly**
-// (docs/SOURCES.md). It is a keyed vendor API that authenticates the *key*, not
-// the client, and is therefore indifferent to where the request comes from — a
-// property any future source has to hold, because there is nowhere else to run
-// one. This file has two halves: pure parsing/normalizing below, and the
-// chunk-and-paginate loop at the bottom that `api` drives when a human presses
-// Search on a tracked route, or when the cron does.
 //
 // Everything here is environment-neutral on purpose — `fetch`, `Headers`,
 // `URLSearchParams` and nothing else — because it has to run on workerd.
@@ -611,7 +604,7 @@ export async function runSeatsAeroChunk(
 ): Promise<SeatsAeroChunkResult> {
   const now = opts.now ?? (() => Date.now());
   const log = opts.log ?? (() => {});
-  const fetchImpl = opts.transport ?? makeTransport({ expectJson: true, log });
+  const fetchImpl = opts.transport ?? makeTransport({ log });
   const headers = seatsAeroHeaders(opts.apiKey);
   const chunkDates = datesIn(chunk.start, chunk.end);
 
@@ -1267,7 +1260,7 @@ export async function runSeatsAeroTrips(
 ): Promise<SeatsAeroTripsResult> {
   const now = opts.now ?? (() => Date.now());
   const log = opts.log ?? (() => {});
-  const fetchImpl = opts.transport ?? makeTransport({ expectJson: true, log });
+  const fetchImpl = opts.transport ?? makeTransport({ log });
   const headers = seatsAeroHeaders(opts.apiKey);
   const url = buildTripsUrl(expected.availabilityId);
   const startedAt = now();

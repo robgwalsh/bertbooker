@@ -323,7 +323,7 @@ function stubFetch(pages: unknown[], headers: Record<string, string> = {}) {
 
 /** What the Worker builds: one sticky transport for the whole search. */
 const transportOver = (impl: (url: string) => Promise<Response>) =>
-  makeTransport({ base: impl, expectJson: true });
+  makeTransport({ base: impl });
 
 describe("planSeatsAeroChunks", () => {
   // ~330 days, the shape of a year-out tracked route.

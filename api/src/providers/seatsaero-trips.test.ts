@@ -240,7 +240,7 @@ describe("parseSeatsAeroTrips — refusals", () => {
 // --- the fetching half -----------------------------------------------------
 
 const transportOver = (impl: (url: string) => Promise<Response>) =>
-  makeTransport({ base: impl, expectJson: true });
+  makeTransport({ base: impl });
 
 function stub(payload: unknown, init: ResponseInit = {}) {
   const urls: string[] = [];

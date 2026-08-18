@@ -345,7 +345,7 @@ export async function runSearchPass(
   // ONE transport for the whole search: "the key was refused" is a fact about
   // the source, not about one chunk, and `makeTransport` is sticky — so a 401
   // on the first chunk costs one call, not five.
-  const transport: FetchLike = opts.transport ?? makeTransport({ expectJson: true });
+  const transport: FetchLike = opts.transport ?? makeTransport();
 
   const totals: SearchTotals = { ok: 0, failed: 0, offers: 0, written: 0, pruned: 0, calls: 0 };
   const changes: ChangeSummary[] = [];

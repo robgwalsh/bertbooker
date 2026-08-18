@@ -1,13 +1,13 @@
-// HTTP transport for fetch-based sources: issue the request, classify the
-// response, and refuse to hand a challenge page to a parser.
+// HTTP transport for the seats.aero calls: issue the request, classify the
+// response, and refuse to hand a refusal to a parser as if it were data.
 //
 // The valuable part is telling "the source said no" apart from "the source
-// said there is no award space" (docs/HARVEST-POSTMORTEM.md) — which are the
-// same empty result set and opposite facts.
+// said there is no award space" (docs/SEATS-AERO.md §9) — which are the same
+// empty result set and opposite facts.
 //
 // `detectBlock` is pure and is the single most important thing to keep tested:
-// a false negative means we parse a challenge page as award data, and a false
-// positive means a working source reports itself broken.
+// a false negative means we parse a denial page as award data, and a false
+// positive means a working call reports itself broken.
 
 // Type-only, so this stays a leaf module at runtime and there is no cycle with
 // ingest/types.ts.
@@ -20,10 +20,10 @@ export interface BlockSignal {
   reason?: string;
 }
 
-/** Thrown by `makeTransport` when a response classifies as an anti-bot block.
- *  Distinct from a plain HTTP error so a task can record `blocked`
- *  rather than `failed` — the two call for completely different responses (try
- *  the browser vs. fix the parser). */
+/** Thrown by `makeTransport` when a response classifies as a refusal (bad key,
+ *  quota exhausted, outage). Distinct from a plain HTTP error so a task can
+ *  record `blocked` rather than `failed` — the two call for completely
+ *  different responses (back off and retry later vs. fix the parser). */
 export class BlockedError extends Error {
   readonly reason: string;
   readonly status: number;
@@ -41,19 +41,20 @@ export class BlockedError extends Error {
  * Classify a thrown error into a task status.
  *
  * The distinction earns its keep because the remedies are opposite: `blocked`
- * means try a browser or back off, `failed` means the parser or the plan is
- * wrong. Collapsing them into one bucket is how the pre-pivot design managed to
- * record "United is unusable" when it was actually being challenged.
+ * means back off (bad key, quota gone, outage), `failed` means the parser or
+ * the plan is wrong.
  *
  * Lives here, in shared, because three callers need it and must agree: the
  * search endpoint, enrich, and the alert sweep. Whatever this returns decides
  * whether the task claims coverage, and therefore whether it may prune.
  *
- * `blocked` and `challenged` are effectively unreachable now — they were the
- * vocabulary of the carrier scrapers, and seats.aero returns HTTP errors rather
- * than challenge pages. They stay because the distinction they encode is the
- * point of the function, and because `detectBlock` below is what stops a
- * challenge page ever reaching a parser as data.
+ * `blocked` is very much reachable — it's how a wrong `SEATS_AERO_API_KEY`
+ * (401) or an exhausted daily allowance (429) get classified; see
+ * docs/SEATS-AERO.md §9. `challenged` is the one that's vestigial: it was the
+ * vocabulary of the carrier scrapers this app no longer runs, and nothing
+ * `detectBlock` produces below can trigger it anymore. It stays as a status
+ * only because `search_tasks.status` still declares it as a DB-level enum
+ * value.
  */
 export function classifyError(err: unknown): { status: SourceTaskStatus; message: string } {
   const message = err instanceof Error ? err.message : String(err);
@@ -66,61 +67,19 @@ export function classifyError(err: unknown): { status: SourceTaskStatus; message
   return { status: "failed", message };
 }
 
-/** Substrings that appear in anti-bot challenge/denial bodies. Lowercase; the
- *  body is lowercased before matching. Extend from a real captured denial body
- *  — do not guess. */
-const BLOCK_MARKERS = [
-  "access denied",
-  "request unsuccessful. incapsula",
-  "_incapsula_",
-  "px-captcha",
-  "/_px/",
-  "pardon our interruption",
-  "akamai reference number",
-  "reference #18.",
-  "cf-chl",
-  "distil",
-  "captcha",
-  "are you a human",
-  "bot detection",
-];
-
-/** How much of the body to inspect. Challenge pages announce themselves early,
- *  and a real award response can be megabytes. */
-const PEEK_BYTES = 2048;
-
 /**
- * Classify a response as an anti-bot block. Pure.
+ * Classify a response status as a refusal from the keyed API. Pure.
  *
- * `403`/`429`/`451`/`503` are the usual denial codes. `428 Precondition
- * Required` is Akamai's "we want a JS challenge solved" — United returns it.
- * `444` is Akamai's edge deny (Delta returns it on every shopping endpoint);
- * checking the status code directly, rather than only the "access denied"
- * body marker, is what keeps a carrier that denies with an empty body from
- * reading as a bad recipe.
- * A 200 carrying HTML where the caller expects JSON means we were served a
- * challenge or interstitial rather than the API.
+ * `401`/`403` mean the key is wrong or revoked, `429` means the day's
+ * allowance is gone, `451`/`503` mean the API is unavailable. All five are
+ * "the source said no", not "the source said there is no award space", and
+ * must never be handed to a parser as an empty result — see docs/SEATS-AERO.md
+ * §9.
  */
-export function detectBlock(
-  status: number,
-  contentType: string | null,
-  bodyPeek: string,
-): BlockSignal {
-  if (status === 403 || status === 401) return { blocked: true, reason: `http ${status}` };
+export function detectBlock(status: number): BlockSignal {
+  if (status === 401 || status === 403) return { blocked: true, reason: `http ${status}` };
   if (status === 429) return { blocked: true, reason: "rate limited" };
-  if (status === 428) return { blocked: true, reason: "http 428 (js challenge)" };
-  if (status === 444) return { blocked: true, reason: "http 444 (edge deny)" };
   if (status === 451 || status === 503) return { blocked: true, reason: `http ${status}` };
-
-  const ct = (contentType ?? "").toLowerCase();
-  if (status === 200 && ct.includes("text/html")) {
-    return { blocked: true, reason: "html where json expected" };
-  }
-
-  const peek = (bodyPeek ?? "").slice(0, PEEK_BYTES).toLowerCase();
-  for (const marker of BLOCK_MARKERS) {
-    if (peek.includes(marker)) return { blocked: true, reason: `marker: ${marker}` };
-  }
   return { blocked: false };
 }
 
@@ -128,9 +87,6 @@ export interface TransportOptions {
   /** Underlying fetch. The test/DI seam; defaults to global fetch. */
   base?: FetchLike;
   log?: (msg: string, fields?: Record<string, unknown>) => void;
-  /** Treat an HTML 200 as a block. Off for a source whose real payload IS HTML,
-   *  i.e. one that server-renders its results into the page. */
-  expectJson?: boolean;
 }
 
 /** Rebuild a Response after its body has been read for classification.
@@ -149,8 +105,8 @@ function rebuild(status: number, headers: Headers, body: string): Response {
 }
 
 /**
- * A FetchLike that throws {@link BlockedError} instead of returning a challenge
- * page.
+ * A FetchLike that throws {@link BlockedError} instead of returning a refusal
+ * response.
  *
  * STICKY: once anything has been blocked, subsequent requests fail immediately
  * without touching the network. A fan-out covers a dozen date windows; hammering
@@ -161,7 +117,6 @@ function rebuild(status: number, headers: Headers, body: string): Response {
 export function makeTransport(opts: TransportOptions = {}): FetchLike {
   const base: FetchLike = opts.base ?? ((u, i) => fetch(u, i));
   const log = opts.log ?? (() => {});
-  const expectJson = opts.expectJson ?? true;
   let blockedBy: BlockSignal | undefined;
 
   return async (url: string, init: RequestInit): Promise<Response> => {
@@ -169,7 +124,7 @@ export function makeTransport(opts: TransportOptions = {}): FetchLike {
 
     const res = await base(url, init);
     const text = await res.text();
-    const block = detectBlock(res.status, expectJson ? res.headers.get("content-type") : null, text);
+    const block = detectBlock(res.status);
     if (block.blocked) {
       blockedBy = block;
       log(`blocked (${block.reason})`, { url, status: res.status, reason: block.reason });

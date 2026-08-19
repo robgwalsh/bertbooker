@@ -65,10 +65,17 @@ export function VerdictChip({ verdict }: { verdict: ReachVerdict }) {
       color: theme.palette.success.main,
       tip: "Every pair on this route is in at least one fetched program's network.",
     },
+    indirect: {
+      label: "Indirect",
+      // `secondary` is the theme's `indicator` — the BRIGHT half of the accent
+      // pair. `primary` is a ground here and would read as washed out on text.
+      color: theme.palette.secondary.main,
+      tip: "No program is monitored on this pair directly, but the network reaches it with a stop. A search of the route as written still returns nothing — track the legs instead.",
+    },
     gap: {
       label: "Gap",
       color: theme.palette.warning.main,
-      tip: "At least one pair is in no fetched program's network. Searches of it will come back empty however often they run.",
+      tip: "At least one pair is in no fetched program's network, directly or through a stop. Searches of it will come back empty however often they run.",
     },
     unknown: {
       label: "Unknown",

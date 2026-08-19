@@ -69,12 +69,22 @@ function ReachBody() {
       </Typography>
     );
 
+  // The two-stop sweep is capped, and a capped sweep that says nothing about its
+  // cap reads as an exhaustive one.
+  const skipped = data.routes.reduce(
+    (n, route) => n + route.pairs.filter((p) => p.deepCheckSkipped).length,
+    0,
+  );
+
   return (
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {data.fetchedSources
           ? `Checked against ${data.fetchedSources} of ${data.totalSources} sources fetched so far.`
           : "Nothing has been fetched yet, so every route reads Unknown. Fetch a program on the Data coverage tab."}
+        {skipped
+          ? ` ${skipped} ${skipped === 1 ? "pair was" : "pairs were"} searched to one stop only — ${data.deepPairLimit} pairs per sweep get the two-stop search.`
+          : ""}
       </Typography>
 
       <Table size="small">
@@ -115,21 +125,39 @@ function ReachBody() {
 }
 
 /**
- * The pairs that failed, named.
+ * The pairs that failed, named — and the ones that only fail as written.
  *
  * A route's verdict is its WORST pair's, so "Gap" on a four-pair route says
  * nothing about WHICH leg is the problem — and that is the only actionable part.
  * A percentage would hide exactly this.
+ *
+ * An `indirect` pair names its hubs rather than its programs, because the hub is
+ * the actionable half: the route as written will still return nothing, and what
+ * to do about it is track the legs. `Who flies this pair?` has the full list.
  */
 function RouteDetail({ route }: { route: RouteReach }) {
   if (route.verdict === "unknown") return null;
 
   const gaps = route.pairs.filter((p) => p.verdict === "gap");
-  if (gaps.length) {
+  const indirect = route.pairs.filter((p) => p.verdict === "indirect");
+
+  if (gaps.length || indirect.length) {
     return (
-      <Typography variant="caption" color="warning.main">
-        no program flies {gaps.map(pairLabel).join(", ")}
-      </Typography>
+      <Stack spacing={0.25}>
+        {gaps.length ? (
+          <Typography variant="caption" color="warning.main">
+            nothing reaches {gaps.map(pairLabel).join(", ")}
+            {/* "We stopped looking" is not "there is nothing there", and a pair
+                the budget skipped must not read as an exhausted one. */}
+            {gaps.some((p) => p.deepCheckSkipped) ? " (not searched past one stop)" : ""}
+          </Typography>
+        ) : null}
+        {indirect.map((p) => (
+          <Typography key={pairLabel(p)} variant="caption" color="secondary.main" component="div">
+            {pairLabel(p)} — {viaLabel(p)}
+          </Typography>
+        ))}
+      </Stack>
     );
   }
 
@@ -147,3 +175,12 @@ function RouteDetail({ route }: { route: RouteReach }) {
 }
 
 const pairLabel = (p: PairReach): string => `${p.origin}→${p.destination}`;
+
+/** "1 stop via ICN, DEL, HKG". The stop count comes off the paths themselves —
+ *  every path for a pair is at the depth the ladder stopped at, so the first
+ *  one speaks for all of them. */
+function viaLabel(pair: PairReach): string {
+  const stops = pair.paths[0]?.via.length ?? 1;
+  const hubs = [...new Set(pair.paths.map((path) => path.via.join("–")))];
+  return `${stops} stop${stops === 1 ? "" : "s"} via ${hubs.join(", ")}`;
+}

@@ -57,6 +57,11 @@ export type {
   RouteGraphGeo,
   PairCoverage,
   PairProgram,
+  PairPaths,
+  PathDepth,
+  PathLeg,
+  PathSearchResult,
+  GraphPath,
   PairReach,
   RouteReach,
   ReachReport,
@@ -124,6 +129,7 @@ import {
   routeGraph,
   routeGraphGeo,
   routeGraphPair,
+  routeGraphPaths,
   routeGraphReach,
   routeGraphSources,
 } from "./routeGraph";
@@ -171,6 +177,7 @@ export const api = {
   routeGraph,
   routeGraphGeo,
   routeGraphPair,
+  routeGraphPaths,
   routeGraphReach,
 
   /** **METERED** — one seats.aero call, replacing one source's stored graph.

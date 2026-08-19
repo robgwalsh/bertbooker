@@ -183,6 +183,37 @@ export interface GraphPair {
 }
 
 /**
+ * Rows a self-join over the graph would return past D1's ceiling.
+ *
+ * Not a correctness bound — it is a runaway guard. The measured worst case for a
+ * busy pair is 879 rows (JFK->LHR, one stop, any program), and the pairs this is
+ * actually asked about are the exotic ones, where it is tens. A bulk sweep over
+ * many pairs is what could reach this, and a truncated candidate set can only
+ * under-report paths, never invent one.
+ */
+export const PATH_ROW_LIMIT = 20_000;
+
+/** One pair to search paths for, with the budget its own great circle earns. */
+export interface PathQueryPair {
+  origin: string;
+  destination: string;
+  /** Total STORED `distance_mi` a path may span, or null for no bound (the pair
+   *  has no coordinates, so no budget can be computed). A cheap pre-filter, not
+   *  the authority: `distance_mi` has zeros, so this only ever lets too much
+   *  through, which `rankPaths` then judges properly. */
+  budgetMi: number | null;
+}
+
+/** One hub sequence for one asked pair, with the source flying each leg. */
+export interface GraphPathRow {
+  origin: string;
+  destination: string;
+  via: string[];
+  /** One per leg, so `via.length + 1` of them. */
+  legSources: string[];
+}
+
+/**
  * Every (pair, source) row for a set of pairs, in one query.
  *
  * The pair list is bound as JSON for the same reason the insert is: a tracked
@@ -206,4 +237,131 @@ export async function graphRowsForPairs(
     .bind(payload)
     .all<GraphPair>();
   return results;
+}
+
+/**
+ * Every hub sequence joining a set of pairs, at one depth.
+ *
+ * The self-join `graphRowsForPairs` is not: `a.destination = b.origin` chained
+ * `stops` times. Both directions are already indexed — `idx_sa_routes_pair`
+ * leads on `origin` for the forward expansion and `idx_sa_routes_dest` on
+ * `destination` for the backward one — so this needed **no new index and no
+ * migration**. Measured on the live local graph: 3 ms at one stop, ~20 ms at
+ * two.
+ *
+ * **`sameSource` is a claim about bookability, not a performance switch.** With
+ * it, one program's own network covers every leg and the path is plausibly one
+ * award. Without it, each leg may belong to a different program: real, but one
+ * award per leg, two currencies, and the connection at the traveller's own risk.
+ * Two stops is always `sameSource`, because three legs in three programs is
+ * three award tickets — and because unrestricted it measured 240 ms and 14,485
+ * rows on a busy pair, which is noise rather than an answer.
+ *
+ * The pair list is bound as ONE JSON parameter for the reason the insert is:
+ * D1 allows 100 bound parameters per query, not SQLite's 999, and the reach
+ * sweep asks about every pair it is still missing at once.
+ */
+export async function graphPathRowsForPairs(
+  db: D1Database,
+  pairs: readonly PathQueryPair[],
+  opts: { stops: 1 | 2; sameSource: boolean },
+): Promise<GraphPathRow[]> {
+  if (!pairs.length) return [];
+  const { stops, sameSource } = opts;
+  const payload = JSON.stringify(
+    pairs.map((p) => ({ o: p.origin, d: p.destination, b: p.budgetMi })),
+  );
+
+  const O = `json_extract(k.value, '$.o')`;
+  const D = `json_extract(k.value, '$.d')`;
+  // A null budget means "no bound", not "budget zero" — the difference between a
+  // pair whose coordinates are unknown and one that may span nothing.
+  const BUDGET = `COALESCE(json_extract(k.value, '$.b'), 1e9)`;
+  const mi = (alias: string) => `COALESCE(${alias}.distance_mi, 0)`;
+  const sourceMatch = (alias: string) => (sameSource ? `AND ${alias}.source = a.source` : "");
+
+  const sql =
+    stops === 1
+      ? `SELECT ${O} AS origin, ${D} AS destination,
+                a.destination AS hub1, NULL AS hub2,
+                a.source AS s1, b.source AS s2, NULL AS s3
+           FROM json_each(?1) k
+           JOIN seatsaero_routes a
+             ON a.origin = ${O} AND a.destination <> ${D}
+           JOIN seatsaero_routes b
+             ON b.origin = a.destination AND b.destination = ${D} ${sourceMatch("b")}
+          WHERE ${mi("a")} + ${mi("b")} <= ${BUDGET}
+          LIMIT ?2`
+      : `SELECT ${O} AS origin, ${D} AS destination,
+                a.destination AS hub1, b.destination AS hub2,
+                a.source AS s1, b.source AS s2, c.source AS s3
+           FROM json_each(?1) k
+           JOIN seatsaero_routes a
+             ON a.origin = ${O} AND a.destination <> ${D}
+           JOIN seatsaero_routes b
+             ON b.origin = a.destination ${sourceMatch("b")}
+            AND b.destination <> ${D} AND b.destination <> ${O}
+            AND b.destination <> a.destination
+           JOIN seatsaero_routes c
+             ON c.origin = b.destination AND c.destination = ${D} ${sourceMatch("c")}
+          WHERE ${mi("a")} + ${mi("b")} + ${mi("c")} <= ${BUDGET}
+          LIMIT ?2`;
+
+  const { results } = await db
+    .prepare(sql)
+    .bind(payload, PATH_ROW_LIMIT)
+    .all<{
+      origin: string;
+      destination: string;
+      hub1: string;
+      hub2: string | null;
+      s1: string;
+      s2: string;
+      s3: string | null;
+    }>();
+
+  return results.map((r) => ({
+    origin: r.origin,
+    destination: r.destination,
+    via: r.hub2 === null ? [r.hub1] : [r.hub1, r.hub2],
+    legSources: r.s3 === null ? [r.s1, r.s2] : [r.s1, r.s2, r.s3],
+  }));
+}
+
+/**
+ * Coordinates for a set of airport codes.
+ *
+ * `airports.iata` is NOT unique, so this picks one row per code the way
+ * `AIRPORT_PICK` in `endpoints/seatsaeroRoutes.ts` does — a plain join would
+ * return a code twice and the caller would silently keep whichever arrived last.
+ * Codes are bound as JSON for the same 100-parameter reason as everything else
+ * here: a two-stop sweep resolves every endpoint and hub at once.
+ */
+export async function airportCoords(
+  db: D1Database,
+  codes: readonly string[],
+): Promise<Map<string, { lat: number; lon: number }>> {
+  const wanted = [...new Set(codes)].filter(Boolean);
+  if (!wanted.length) return new Map();
+
+  const { results } = await db
+    .prepare(
+      `SELECT a.iata, a.latitude, a.longitude
+         FROM json_each(?1) k
+         JOIN (SELECT iata, latitude, longitude FROM airports
+                WHERE iata IS NOT NULL AND iata != ''
+                GROUP BY iata) a
+           ON a.iata = k.value`,
+    )
+    .bind(JSON.stringify(wanted))
+    .all<{ iata: string; latitude: number | null; longitude: number | null }>();
+
+  const out = new Map<string, { lat: number; lon: number }>();
+  for (const row of results) {
+    // A null coordinate is not a zero one. Null Island is in the Gulf of Guinea
+    // and every distance measured from it would be wrong rather than missing.
+    if (row.latitude === null || row.longitude === null) continue;
+    out.set(row.iata, { lat: row.latitude, lon: row.longitude });
+  }
+  return out;
 }

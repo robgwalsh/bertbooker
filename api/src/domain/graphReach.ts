@@ -1,11 +1,16 @@
 import { searchPairs } from "./routing.js";
 import type { GraphPair } from "../db/routeGraph.js";
 import type {
+  GraphPath,
   PairReach,
   ReachReport,
   ReachVerdict,
   RouteReach,
 } from "../../../shared/src/wire/index.js";
+
+/** Hub sequences reported per pair. The panel NAMES the hubs; it does not plan
+ *  the trip, and the pair lookup is where a full list belongs. */
+export const REACH_PATHS_PER_PAIR = 3;
 
 /**
  * Does anyone's route graph contain the pairs a tracked route asks about?
@@ -27,6 +32,8 @@ import type {
  */
 export function assessGraphReach(opts: GraphReachInput): ReachReport {
   const { routes, graph, fetched, programOf, totalSources } = opts;
+  const paths = opts.paths ?? new Map<string, GraphPath[]>();
+  const deepSkipped = opts.deepSkipped ?? new Set<string>();
   const fetchedSet = new Set(fetched);
   // (origin destination) -> the sources flying it, restricted to fetched ones.
   // A source's rows can outlive its fetch record's authority — a `failed`
@@ -64,11 +71,19 @@ export function assessGraphReach(opts: GraphReachInput): ReachReport {
         if (!programs.includes(program)) programs.push(program);
       }
 
+      // A path through a program this route excludes is not a path this route
+      // can use, exactly as a direct edge through one is not reach.
+      const viaPaths = (paths.get(pairKey(origin, destination)) ?? [])
+        .filter((path) => !allowed || path.programs.some((p) => allowed.has(p)))
+        .slice(0, REACH_PATHS_PER_PAIR);
+
       const verdict: ReachVerdict = !anythingFetched
         ? "unknown"
         : programs.length || unmappedSources.length
           ? "ok"
-          : "gap";
+          : viaPaths.length
+            ? "indirect"
+            : "gap";
 
       return {
         origin,
@@ -76,6 +91,10 @@ export function assessGraphReach(opts: GraphReachInput): ReachReport {
         verdict,
         programs: programs.sort(),
         unmappedSources: unmappedSources.sort(),
+        paths: verdict === "indirect" ? viaPaths : [],
+        // Only meaningful on a `gap`: it is the difference between "we looked
+        // as deep as we look and found nothing" and "we stopped looking".
+        deepCheckSkipped: verdict === "gap" && deepSkipped.has(pairKey(origin, destination)),
       };
     });
 
@@ -89,7 +108,13 @@ export function assessGraphReach(opts: GraphReachInput): ReachReport {
     };
   });
 
-  return { fetchedSources: fetchedSet.size, totalSources, routes: assessed };
+  return {
+    fetchedSources: fetchedSet.size,
+    totalSources,
+    routes: assessed,
+    deepCheckedPairs: opts.deepCheckedPairs ?? 0,
+    deepPairLimit: opts.deepPairLimit ?? 0,
+  };
 }
 
 export interface GraphReachInput {
@@ -104,6 +129,19 @@ export interface GraphReachInput {
   /** How many sources exist at all, so a `gap` can be qualified honestly:
    *  "no fetched program flies this (6 of 26 fetched)". */
   totalSources: number;
+  /**
+   * Hub sequences reaching a pair nobody flies directly, by `origin>destination`.
+   *
+   * Optional, and absent means "nobody looked" rather than "nothing is there" —
+   * which is why the caller runs this function TWICE: once with no paths to find
+   * out which pairs are gaps, then again once those gaps have been searched.
+   * Deciding gap-ness in two places instead would be two rules to keep in step.
+   */
+  paths?: ReadonlyMap<string, GraphPath[]>;
+  /** Pairs the deep-check budget did not reach. They stay `gap`, but say so. */
+  deepSkipped?: ReadonlySet<string>;
+  deepCheckedPairs?: number;
+  deepPairLimit?: number;
 }
 
 /** A tracked route, reduced to what this question needs. */
@@ -126,11 +164,16 @@ export interface ReachRouteInput {
  * of it is fine would hide exactly the thing worth acting on. The rest of the
  * system already treats a route this way — `search_coverage`'s primary key
  * includes both endpoints and pruning is per pair.
+ *
+ * `indirect` sits between `gap` and `ok` because it is genuinely between them:
+ * the network reaches the pair, and a search of the route as written still
+ * returns nothing. Ranking it as `ok` would hide work the user has to do.
  */
 function worst(pairs: readonly PairReach[]): ReachVerdict {
   if (!pairs.length) return "unknown";
   if (pairs.some((p) => p.verdict === "unknown")) return "unknown";
-  return pairs.some((p) => p.verdict === "gap") ? "gap" : "ok";
+  if (pairs.some((p) => p.verdict === "gap")) return "gap";
+  return pairs.some((p) => p.verdict === "indirect") ? "indirect" : "ok";
 }
 
 function expandPairs(route: ReachRouteInput): { origin: string; destination: string }[] {

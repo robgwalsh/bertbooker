@@ -74,8 +74,9 @@ every payload trap; likewise the one place),
 all, the pacing model, the budget guard, the outbox and the digest;
 the one place any of that is written down),
 `SEATS-AERO.md` §12 also covers **the route graph** — `GET /partnerapi/routes`,
-the per-source cache behind the Tools page's Data coverage tab, and why `200 []` is an
-answer rather than a failure,
+the per-source cache behind the Tools page's Data coverage tab, why `200 []` is an
+answer rather than a failure, and **connections**, which is how the other two
+tabs answer for a pair nobody monitors directly,
 `UI-TESTING.md` (**how to run and look at the SPA with nobody at the keyboard** —
 the headless harness, the session seeding, and the things it must never touch;
 the one place any of that is written down),
@@ -438,6 +439,17 @@ Delta seat reachable.
   route-graph writer binds a 500-row chunk as ONE JSON parameter and expands it
   with `json_each` (`api/src/db/routeGraph.ts`) instead of a multi-row `VALUES`,
   which would fit twelve rows and need ~700 statements for one program.
+- **A connection through the route graph is LEGS, not a trip**, and the two
+  route-graph tools both say so. A pair seats.aero does not monitor returns
+  nothing from a search however many hubs join it — availability is held per
+  monitored market — so `domain/graphPaths.ts` reports the legs, which *are*
+  searchable, and "Track these legs" turns them into tracked routes. The ladder
+  stops at the first depth that answers (direct → one stop → two), and the mixed
+  tier — legs in different programs, so one award each — stops at **one** stop:
+  three legs in three programs is three award tickets, and unrestricted it
+  measures 240 ms over 625 hub pairs on a busy pair. The self-join needed **no
+  new index**: `idx_sa_routes_pair` leads on `origin` and `idx_sa_routes_dest` on
+  `destination`, which is both directions. `docs/SEATS-AERO.md` §12.
 - **Retiring a source is a migration, not just a deletion.** Prunes are scoped
   per source, so deleting a source's code leaves nothing with the authority to
   clean up its rows and they read as current forever. `migrations/0002_drop_pointsyeah.sql`

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  PATH_ROW_LIMIT,
   ROUTE_INSERT_CHUNK,
+  airportCoords,
   fetchedSources,
+  graphPathRowsForPairs,
   recordRouteFetch,
   replaceSourceRoutes,
 } from "./routeGraph.js";
@@ -177,5 +180,160 @@ describe("fetchedSources", () => {
     expect(
       fetchedSources([record("alaska", "ok"), record("ana", "empty"), record("delta", "failed")]),
     ).toEqual(["alaska", "ana"]);
+  });
+});
+
+// ---- The reads ------------------------------------------------------------
+//
+// A second stub, because these care about what came BACK rather than what was
+// issued. Still not a SQLite engine: the assertions are about the SQL's shape
+// and about how the rows are mapped on the way out.
+
+function stubReader(results: unknown[]) {
+  const asked: Recorded[] = [];
+  const db = {
+    prepare: (sql: string) => ({
+      bind: (...args: unknown[]) => {
+        asked.push({ sql, args });
+        return { all: async () => ({ results }) };
+      },
+    }),
+  } as unknown as D1Database;
+  return { db, asked };
+}
+
+describe("graphPathRowsForPairs", () => {
+  const pair = { origin: "SFO", destination: "KTM", budgetMi: 11_400 };
+
+  it("asks nothing at all for an empty pair list", async () => {
+    const { db, asked } = stubReader([]);
+    expect(await graphPathRowsForPairs(db, [], { stops: 1, sameSource: false })).toEqual([]);
+    expect(asked).toHaveLength(0);
+  });
+
+  it("binds the whole pair list as ONE json parameter", async () => {
+    // D1 allows 100 bound parameters per query, not SQLite's 999, and the reach
+    // sweep asks about every pair it is still missing at once.
+    const { db, asked } = stubReader([]);
+    const many = Array.from({ length: 60 }, (_, i) => ({ ...pair, destination: `X${i}` }));
+    await graphPathRowsForPairs(db, many, { stops: 1, sameSource: false });
+
+    expect(asked[0]!.args).toHaveLength(2); // the JSON, and the row limit
+    expect(JSON.parse(asked[0]!.args[0] as string)).toHaveLength(60);
+    expect(asked[0]!.args[1]).toBe(PATH_ROW_LIMIT);
+  });
+
+  it("joins the graph to itself once per stop", async () => {
+    const one = stubReader([]);
+    await graphPathRowsForPairs(one.db, [pair], { stops: 1, sameSource: false });
+    expect(one.asked[0]!.sql.match(/JOIN seatsaero_routes/g)).toHaveLength(2);
+
+    const two = stubReader([]);
+    await graphPathRowsForPairs(two.db, [pair], { stops: 2, sameSource: true });
+    expect(two.asked[0]!.sql.match(/JOIN seatsaero_routes/g)).toHaveLength(3);
+  });
+
+  it("constrains every leg to one source only when asked to", async () => {
+    // `sameSource` is a claim about bookability, not a performance switch: with
+    // it, one program's network covers the whole path and it is plausibly one
+    // award.
+    const off = stubReader([]);
+    await graphPathRowsForPairs(off.db, [pair], { stops: 1, sameSource: false });
+    expect(off.asked[0]!.sql).not.toContain("source = a.source");
+
+    const on = stubReader([]);
+    await graphPathRowsForPairs(on.db, [pair], { stops: 1, sameSource: true });
+    expect(on.asked[0]!.sql).toContain("b.source = a.source");
+  });
+
+  it("carries each pair's own budget, and treats a null one as no bound", async () => {
+    // One budget for every pair would be wrong the moment two pairs differ in
+    // length, and a null budget must not collapse to zero.
+    const { db, asked } = stubReader([]);
+    await graphPathRowsForPairs(
+      db,
+      [pair, { origin: "PDX", destination: "GEG", budgetMi: null }],
+      { stops: 1, sameSource: false },
+    );
+    expect(JSON.parse(asked[0]!.args[0] as string)).toEqual([
+      { o: "SFO", d: "KTM", b: 11_400 },
+      { o: "PDX", d: "GEG", b: null },
+    ]);
+    expect(asked[0]!.sql).toContain("COALESCE(json_extract(k.value, '$.b'), 1e9)");
+  });
+
+  it("maps a one-stop row to one hub and two leg sources", async () => {
+    const { db } = stubReader([
+      {
+        origin: "SFO",
+        destination: "KTM",
+        hub1: "ICN",
+        hub2: null,
+        s1: "alaska",
+        s2: "alaska",
+        s3: null,
+      },
+    ]);
+    expect(await graphPathRowsForPairs(db, [pair], { stops: 1, sameSource: false })).toEqual([
+      { origin: "SFO", destination: "KTM", via: ["ICN"], legSources: ["alaska", "alaska"] },
+    ]);
+  });
+
+  it("maps a two-stop row to two hubs and three leg sources, in order", async () => {
+    // `legSources[i]` is the leg from `nodes[i]`; getting the order wrong would
+    // attribute a leg to a program that does not fly it.
+    const { db } = stubReader([
+      {
+        origin: "PIT",
+        destination: "KTM",
+        hub1: "JFK",
+        hub2: "DOH",
+        s1: "alaska",
+        s2: "alaska",
+        s3: "alaska",
+      },
+    ]);
+    expect(await graphPathRowsForPairs(db, [pair], { stops: 2, sameSource: true })).toEqual([
+      {
+        origin: "PIT",
+        destination: "KTM",
+        via: ["JFK", "DOH"],
+        legSources: ["alaska", "alaska", "alaska"],
+      },
+    ]);
+  });
+});
+
+describe("airportCoords", () => {
+  it("asks nothing for an empty or all-blank code list", async () => {
+    const { db, asked } = stubReader([]);
+    expect(await airportCoords(db, [])).toEqual(new Map());
+    expect(await airportCoords(db, ["", ""])).toEqual(new Map());
+    expect(asked).toHaveLength(0);
+  });
+
+  it("dedupes the codes before binding them", async () => {
+    const { db, asked } = stubReader([]);
+    await airportCoords(db, ["SFO", "ICN", "SFO"]);
+    expect(JSON.parse(asked[0]!.args[0] as string)).toEqual(["SFO", "ICN"]);
+  });
+
+  it("picks one row per code, because airports.iata is not unique", async () => {
+    const { db, asked } = stubReader([]);
+    await airportCoords(db, ["SFO"]);
+    expect(asked[0]!.sql).toContain("GROUP BY iata");
+  });
+
+  it("drops a null coordinate rather than plotting it at Null Island", async () => {
+    // Null Island is in the Gulf of Guinea. Every distance measured from it
+    // would be wrong rather than missing, which is the worse failure.
+    const { db } = stubReader([
+      { iata: "SFO", latitude: 37.6188, longitude: -122.375 },
+      { iata: "XXX", latitude: null, longitude: null },
+      { iata: "YYY", latitude: 1, longitude: null },
+    ]);
+    const out = await airportCoords(db, ["SFO", "XXX", "YYY"]);
+    expect([...out.keys()]).toEqual(["SFO"]);
+    expect(out.get("SFO")).toEqual({ lat: 37.6188, lon: -122.375 });
   });
 });

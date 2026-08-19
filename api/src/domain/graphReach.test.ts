@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { assessGraphReach, type ReachRouteInput } from "./graphReach.js";
+import { REACH_PATHS_PER_PAIR, assessGraphReach, type ReachRouteInput } from "./graphReach.js";
 import type { GraphPair } from "../db/routeGraph.js";
+import type { GraphPath } from "../../../shared/src/wire/index.js";
 
 // `assessGraphReach` answers "is this pair in anyone's graph", NOT "did anyone
 // search it" — that second question is `search_coverage`, and the two must not
@@ -134,5 +135,129 @@ describe("assessGraphReach", () => {
     const out = assess([bad], [], ["alaska"]);
     expect(out.routes[0]!.pairs).toEqual([]);
     expect(out.routes[0]!.verdict).toBe("unknown");
+  });
+});
+
+// ---- Reachable with a stop --------------------------------------------------
+//
+// `indirect` is the verdict that stops a long-haul with no nonstop market from
+// reading as impossible. It is NOT `ok`: a search of the route as written still
+// returns nothing, because seats.aero holds availability per monitored market
+// and this pair is not one. The action is to track the legs.
+
+const path = (via: string[], programs: string[], over: Partial<GraphPath> = {}): GraphPath => ({
+  legs: [],
+  via,
+  totalMi: 8000,
+  detour: 1.05,
+  programs,
+  unmappedSources: [],
+  mixed: programs.length === 0,
+  ...over,
+});
+
+const assessWithPaths = (
+  routes: ReachRouteInput[],
+  graph: GraphPair[],
+  fetched: string[],
+  paths: Record<string, GraphPath[]>,
+  extra: { deepSkipped?: Set<string>; deepCheckedPairs?: number; deepPairLimit?: number } = {},
+) =>
+  assessGraphReach({
+    routes,
+    graph,
+    fetched,
+    programOf,
+    totalSources: 26,
+    paths: new Map(Object.entries(paths)),
+    ...extra,
+  });
+
+describe("assessGraphReach — connections", () => {
+  it("says indirect, not gap, when a path reaches the pair", () => {
+    const out = assessWithPaths([route()], [], ["alaska"], {
+      "SFO>NRT": [path(["ICN"], ["alaska"])],
+    });
+    expect(out.routes[0]!.verdict).toBe("indirect");
+    expect(out.routes[0]!.pairs[0]!.paths[0]!.via).toEqual(["ICN"]);
+  });
+
+  it("stays gap when nothing was found either way", () => {
+    const out = assessWithPaths([route()], [], ["alaska"], {});
+    expect(out.routes[0]!.verdict).toBe("gap");
+    expect(out.routes[0]!.pairs[0]!.paths).toEqual([]);
+  });
+
+  it("prefers a DIRECT edge over a path, and carries no paths on an ok pair", () => {
+    // A pair somebody actually monitors is answered by the search itself. Paths
+    // there would be an answer to a question nobody asked.
+    const out = assessWithPaths([route()], [pair("SFO", "NRT", "alaska")], ["alaska"], {
+      "SFO>NRT": [path(["ICN"], ["alaska"])],
+    });
+    expect(out.routes[0]!.verdict).toBe("ok");
+    expect(out.routes[0]!.pairs[0]!.paths).toEqual([]);
+  });
+
+  it("never reads as indirect while nothing has been fetched", () => {
+    // Absence of data is not data, and that rule outranks a path found in it.
+    const out = assessWithPaths([route()], [], [], { "SFO>NRT": [path(["ICN"], ["alaska"])] });
+    expect(out.routes[0]!.verdict).toBe("unknown");
+  });
+
+  it("honours the route's own program filter on paths too", () => {
+    // A path through a program the route excludes is not a path the route can
+    // use, exactly as a direct edge through one is not reach.
+    const paths = { "SFO>NRT": [path(["ICN"], ["alaska"])] };
+    expect(
+      assessWithPaths([route({ programs: ["aadvantage"] })], [], ["alaska"], paths).routes[0]!
+        .verdict,
+    ).toBe("gap");
+    expect(
+      assessWithPaths([route({ programs: ["alaska"] })], [], ["alaska"], paths).routes[0]!.verdict,
+    ).toBe("indirect");
+  });
+
+  it("caps the paths it carries — the panel names hubs, it does not plan trips", () => {
+    const many = ["ICN", "DOH", "SIN", "BKK", "IST"].map((hub) => path([hub], ["alaska"]));
+    const out = assessWithPaths([route()], [], ["alaska"], { "SFO>NRT": many });
+    expect(out.routes[0]!.pairs[0]!.paths).toHaveLength(REACH_PATHS_PER_PAIR);
+  });
+
+  it("ranks a route by its worst pair, with indirect between gap and ok", () => {
+    const multi = route({ origins: ["SEA", "PDX"], destinations: ["NRT"] });
+    const graph = [pair("SEA", "NRT", "alaska")];
+
+    // One pair flown, one only reachable with a stop -> the route is indirect.
+    expect(
+      assessWithPaths([multi], graph, ["alaska"], { "PDX>NRT": [path(["ICN"], ["alaska"])] })
+        .routes[0]!.verdict,
+    ).toBe("indirect");
+
+    // One pair unreachable at all outranks the indirect one.
+    const three = route({ origins: ["SEA", "PDX", "SFO"], destinations: ["NRT"] });
+    expect(
+      assessWithPaths([three], graph, ["alaska"], { "PDX>NRT": [path(["ICN"], ["alaska"])] })
+        .routes[0]!.verdict,
+    ).toBe("gap");
+  });
+
+  it("marks a gap the deep-check budget skipped rather than exhausted", () => {
+    // "We stopped looking" and "there is nothing there" are different claims,
+    // and a capped sweep that cannot tell them apart reads as an exhaustive one.
+    const out = assessWithPaths([route()], [], ["alaska"], {}, {
+      deepSkipped: new Set(["SFO>NRT"]),
+      deepCheckedPairs: 12,
+      deepPairLimit: 12,
+    });
+    expect(out.routes[0]!.pairs[0]!.deepCheckSkipped).toBe(true);
+    expect(out.deepCheckedPairs).toBe(12);
+    expect(out.deepPairLimit).toBe(12);
+  });
+
+  it("never marks a pair it answered as skipped", () => {
+    const out = assessWithPaths([route()], [pair("SFO", "NRT", "alaska")], ["alaska"], {}, {
+      deepSkipped: new Set(["SFO>NRT"]),
+    });
+    expect(out.routes[0]!.pairs[0]!.deepCheckSkipped).toBe(false);
   });
 });

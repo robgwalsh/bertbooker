@@ -1,8 +1,11 @@
 import { Hono } from "hono";
 import type { Env, Vars } from "../bindings.js";
 import type {
+  GraphPath,
   PairCoverage,
+  PairPaths,
   PairProgram,
+  PathSearchResult,
   RouteFetchResult,
   RouteGraphEdge,
   RouteGraphGeo,
@@ -21,8 +24,17 @@ import { classifyError, makeTransport } from "../providers/transport.js";
 import { PROGRAM_SEEDS, currenciesForProgram } from "../domain/programs.js";
 import { assessGraphReach, type ReachRouteInput } from "../domain/graphReach.js";
 import {
+  ABSOLUTE_SLACK_MI,
+  MAX_DETOUR,
+  haversineMi,
+  rankPaths,
+  type Coord,
+} from "../domain/graphPaths.js";
+import {
   ROUTE_HARD_MAX,
+  airportCoords,
   fetchedSources,
+  graphPathRowsForPairs,
   graphRowsForPairs,
   readFetchRecords,
   recordRouteFetch,
@@ -323,6 +335,178 @@ seatsaeroRoutes.get("/api/seatsaero/routes/pair", async (c) => {
   return c.json(body);
 });
 
+// ---- Getting there with a stop ---------------------------------------------
+//
+// The escalation ladder, shared by the pair lookup below and the reach sweep
+// after it: two callers and one behaviour, which is the same reason
+// `search/run.ts` is split from its HTTP shell.
+//
+// **It stops at the first depth that answers.** JFK->LHR is a monitored market
+// and never runs a self-join at all; SFO->KTM answers at one stop through seven
+// hubs; PIT->KTM has no one-stop option and needs two. Going deeper than the
+// shallowest answer would bury the good routing under hundreds of worse ones.
+
+/** Pairs that get the two-stop query in one reach sweep. The one-stop pass is
+ *  uncapped — it is 3 ms — but two stops is a three-way join per pair, and a
+ *  user with many broken routes should not turn the panel into a scan. */
+export const REACH_DEEP_PAIRS = 12;
+
+const pairKeyOf = (origin: string, destination: string): string => `${origin}>${destination}`;
+
+interface GraphPathSearch {
+  results: Map<string, PathSearchResult>;
+  /** Pairs the deep-check limit left unsearched past one stop. They are still
+   *  gaps, but "we stopped looking" is not "there is nothing there". */
+  deepSkipped: Set<string>;
+  deepChecked: number;
+}
+
+async function searchGraphPaths(
+  db: D1Database,
+  pairs: readonly { origin: string; destination: string }[],
+  opts: { fetched: ReadonlySet<string>; maxStops: 1 | 2; deepPairLimit?: number },
+): Promise<GraphPathSearch> {
+  const results = new Map<string, PathSearchResult>();
+  const deepSkipped = new Set<string>();
+  let deepChecked = 0;
+  if (!pairs.length) return { results, deepSkipped, deepChecked };
+
+  // Endpoints first, because the budget each pair earns comes from its own great
+  // circle and has to be known before the join is asked for anything.
+  const coords = await airportCoords(db, pairs.flatMap((p) => [p.origin, p.destination]));
+  const coordOf = (code: string): Coord | null => coords.get(code) ?? null;
+
+  const depths: (1 | 2)[] = opts.maxStops === 2 ? [1, 2] : [1];
+  for (const stops of depths) {
+    let remaining = pairs.filter((p) => !results.has(pairKeyOf(p.origin, p.destination)));
+    if (!remaining.length) break;
+
+    if (stops === 2 && opts.deepPairLimit !== undefined) {
+      for (const p of remaining.slice(opts.deepPairLimit)) {
+        deepSkipped.add(pairKeyOf(p.origin, p.destination));
+      }
+      remaining = remaining.slice(0, opts.deepPairLimit);
+      deepChecked = remaining.length;
+    }
+    if (!remaining.length) break;
+
+    const rows = await graphPathRowsForPairs(
+      db,
+      remaining.map((p) => ({
+        origin: p.origin,
+        destination: p.destination,
+        budgetMi: budgetFor(p.origin, p.destination, coordOf, stops),
+      })),
+      // Two stops is one program's own network or nothing: three legs in three
+      // programs is three award tickets, not an itinerary.
+      { stops, sameSource: stops === 2 },
+    );
+
+    // A source whose last fetch failed still has rows from an earlier one. They
+    // are not authoritative, so a leg flown only by such a source is dropped —
+    // the same rule `/routes/pair` applies to a direct edge.
+    const live = rows.filter((r) => r.legSources.every((s) => opts.fetched.has(s)));
+
+    const hubs = await airportCoords(db, live.flatMap((r) => r.via));
+    for (const [code, coord] of hubs) coords.set(code, coord);
+
+    const byPair = new Map<string, typeof live>();
+    for (const row of live) {
+      const key = pairKeyOf(row.origin, row.destination);
+      const list = byPair.get(key);
+      if (list) list.push(row);
+      else byPair.set(key, [row]);
+    }
+
+    for (const pair of remaining) {
+      const key = pairKeyOf(pair.origin, pair.destination);
+      const ranked = rankPaths(byPair.get(key) ?? [], {
+        origin: pair.origin,
+        destination: pair.destination,
+        coords: coordOf,
+        programOf,
+        stops,
+      });
+      if (ranked.paths.length) {
+        results.set(key, { depth: stops, paths: ranked.paths, truncated: ranked.truncated });
+      }
+    }
+  }
+
+  // Whatever is still unanswered was searched as deep as this call goes, and
+  // says so by carrying the deepest depth tried with an empty list.
+  const deepest = depths[depths.length - 1] ?? 1;
+  for (const pair of pairs) {
+    const key = pairKeyOf(pair.origin, pair.destination);
+    if (!results.has(key)) results.set(key, { depth: deepest, paths: [], truncated: false });
+  }
+  return { results, deepSkipped, deepChecked };
+}
+
+/** What a path may span, in STORED miles, before the join stops returning it.
+ *  Null when either end has no coordinates — no great circle, so no budget, and
+ *  a guess would be worse than no bound at all. */
+function budgetFor(
+  origin: string,
+  destination: string,
+  coordOf: (code: string) => Coord | null,
+  stops: 1 | 2,
+): number | null {
+  const a = coordOf(origin);
+  const b = coordOf(destination);
+  if (!a || !b) return null;
+  const direct = haversineMi(a, b);
+  return Math.round(Math.max(direct * MAX_DETOUR[stops], direct + ABSOLUTE_SLACK_MI));
+}
+
+// ---- How would I get there? ------------------------------------------------
+// Registered BEFORE the bare `/api/seatsaero/routes`, like its two siblings
+// above. Pure D1 reads, so it spends nothing — the graph it walks was already
+// bought by the one metered path at the top of this file.
+seatsaeroRoutes.get("/api/seatsaero/routes/paths", async (c) => {
+  const origin = (c.req.query("origin") ?? "").trim().toUpperCase();
+  const destination = (c.req.query("destination") ?? "").trim().toUpperCase();
+  if (!origin || !destination || origin === destination) {
+    return c.json({ error: "bad_request" }, 400);
+  }
+
+  const records = await readFetchRecords(c.env.DB);
+  const fetched = new Set(fetchedSources(records));
+
+  // Direct first, and a monitored market ends the search: the pane already lists
+  // who flies it, and a connection is an answer to a question nobody asked.
+  const directRows = await graphRowsForPairs(c.env.DB, [
+    { origin, destination },
+    { origin: destination, destination: origin },
+  ]);
+  const flownDirect = new Set(
+    directRows
+      .filter((r) => fetched.has(r.source))
+      .map((r) => pairKeyOf(r.origin, r.destination)),
+  );
+
+  const wanted = [
+    { origin, destination },
+    { origin: destination, destination: origin },
+  ].filter((p) => !flownDirect.has(pairKeyOf(p.origin, p.destination)));
+
+  const { results } = await searchGraphPaths(c.env.DB, wanted, { fetched, maxStops: 2 });
+
+  const direction = (from: string, to: string): PathSearchResult =>
+    flownDirect.has(pairKeyOf(from, to))
+      ? { depth: 0, paths: [], truncated: false }
+      : (results.get(pairKeyOf(from, to)) ?? { depth: 2, paths: [], truncated: false });
+
+  const body: PairPaths = {
+    origin,
+    destination,
+    forward: direction(origin, destination),
+    reverse: direction(destination, origin),
+    fetchedSources: [...fetched],
+  };
+  return c.json(body);
+});
+
 // ---- Do the routes you track go anywhere anyone watches? -------------------
 seatsaeroRoutes.get("/api/seatsaero/reach", async (c) => {
   const email = c.get("userEmail");
@@ -365,12 +549,53 @@ seatsaeroRoutes.get("/api/seatsaero/reach", async (c) => {
   }
   const graph = await graphRowsForPairs(c.env.DB, [...pairs.values()]);
 
-  const body: ReachReport = assessGraphReach({
+  const base = {
     routes: parsed,
     graph,
     fetched,
     programOf,
     totalSources: SEATSAERO_SOURCE_CATALOGUE.length,
+  };
+
+  // ASSESSED TWICE, on purpose. The first pass is what says which pairs are
+  // gaps; only those are worth a self-join, and only the function that owns the
+  // gap rule should decide. Re-deriving gap-ness here would be a second copy of
+  // that rule, drifting from the moment either changed. The pass is pure and
+  // over a handful of routes, so the cost is nothing.
+  const first = assessGraphReach(base);
+  const gaps = new Map<string, { origin: string; destination: string }>();
+  for (const route of first.routes) {
+    for (const pair of route.pairs) {
+      if (pair.verdict !== "gap") continue;
+      gaps.set(pairKeyOf(pair.origin, pair.destination), {
+        origin: pair.origin,
+        destination: pair.destination,
+      });
+    }
+  }
+
+  const found = new Map<string, GraphPath[]>();
+  let deepChecked = 0;
+  let deepSkipped = new Set<string>();
+  if (gaps.size) {
+    const search = await searchGraphPaths(c.env.DB, [...gaps.values()], {
+      fetched: new Set(fetched),
+      maxStops: 2,
+      deepPairLimit: REACH_DEEP_PAIRS,
+    });
+    for (const [key, result] of search.results) {
+      if (result.paths.length) found.set(key, result.paths);
+    }
+    deepChecked = search.deepChecked;
+    deepSkipped = search.deepSkipped;
+  }
+
+  const body: ReachReport = assessGraphReach({
+    ...base,
+    paths: found,
+    deepSkipped,
+    deepCheckedPairs: deepChecked,
+    deepPairLimit: REACH_DEEP_PAIRS,
   });
   return c.json(body);
 });

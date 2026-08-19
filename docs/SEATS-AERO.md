@@ -683,6 +683,75 @@ them in nobody's graph is a named hole rather than a route that is mostly fine.
 and a `failed` source is excluded from the fetched set because an incomplete
 graph must never be evidence of absence.
 
+### Connections, and what a path is NOT
+
+Read as a set of isolated edges, the graph says SFO→KTM is impossible. It is not:
+nine hubs join it, the best at a 7% detour. Every long-haul without a nonstop
+market — which is most of the interesting ones — read as a flat `gap` until
+`domain/graphPaths.ts` existed.
+
+**A path is not an itinerary, and the pane owes the reader that sentence.** It is
+a claim about which markets seats.aero *monitors*, chained. The distinction is
+operational, not pedantic: seats.aero holds availability **per monitored
+market**, so searching SFO→KTM returns nothing however many hubs join it. The
+legs are the searchable objects. That is why a path is reported as its legs, and
+why the only action offered is **Track these legs**, which creates one tracked
+route per leg through the ordinary `POST /api/tracked-routes` and hands them to
+the normal Search/Alerts loop.
+
+Note what this does *not* change: a pair that **is** in the graph already returns
+connecting itineraries, because a market's availability carries them —
+`__fixtures__/seatsaero-search-trips.json` has SFO→NRT arriving as
+`Stops: 1, Connections: ["SEA"]`. The hole was only ever the unmonitored pair.
+
+**The ladder stops at the first depth that answers**: direct, then one stop, then
+two. JFK→LHR is a monitored market and never runs a self-join; SFO→KTM answers at
+one stop; PIT→KTM has no one-stop option and needs two. Going deeper than the
+shallowest answer buries the good routing under hundreds of worse ones — JFK→LHR
+at two stops is 6,092 rows.
+
+**Two stops is one program's own network or nothing.** One stop collects both
+tiers from a single unrestricted join and `rankPaths` sorts them: paths one
+program covers end to end first (plausibly one award), then paths needing a
+different program per leg — real, but one award per leg, two currencies, and the
+connection at the traveller's own risk, so they are labelled *needs two awards*
+rather than ranked among the others. Three legs in three programs is three award
+tickets, and unrestricted it measured **240 ms and 14,485 rows over 625 hub
+pairs** on a busy pair, so the mixed tier ends at one stop. Programs are
+intersected rather than sources, so a Qatar leg and a British Airways leg are one
+Avios path rather than two.
+
+The detour budget is `max(great_circle × ratio, great_circle + 800 mi)`, with the
+ratio 1.5 at one stop and 1.7 at two. Both halves are load-bearing and both are
+measured. SFO→KTM's real options run to a **1.40** ratio (SIN, on Singapore
+Airlines), so a 1.4 cap would have cut the last true answer. And PDX→GEG is
+280 miles with an ordinary connection through Boise at 630 — a ratio of 2.25 —
+so a ratio-only budget rejects every short-haul connection there is.
+
+**`distance_mi` bounds the SQL; haversine decides.** The self-join pre-filters on
+the stored distance because it is free to, but 350 of 41,780 measured rows carry
+a zero and the migration is explicit that zero means nothing useful. A zero leg
+only ever lets too much *through*, which `rankPaths` then judges from
+coordinates. Every distance the UI shows is computed, never stored.
+
+**No new index, and no migration.** `idx_sa_routes_pair` leads on `origin` for
+the forward expansion and `idx_sa_routes_dest` on `destination` for the backward
+one, which is exactly what a self-join needs. Measured on the live local graph
+(41,780 rows, 9 fetched sources): **3 ms** at one stop, **~20 ms** at two.
+
+`assessGraphReach` runs **twice** in the reach endpoint, and that is deliberate:
+the first pass is what says which pairs are gaps, and only the function that owns
+the gap rule should decide. Re-deriving gap-ness in the endpoint would be a
+second copy of that rule. Only the gaps are then searched — one bulk query at one
+stop, and one at two capped at `REACH_DEEP_PAIRS` (12) pairs. A pair that cap
+skipped carries `deepCheckSkipped` and says so on screen, because "we stopped
+looking" is not "there is nothing there".
+
+The verdict that comes out is **`indirect`**, ranked between `gap` and `ok`
+because it genuinely is between them: the network reaches the pair, and the route
+as written still returns nothing. Calling it `ok` would hide work the user has to
+do.
+
 ---
 
 ## See also

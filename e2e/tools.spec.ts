@@ -27,12 +27,12 @@ test.describe("Tools", () => {
     // blank pane — and the app bar's Tools tab stays lit through the redirect,
     // because its match is a prefix match.
     await expect(page).toHaveURL(/\/tools\/tracked-routes$/);
-    await expect(page.getByRole("heading", { name: "Your tracked routes" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Validate Routes" })).toBeVisible();
   });
 
   test("each section has its own URL", async ({ page }) => {
     for (const [path, heading] of [
-      ["/tools/tracked-routes", "Your tracked routes"],
+      ["/tools/tracked-routes", "Validate Routes"],
       ["/tools/coverage", "Data coverage"],
       ["/tools/pair-lookup", "Who flies this pair?"],
     ] as const) {
@@ -69,7 +69,7 @@ test.describe("Tools", () => {
     // `$tab` is untrusted input like any other piece of a URL. The house rule is
     // that invalid values fall back to a default, never to an empty pane.
     await page.goto("/tools/not-a-tool");
-    await expect(page.getByRole("heading", { name: "Your tracked routes" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Validate Routes" })).toBeVisible();
   });
 
   test("offers a refresh control without spending anything to show it", async ({ page }) => {

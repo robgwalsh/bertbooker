@@ -127,6 +127,89 @@ export interface PairCoverage {
   fetchedSources: string[];
 }
 
+// ---- Connections ------------------------------------------------------------
+//
+// A pair nobody monitors as a market is still reachable THROUGH the graph, and
+// that is the difference between "you cannot go there" and "you cannot go there
+// in one hop". SFO->KTM is in no program's graph and is reachable via seven
+// hubs; that is exactly the long-haul the direct-only reading hid.
+
+/** Legs beyond the first: `0` is the pair itself, `1` is one stop, `2` is two. */
+export type PathDepth = 0 | 1 | 2;
+
+/**
+ * One hop of a path — an edge that IS in the graph, and therefore a pair a
+ * search can actually ask about. That is the whole reason a path is reported as
+ * its legs rather than as a route: the legs are the searchable objects.
+ */
+export interface PathLeg {
+  origin: string;
+  destination: string;
+  /** Great circle, statute miles. Null when an endpoint has no stored
+   *  coordinates — one airport in the whole graph, but it must not become a 0. */
+  distanceMi: number | null;
+  /** Fetched sources monitoring this leg. */
+  sources: string[];
+  /** `programs.code` values for those sources, unmapped ones excluded. */
+  programs: string[];
+}
+
+/**
+ * A way through the graph from A to B.
+ *
+ * **A path is not an itinerary and not a search result.** It is a claim about
+ * which markets seats.aero monitors, chained together. Each leg is separately
+ * searchable; the whole path is not, because seats.aero holds availability per
+ * monitored market and this pair is not one. Anything that renders a path as a
+ * flight owes the reader that sentence.
+ */
+export interface GraphPath {
+  legs: PathLeg[];
+  /** The hubs, in order — `legs.length - 1` of them. */
+  via: string[];
+  /** Sum of the legs. Null when any leg's distance is unknown, never a partial
+   *  sum masquerading as a total. */
+  totalMi: number | null;
+  /** `totalMi` over the great circle of the asked pair. 1.0 is a straight line. */
+  detour: number | null;
+  /** `programs.code` values whose own network covers EVERY leg — plausibly one
+   *  award. Empty exactly when `mixed`. */
+  programs: string[];
+  /** Sources covering every leg that map to no stored program. */
+  unmappedSources: string[];
+  /**
+   * No single source covers every leg.
+   *
+   * Real, and materially weaker: one award per leg, in different programs, from
+   * different currencies, with the connection at the traveller's own risk. It is
+   * a separate tier rather than a footnote for that reason.
+   */
+  mixed: boolean;
+}
+
+/** What the escalation ladder settled on for one direction. */
+export interface PathSearchResult {
+  /** The shallowest depth that produced anything — or the deepest tried, when
+   *  nothing did. `0` with no paths means the pair is genuinely unreachable. */
+  depth: PathDepth;
+  paths: GraphPath[];
+  /** Paths dropped by the result cap. Stated rather than silent, the way
+   *  `RouteGraphGeo.truncated` is: a short list reads as a short answer. */
+  truncated: boolean;
+}
+
+/** GET /api/seatsaero/routes/paths — both directions, for the same reason
+ *  `PairCoverage` carries both: a program flying one way is no evidence about
+ *  the other, and a round trip needs each. */
+export interface PairPaths {
+  origin: string;
+  destination: string;
+  forward: PathSearchResult;
+  reverse: PathSearchResult;
+  /** Sources with a stored graph. With none, every result here is vacuous. */
+  fetchedSources: string[];
+}
+
 /**
  * Whether anyone's graph contains a pair.
  *
@@ -136,12 +219,17 @@ export interface PairCoverage {
  * whether or not we ever searched. Keeping the two words apart is what stops a
  * future reader treating one as the other.
  *
- * - `ok`      — at least one fetched source flies this pair.
- * - `gap`     — sources have been fetched, and none of them flies it. A search
- *               here will come back honestly empty, forever.
- * - `unknown` — nothing has been fetched, so there is nothing to conclude.
+ * - `ok`       — at least one fetched source flies this pair.
+ * - `indirect` — nobody flies it, but the network reaches it with a stop. **A
+ *                search of this pair still returns nothing** — seats.aero holds
+ *                availability per monitored market and this is not one — so the
+ *                action is to track the legs, not to search again.
+ * - `gap`      — sources have been fetched, none flies it, and no path was
+ *                found either. A search here will come back honestly empty,
+ *                forever.
+ * - `unknown`  — nothing has been fetched, so there is nothing to conclude.
  */
-export type ReachVerdict = "ok" | "gap" | "unknown";
+export type ReachVerdict = "ok" | "indirect" | "gap" | "unknown";
 
 export interface PairReach {
   origin: string;
@@ -152,6 +240,13 @@ export interface PairReach {
   /** Sources that hold it but map to no stored program — real reach this app
    *  cannot book, which is worth seeing rather than hiding. */
   unmappedSources: string[];
+  /** Only ever populated when `verdict === "indirect"`, and capped: the panel
+   *  names the hubs, it does not plan the trip. Empty for every other verdict. */
+  paths: GraphPath[];
+  /** True when this pair was left at `gap` because the deep-check budget ran
+   *  out rather than because nothing was found. An unchecked pair must not read
+   *  as a checked one. */
+  deepCheckSkipped: boolean;
 }
 
 /** One tracked route's verdict, rolled up from its pairs. */
@@ -173,4 +268,9 @@ export interface ReachReport {
   fetchedSources: number;
   totalSources: number;
   routes: RouteReach[];
+  /** How many still-gapping pairs got the two-stop search, and the cap that
+   *  number is bounded by. Reported because a capped sweep that says nothing
+   *  about its cap reads as an exhaustive one. */
+  deepCheckedPairs: number;
+  deepPairLimit: number;
 }

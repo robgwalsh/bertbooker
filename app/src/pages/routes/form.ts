@@ -8,7 +8,7 @@
 
 import { ALERT_TYPES } from "../../lib/alerts";
 import { parseCodeList, parseCodes } from "../../lib/routeShape";
-import { isoDate } from "./dates";
+import { defaultRouteWindow } from "../../lib/routeWindow";
 import type { AlertType, TrackedRoute } from "../../api";
 
 /**
@@ -60,17 +60,14 @@ export interface EditTarget {
 }
 
 export function defaultRouteForm(): RouteForm {
-  const start = new Date();
-  const end = new Date(start);
-  end.setFullYear(end.getFullYear() + 1);
   return {
     // Airport SETS, not scalars: one route can watch SEA/PDX -> NRT/HND, because
     // seats.aero takes comma-delimited airports and covers the whole cross
     // product in one call.
     origins: [] as string[],
     destinations: [] as string[],
-    dateStart: isoDate(start),
-    dateEnd: isoDate(end),
+    // Shared with the Tools page's "Track these legs", which creates routes too.
+    ...defaultRouteWindow(),
     // Empty = every cabin. The default USED to be business-only, which quietly
     // hid economy space the route had already paid to find: gathering is wide
     // and unfiltered, so a cabin filter here only decides what you are shown.

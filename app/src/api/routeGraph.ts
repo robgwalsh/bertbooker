@@ -1,6 +1,7 @@
 import { req } from "./client";
 import type {
   PairCoverage,
+  PairPaths,
   ReachReport,
   RouteFetchResult,
   RouteGraphGeo,
@@ -74,6 +75,18 @@ export const routeGraphGeo = (source: string, opts?: RouteGraphOpts) =>
 export const routeGraphPair = (origin: string, destination: string) =>
   req<PairCoverage>(
     `/seatsaero/routes/pair?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`,
+  );
+
+/**
+ * How you would get there with a stop, when nobody monitors the pair itself.
+ *
+ * Separate from `routeGraphPair` rather than folded into it: the direct answer
+ * is one indexed lookup and this walks a self-join, so a pane that wants only
+ * the first should not pay for the second.
+ */
+export const routeGraphPaths = (origin: string, destination: string) =>
+  req<PairPaths>(
+    `/seatsaero/routes/paths?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`,
   );
 
 /** Whether the routes you track go anywhere anyone's graph reaches. */

@@ -41,6 +41,30 @@ test.describe("Tools", () => {
     }
   });
 
+  test("the section nav does not move when you change sections", async ({ page }) => {
+    // A sticky offset is measured from its SCROLLER, and `PagePad` is both the
+    // scroller and the thing that supplies the page margin — so any `top` on the
+    // nav counts that margin twice (`STICKY_NAV_TOP`). The symptom is subtle and
+    // was shipped: a sticky box cannot be pushed past the bottom of its
+    // containing block, so the offset only applies on a section whose content is
+    // TALLER than the nav. Tools is where that shows, because "Who flies this
+    // pair?" is short and "Data coverage" is not — switching between them moved
+    // the nav 20px.
+    //
+    // Geometry, and across sections rather than against a number: what matters
+    // is that the nav holds still, not where it happens to sit.
+    const tops: number[] = [];
+    for (const path of ["/tools/tracked-routes", "/tools/coverage", "/tools/pair-lookup"]) {
+      await page.goto(path);
+      const box = await page.getByTestId("section-nav").boundingBox();
+      expect(box, `the section nav should be laid out on ${path}`).not.toBeNull();
+      tops.push(Math.round(box!.y));
+    }
+    expect(new Set(tops).size, `the section nav shifts between sections: ${tops.join(", ")}`).toBe(
+      1,
+    );
+  });
+
   test("an unknown section falls back rather than rendering nothing", async ({ page }) => {
     // `$tab` is untrusted input like any other piece of a URL. The house rule is
     // that invalid values fall back to a default, never to an empty pane.

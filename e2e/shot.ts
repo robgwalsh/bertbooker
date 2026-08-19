@@ -73,7 +73,7 @@ Screenshot a page of the running app.
 
   npm run ui:shot -- --path /alerts
   npm run ui:shot -- --path / --theme review
-  npm run ui:shot -- --path /library --click 'text=Airports' --wait '.leaflet-container'
+  npm run ui:shot -- --path /library/airports --wait '.leaflet-container'
 
   --path <p>        client route to visit          (default /)
   --url <abs>       absolute URL instead of --path

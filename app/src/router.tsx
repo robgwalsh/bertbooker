@@ -4,13 +4,15 @@ import {
   createRouter,
   Link,
   Outlet,
+  redirect,
 } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppBar, Box, IconButton, Stack, Toolbar, Tooltip } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import { Routes } from "./pages/routes/RoutesPage";
-import { Library } from "./pages/library/LibraryPage";
+import { DEFAULT_LIBRARY_TAB, Library, LibraryPanel } from "./pages/library/LibraryPage";
+import { DEFAULT_TOOLS_TAB, Tools, ToolsPanel } from "./pages/tools/ToolsPage";
 import { Alerts } from "./pages/alerts/AlertsPage";
 import { QuotaIndicator } from "./components/QuotaIndicator";
 // `PreferencesButton.tsx`, not `Preferences.tsx`: the store beside it is
@@ -84,7 +86,7 @@ const NavLink = styled(Link)(({ theme }) => ({
  * The app shell: a title bar with a tab strip in it, and the page under that.
  *
  * One row rather than VS Code's two (title bar, then tabs) because there are
- * three pages and a handful of controls — a dedicated 35px strip for three tabs
+ * four pages and a handful of controls — a dedicated 35px strip for four tabs
  * would spend a row of screen to look more like an editor and be less of one.
  * The tabs own the left edge outright and the app-level controls take the right;
  * there is no brand block, because an editor's tab strip starts at the edge.
@@ -168,7 +170,13 @@ function Layout() {
               left side now, and `/` renders Routes, so Routes is the open one on
               arrival. */}
           <Box component="nav" sx={{ display: "flex", alignItems: "stretch", minWidth: 0 }}>
-            <NavLink to="/" activeOptions={{ exact: true }}>
+            {/* `includeSearch: false`: the Routes page keeps its selected route
+                and nights range in `?route=`/`?minNights=`/`?maxNights=`
+                (searchParams.ts), so the URL at "/" is almost never bare. The
+                default active-match is search-inclusive, so without this the
+                tab reads as closed the moment anything is selected — which is
+                the normal state, not an edge case. */}
+            <NavLink to="/" activeOptions={{ exact: true, includeSearch: false }}>
               Routes
             </NavLink>
             {/* The one tab that reports on work nobody triggered. It carries a
@@ -179,6 +187,16 @@ function Layout() {
               <AlertsHealthDot />
             </NavLink>
             <NavLink to="/library">Library</NavLink>
+            {/* No `activeOptions`: the default match is a PREFIX match, which
+                is what keeps this tab lit while `/tools/coverage` is open. The
+                same is true of Library and Alerts; only `/` needs `exact`,
+                because the index path would otherwise prefix-match everything.
+
+                Fourth, and the bar is now measured rather than assumed —
+                `e2e/mobile.spec.ts` checks this strip against the controls at
+                390px. "Tools" is the shortest label on it, which is not an
+                accident. */}
+            <NavLink to="/tools">Tools</NavLink>
           </Box>
           {/* The metered allowance belongs to the app, not to a page: Search
               spends it from Routes and every enrich control in the finds table
@@ -191,7 +209,7 @@ function Layout() {
             // overlapping itself is a real bug that shipped once already, and it
             // is a GEOMETRY bug — the only way to catch it is to measure this box
             // against the tab strip's. `e2e/mobile.spec.ts` does exactly that, so
-            // adding a fifth tab fails a test instead of quietly landing the
+            // the next tab added fails a test instead of quietly landing the
             // controls on top of it.
             data-testid="app-bar-controls"
             sx={{
@@ -288,7 +306,58 @@ const indexRoute = createRoute({
   component: Routes,
   validateSearch: validateRoutesSearch,
 });
-const libraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/library", component: Library });
+// The two paged surfaces, and they are built the same way on purpose: a parent
+// that draws the nav and an `<Outlet />`, an index that redirects to the first
+// section, and one `$tab` child that renders whichever is open.
+//
+// **The section is a path segment, not component state.** It was `useState(0)`,
+// which meant a reload always landed on the first section, no section could be
+// linked, and the back button skipped the page entirely. Which tab is open is
+// exactly the kind of thing a URL is for — unlike a preference, which appears in
+// no link and survives every navigation (`lib/preferences.ts`).
+//
+// The default segment comes from each page (`DEFAULT_LIBRARY_TAB`,
+// `DEFAULT_TOOLS_TAB`) rather than being spelled here: the shell wires the
+// pages together and does not decide which of a page's sections comes first.
+// `replace: true` keeps the redirect out of the back-button history, so `Back`
+// from `/library/airports` leaves the page instead of bouncing off `/library`.
+const libraryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/library",
+  component: Library,
+});
+const libraryIndexRoute = createRoute({
+  getParentRoute: () => libraryRoute,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({ to: "/library/$tab", params: { tab: DEFAULT_LIBRARY_TAB }, replace: true });
+  },
+});
+const libraryTabRoute = createRoute({
+  getParentRoute: () => libraryRoute,
+  path: "$tab",
+  component: LibraryPanel,
+});
+
+// The working surfaces over the seats.aero route graph. Split out of the
+// Library, which is reference data — see `pages/tools/ToolsPage.tsx`.
+const toolsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tools",
+  component: Tools,
+});
+const toolsIndexRoute = createRoute({
+  getParentRoute: () => toolsRoute,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({ to: "/tools/$tab", params: { tab: DEFAULT_TOOLS_TAB }, replace: true });
+  },
+});
+const toolsTabRoute = createRoute({
+  getParentRoute: () => toolsRoute,
+  path: "$tab",
+  component: ToolsPanel,
+});
 
 // The scheduled sweep — the one page about work nobody triggered.
 const alertsRoute = createRoute({
@@ -297,10 +366,15 @@ const alertsRoute = createRoute({
   component: Alerts,
 });
 
-// Three routes. The Routes page is the single place stored finds are read:
+// Four pages. The Routes page is the single place stored finds are read:
 // one surface over `findsCte`, rather than a dashboard and a browser
 // drifting apart about what a current find is.
-const routeTree = rootRoute.addChildren([indexRoute, libraryRoute, alertsRoute]);
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  libraryRoute.addChildren([libraryIndexRoute, libraryTabRoute]),
+  toolsRoute.addChildren([toolsIndexRoute, toolsTabRoute]),
+  alertsRoute,
+]);
 
 export const router = createRouter({ routeTree });
 

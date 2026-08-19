@@ -21,24 +21,36 @@ export const GUTTERS = { xs: 1.5, sm: 2, lg: 3 };
  *  `md` up. */
 export const APP_BAR_HEIGHT = 41;
 
-/** Where the Library's tab column pins.
+/** Where a page's section nav pins — and it is **zero**, which is the whole
+ *  point of it having a name.
  *
- *  It is *exactly where that nav already sits* unscrolled: past its scroller's
- *  top padding. Pinning any higher means the nav jumps up by the difference the
- *  moment the page moves, which reads as a nav that doesn't hold its place
- *  rather than as a page sliding underneath one that does.
+ *  The nav must pin *exactly where it already sits* unscrolled. Anything else
+ *  makes it jump the moment the page moves, which reads as a nav that doesn't
+ *  hold its place rather than as a page sliding underneath one that does.
  *
- *  **There is no `APP_BAR_HEIGHT` term here, and that is the point.** The
- *  document itself does not scroll — `Layout` is a fixed-height column and
- *  each page owns a scroll container inside it (`PagePad` here) — so a sticky
- *  child is offset from ITS SCROLLER's top edge, which already starts below
- *  the tab strip. Adding the bar's height back would push the column down by
- *  41px the instant anything scrolled.
+ *  **A sticky offset is measured from its scroller, and this scroller is
+ *  already padded.** `PagePad` owns both the `PAGE_PY` margin and the
+ *  `overflow`, so the nav's resting position IS the origin sticky measures
+ *  from. Every term you are tempted to add here is therefore counted twice:
+ *
+ *  - `PAGE_PY` (this was `8 * PAGE_PY`, and it was wrong). It pushed the nav
+ *    20px BELOW its own resting place — but only on a tab whose content column
+ *    was taller than the nav, since a sticky box cannot be pushed past the
+ *    bottom of its containing block. So the Library, whose every tab is tall,
+ *    looked merely low; the Tools page, which has one short tab, visibly
+ *    shifted when you moved to it.
+ *  - `APP_BAR_HEIGHT`. The document itself does not scroll — `Layout` is a
+ *    fixed-height column and each page owns a scroll container inside it — so
+ *    the scroller already starts below the tab strip.
+ *
+ *  Kept as a named constant at zero rather than deleted, because "no offset" is
+ *  a conclusion with a reason, and a bare `top: 0` invites the next person to
+ *  put the padding back.
  *
  *  A nav is only pinned from `md` up — a pinned column is worth little on a
  *  screen narrower than that. The Routes rail does not use this at all: it is
  *  a full-height pane with its own scrollbar, which is what a sidebar is. */
-export const STICKY_NAV_TOP = 8 * PAGE_PY;
+export const STICKY_NAV_TOP = 0;
 
 /**
  * The left margin a small `Switch` in a `FormControlLabel` needs to line its

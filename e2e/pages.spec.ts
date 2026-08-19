@@ -46,10 +46,23 @@ const PAGES: PageCase[] = [
   {
     path: "/library",
     tab: "Library",
-    // From the static `LIBRARY_TABS` const, rendered outside `panel()` — so it
-    // does not wait on /api/programs and is there even if that query fails.
-    landmark: (page) => page.getByRole("tab", { name: "Airports" }),
-    why: "a static tab, rendered without waiting on any query",
+    // From the static `LIBRARY_TABS` const, rendered by the page's PARENT route
+    // beside the `<Outlet />` — so it does not wait on /api/programs and is
+    // there even if that query fails.
+    //
+    // A LINK, not a tab. The sections are routes now (`/library/airports`), so
+    // the nav is anchors and `role="tab"` is gone from this page entirely.
+    landmark: (page) => page.getByRole("link", { name: "Airports" }),
+    why: "a static section link, rendered without waiting on any query",
+  },
+  {
+    path: "/tools",
+    tab: "Tools",
+    // Likewise static, and deliberately NOT the coverage tab: reaching that one
+    // renders `SourceBar`, and this suite must stay as far from the metered
+    // fetch as the page allows. Merely being linked costs nothing.
+    landmark: (page) => page.getByRole("link", { name: "Who flies this pair?" }),
+    why: "a static section link, rendered without waiting on any query",
   },
   {
     path: "/alerts",
@@ -73,7 +86,12 @@ for (const { path, tab, landmark, why } of PAGES) {
 
     // Exactly one tab is lit, and it is the right one. `/` uses
     // `activeOptions={{ exact: true }}`, so this holds on the index route too.
-    await expect(page.locator('nav a[data-status="active"]')).toHaveText(tab);
+    //
+    // Scoped to `header`, and that is not cosmetic: Library and Tools each draw
+    // their own `<nav>` of TanStack links, whose open entry carries the same
+    // `data-status="active"`. Unscoped this matches two anchors and `toHaveText`
+    // fails on a page that is working perfectly.
+    await expect(page.locator('header nav a[data-status="active"]')).toHaveText(tab);
 
     await expect(landmark(page)).toBeVisible();
   });
@@ -82,7 +100,8 @@ for (const { path, tab, landmark, why } of PAGES) {
 test("the tab strip navigates between pages", async ({ page }) => {
   await page.goto("/");
   for (const { tab, landmark } of PAGES.slice(1)) {
-    await page.getByRole("link", { name: tab }).click();
+    // `header` for the same reason as above — the section navs are links too.
+    await page.locator("header").getByRole("link", { name: tab }).click();
     await expect(landmark(page)).toBeVisible();
   }
 });

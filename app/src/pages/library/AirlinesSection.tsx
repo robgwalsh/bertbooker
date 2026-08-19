@@ -18,8 +18,8 @@ import { flagEmoji } from "../../lib/format";
 import { AIRLINE_DOMAIN, allianceColor, CURRENCY_ORDER, shortProgramName, tileColor } from "./brands";
 import { AllianceChip } from "./AllianceChip";
 import { BrandTile } from "./BrandTile";
-import { CurrencyIcons } from "./TransferCurrencies";
-import { SectionHeader } from "./SectionHeader";
+import { CurrencyIcons } from "../../components/TransferCurrencies";
+import { SectionHeader } from "../../components/SectionHeader";
 import type { AirlineInfo, ProgramInfo } from "../../api";
 
 /** Carriers, and which miles buy a seat on them. The program codes come from

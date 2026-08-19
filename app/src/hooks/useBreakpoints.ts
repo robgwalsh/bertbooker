@@ -37,9 +37,16 @@ export function useIsPhone(): boolean {
  *
  * The seam this app already had before any of this: the Routes workbench grid
  * collapses here, and `STICKY_NAV_TOP`'s docblock says outright that "a nav is
- * only pinned from `md` up". Both of the app's two-pane layouts — the Routes
- * rail beside its editor, and Library's tab column beside its panel — show ONE
- * pane at a time below this width.
+ * only pinned from `md` up". Every two-pane layout in the app — the Routes rail
+ * beside its editor, and the Library's and Tools' section nav beside its panel —
+ * shows ONE pane at a time below this width.
+ *
+ * **Only the Routes rail reaches for this hook**, and that is the shape to keep.
+ * The section navs make the same swap with `flexDirection: { xs: "row", md:
+ * "column" }`, because nothing about their DOM changes — they used to be a MUI
+ * `<Tabs>`, whose `orientation` is a prop rather than a style, which is the only
+ * reason they ever needed a hook. Reach for one when the DOM has to change, not
+ * when the layout does.
  *
  * Distinct from `useIsPhone` because a 700px tablet has no room for a sidebar
  * and plenty of room for a table.

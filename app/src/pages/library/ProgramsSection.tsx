@@ -12,8 +12,8 @@ import {
 } from "@mui/material";
 import { AllianceChip } from "./AllianceChip";
 import { ProgramTile } from "./BrandTile";
-import { SectionHeader } from "./SectionHeader";
-import { TransferCurrencies } from "./TransferCurrencies";
+import { SectionHeader } from "../../components/SectionHeader";
+import { TransferCurrencies } from "../../components/TransferCurrencies";
 import type { ProgramInfo } from "../../api";
 
 /** A table of loyalty programs — airline or hotel, whichever set the caller

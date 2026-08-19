@@ -74,7 +74,7 @@ every payload trap; likewise the one place),
 all, the pacing model, the budget guard, the outbox and the digest;
 the one place any of that is written down),
 `SEATS-AERO.md` §12 also covers **the route graph** — `GET /partnerapi/routes`,
-the per-source cache behind the Library's seats.aero pane, and why `200 []` is an
+the per-source cache behind the Tools page's Data coverage tab, and why `200 []` is an
 answer rather than a failure,
 `UI-TESTING.md` (**how to run and look at the SPA with nobody at the keyboard** —
 the headless harness, the session seeding, and the things it must never touch;
@@ -205,10 +205,17 @@ narrow one proves they need none of it.
   `Cf-Access-Authenticated-User-Email` — with no Access in front and no JWT
   verification, that header is a string the client picked. The password
   session is the only credential.
-- **`app/`** — the SPA and its `vite.config.ts`, three routes: Routes, Library,
-  Alerts. Library has six tabs; **seats.aero** is the only one that is about a
-  vendor rather than about reference data, and the only one that can spend a
-  call — on Refresh, or on picking a program nobody has fetched yet.
+- **`app/`** — the SPA and its `vite.config.ts`, four pages: Routes, Alerts,
+  Library, Tools. **Library is reference data and nothing else** — five tabs of
+  catalogue (currencies, airline programs, airlines, hotel programs, airports).
+  **Tools is the working surface over the seats.aero route graph** — three tabs
+  (your tracked routes, data coverage, who flies this pair), and the only page
+  besides Routes that can spend a metered call: on Refresh, or on picking a
+  program nobody has fetched yet.
+  **Both pages' sections are ROUTES, not state** — `/library/airports`,
+  `/tools/coverage` — so a section is linkable, survives a reload, and answers
+  the back button. `/library` and `/tools` redirect (`replace: true`) to their
+  first section, so the bare path is never a blank pane.
 
 ### Inside `api/src/`
 
@@ -247,7 +254,7 @@ allowed to import it*:
 | `lib/` | pure logic, no JSX, no React. **`lib/` is where a thing goes when it wants a test**, because `vitest.config.ts` globs `*.test.ts` only — a `*.test.tsx` is not skipped, it is silently never collected, and the run stays green. |
 | `hooks/` | shared React hooks — the two named viewport seams, the airport-name lookup, the debounce. |
 | `components/` | presentation used by more than one page. |
-| `pages/<page>/` | **page-private, co-located with its only consumer.** The finds tables, the itinerary card, the route map and the two stream hooks live under `pages/routes/` because the Routes page is the only thing that reads a stored find. The Airports pane is under `pages/library/airports/` and the seats.aero route-graph pane under `pages/library/seatsaero/`, because both are Library *tabs*, not routes in `routeTree`. |
+| `pages/<page>/` | **page-private, co-located with its only consumer.** The finds tables, the itinerary card, the route map and the two stream hooks live under `pages/routes/` because the Routes page is the only thing that reads a stored find. The Airports pane is under `pages/library/airports/` because it is a Library section. `pages/tools/` is the whole Tools page, moved there from `pages/library/seatsaero/` when it stopped being a Library tab. A helper that ends up serving two pages leaves `pages/` for `components/` — `SectionHeader` and `TransferCurrencies` both made that trip. |
 | `theme/` | `themes.ts` is the palette catalog, `build.ts` is the only place the app's shape is decided. |
 | `data/` | **generated, and path-pinned** — `scripts/build-world-geometry.mjs` writes `app/src/data/worldGeometry.ts` by that exact path. Do not move this directory. |
 
@@ -376,7 +383,7 @@ Delta seat reachable.
   feeds **two** maps through two different functions in
   `lib/routeMapGeometry.ts`: `basemapPaths()` projects and culls it into the SVG
   the trip list's `RouteMap` draws fifteen times a page, and `basemapRings()`
-  hands it to Leaflet unprojected for the seats.aero pane's route graph. Both
+  hands it to Leaflet unprojected for the Tools page's route graph. Both
   paint it in the same green-over-blue literals, exported from that same module
   so the two cannot drift.
   The one map it does *not* feed is the **Airports pane's**, which is raster
@@ -421,9 +428,10 @@ Delta seat reachable.
   (`e2e/fixtures.ts`) beside search and enrich — a UI test that reaches it fails
   rather than quietly spending a call. **Two things reach it**: the Refresh
   button, and *picking a program nobody has fetched yet*. That second one is why
-  no spec in `e2e/seatsaero.spec.ts` may touch the source dropdown's options,
+  no spec in `e2e/tools.spec.ts` may touch the source dropdown's options,
   and why the auto-fetch fires on an explicit selection and never on mount —
-  opening the tab has to stay free, because the harness clicks it every run.
+  `/tools/coverage` has to stay free to open, because the harness visits it
+  every run.
   `docs/SEATS-AERO.md` §12 has the other two guards.
 - **D1 allows 100 bound parameters per query, not SQLite's 999**, and 1,000
   queries per Worker invocation with batch statements counting. That is why the
@@ -514,12 +522,15 @@ Delta seat reachable.
 - **The app has TWO named viewport seams and no other media queries**
   (`useIsPhone` = below `sm`, `useIsNarrow` = below `md`, both in `app/src/hooks/useBreakpoints.ts`).
   Prefer an `sx` breakpoint object; reach for a hook only when the **DOM** has to
-  change, which is a smaller set than it looks. It has to change in four places:
+  change, which is a smaller set than it looks. It has to change in three places:
   the two finds tables become **cards** below `sm` (a CSS-only `display: block`
   responsive table discards `RoundTripTable`'s `rowSpan={2}`, printing a trip's
-  cabin, nights, seats and total twice); Library's `Tabs` flips `orientation`,
-  which is a prop; the Routes rail and editor become **one pane at a time** below
-  `md`; and `QuotaIndicator` is *unrendered*. Both hooks pass `noSsr` — this is a
+  cabin, nights, seats and total twice); the Routes rail and editor become **one
+  pane at a time** below `md`; and `QuotaIndicator` is *unrendered*. It used to
+  be four: Library's `Tabs` flipped `orientation`, which is a prop and not a
+  style. `SectionNav` replaced that `Tabs` with plain flex, so the column/strip
+  swap is `flexDirection: { xs: "row", md: "column" }` and the hook went away —
+  which is the direction this list should always move. Both hooks pass `noSsr` — this is a
   `createRoot` SPA, so the query resolves before first paint instead of flashing
   the desktop layout and correcting.
 - **`QuotaIndicator` is UNRENDERED below `sm`, never `display: none`.**
@@ -527,15 +538,28 @@ Delta seat reachable.
   (it skips the flight and fades). A hidden element still resolves by id and
   returns an all-zero rect, so the splash would fly into the top-left corner and
   scale to nothing. There is no third option: hiding it is the broken one.
-- **The app bar has no room left, and a test says so.** Tabs plus the right-hand
-  controls overrun a 390px bar, and the Toolbar is `overflow: visible` (that is
-  what lets the active tab paint over the bar's bottom rule), so they **overlap
-  rather than clip**. Scrolling the strip is not available either — an
+- **The app bar's width is MEASURED, not assumed.** When the tabs and the
+  right-hand controls stop fitting a 390px bar they **overlap rather than clip** —
+  the Toolbar is `overflow: visible`, which is what lets the active tab paint over
+  the bar's bottom rule. That bug shipped once, so `e2e/mobile.spec.ts` measures
+  the tab strip against `[data-testid="app-bar-controls"]`.
+  This bullet used to read "three is the count; a fourth tab fails that test".
+  **It was a guess and it was wrong** — Tools went in fourth and the measurement
+  at 390px is 214px of tabs against 69px of controls, leaving **105px of slack**.
+  Ask the test, not this file. Two levers are already spent or foreclosed
+  though, so the slack is all there is: the quota chip is dropped below `sm`
+  (that was the fix last time), and scrolling the strip is not available — an
   `overflow-x: auto` nav clips at its padding box and would eat the
-  `marginBottom: -1` that joins the open tab to its page. So the bar is balanced
-  by dropping the quota chip, and `e2e/mobile.spec.ts` measures the tab strip
-  against `[data-testid="app-bar-controls"]`. **Three is the count**, dev and
-  deployed alike; a fourth tab fails that test.
+  `marginBottom: -1` that joins the open tab to its page. A short label is the
+  cheapest thing left, which is why "Tools" is the shortest on the bar.
+- **A section nav's links are the page's, and only the frame is shared.**
+  `components/SectionNav.tsx` is the Library's and Tools' left nav: a `<nav>` of
+  TanStack `<Link>`s, styled as descendants (`"& a"`, `'& a[data-status="active"]'`).
+  It looks like it should own the links and take a `to`, and it must not — MUI's
+  `styled(Link)` erases the router generics so `params` widens to `AnyRouter`,
+  and a `to` that is a union of both parents resolves TanStack's params to
+  `never`. Either way `params={{ tab }}` stops being checked. A literal `to` at
+  each call site is the only shape that stays type-safe.
 - **The card layouts must not drift from the columns they replace.** The cell
   bodies that encode decisions — cash quoted beside miles and never ranked
   against it, a round trip's total split by direction — live in

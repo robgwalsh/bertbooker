@@ -1,29 +1,35 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Box, CircularProgress, Stack, Tab, Tabs } from "@mui/material";
+import { Outlet, useParams } from "@tanstack/react-router";
+import { Alert, Box, CircularProgress, Stack } from "@mui/material";
 import FlightRoundedIcon from "@mui/icons-material/FlightRounded";
 import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
-import HubRoundedIcon from "@mui/icons-material/HubRounded";
 import { api } from "../../api";
 import { PagePad } from "../../components/PagePad";
-import { STICKY_NAV_TOP } from "../../lib/layout";
-import { useIsNarrow } from "../../hooks/useBreakpoints";
+import { SectionNav, SectionNavLink, type SectionNavItem } from "../../components/SectionNav";
 import { AirlinesSection } from "./AirlinesSection";
 import { CurrenciesSection } from "./CurrenciesSection";
 import { ProgramsSection } from "./ProgramsSection";
 import { Airports } from "./airports/AirportsPane";
-import { RouteGraphPane } from "./seatsaero/RouteGraphPane";
 
 /** Left-hand nav for the library. Each entry owns the whole content area, so a
  *  wide surface (the airline table, the airports map) gets the full width of the
  *  shell instead of competing with the other sections for vertical space.
  *
+ *  **`key` is the URL segment**, so these are five real routes under `/library`
+ *  rather than five values of a `useState`. That is what makes a section
+ *  linkable, survive a reload, and answer the back button.
+ *
  *  These labels are load-bearing for the UI harness: `e2e/pages.spec.ts` finds
- *  the airports pane by `getByRole("tab", { name: "Airports" })`. */
-const LIBRARY_TABS = [
+ *  the airports pane by `getByRole("link", { name: "Airports" })`.
+ *
+ *  Reference data and nothing else. The seats.aero pane used to be a sixth
+ *  entry here and is now the Tools page — it was the one tab that was about a
+ *  vendor rather than about a catalogue, and the only one that could spend a
+ *  metered call. */
+export const LIBRARY_TABS = [
   { key: "currencies", label: "Currencies", icon: <AccountBalanceWalletRoundedIcon /> },
   {
     key: "airline-programs",
@@ -33,13 +39,59 @@ const LIBRARY_TABS = [
   { key: "airlines", label: "Airlines", icon: <FlightTakeoffRoundedIcon /> },
   { key: "hotels", label: "Hotel programs", icon: <HotelRoundedIcon /> },
   { key: "airports", label: "Airports", icon: <PublicRoundedIcon /> },
-  { key: "seatsaero", label: "seats.aero", icon: <HubRoundedIcon /> },
-] as const;
+] as const satisfies readonly SectionNavItem[];
 
+/** Where `/library` lands. Exported so `router.tsx` can redirect to it without
+ *  knowing which section happens to be first — the shell wires, it does not
+ *  decide. */
+export const DEFAULT_LIBRARY_TAB = LIBRARY_TABS[0].key;
+
+/**
+ * The Library's shell: the nav, and whichever section's route is open.
+ *
+ * A document, not a workbench — so unlike the Routes page it asks `PagePad` for
+ * the page margin and the scroll container. It owns no queries: those belong to
+ * the panel, so that switching sections cannot be blocked by a fetch the
+ * section you are opening does not need.
+ */
 export function Library() {
-  const [tab, setTab] = useState(0);
-  // The tab column becomes a scrollable strip below `md` — see the `Tabs` below.
-  const narrow = useIsNarrow();
+  return (
+    <PagePad>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        spacing={{ xs: 2, md: 3 }}
+        sx={{ alignItems: { md: "flex-start" } }}
+      >
+        <SectionNav label="Library sections">
+          {LIBRARY_TABS.map((t) => (
+            <SectionNavLink key={t.key} to="/library/$tab" params={{ tab: t.key }}>
+              {t.icon}
+              {t.label}
+            </SectionNavLink>
+          ))}
+        </SectionNav>
+        {/* minWidth: 0 keeps the wide tables and the map from forcing the flex
+            row (and with it the whole page) into a horizontal scroll. */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Outlet />
+        </Box>
+      </Stack>
+    </PagePad>
+  );
+}
+
+/**
+ * The open section.
+ *
+ * `$tab` is untrusted input like any other piece of a URL, so an unrecognised
+ * value falls back to the default section rather than rendering an empty pane —
+ * the same rule `validateRoutesSearch` follows for the Routes page's search
+ * params.
+ */
+export function LibraryPanel() {
+  const { tab } = useParams({ from: "/library/$tab" });
+  const active = LIBRARY_TABS.some((t) => t.key === tab) ? tab : DEFAULT_LIBRARY_TAB;
+
   const programsQ = useQuery({ queryKey: ["programs"], queryFn: api.programs });
   const currenciesQ = useQuery({ queryKey: ["currencies"], queryFn: api.currencies });
   // Static reference data — fetch once per session, like the airport geo set.
@@ -49,128 +101,53 @@ export function Library() {
     staleTime: Infinity,
   });
 
-  const active = LIBRARY_TABS[tab]?.key ?? "currencies";
-
   // Airports renders even when the programs/currencies fetch is still in flight
   // or has failed — it shares no data with them. Only the program-backed panes
   // wait.
-  function panel() {
-    if (active === "airports") {
-      // The Airports pane hits a ~72k-row reference table and a world geo dump —
-      // fine for local dev, not worth serving in production right now. Gated on
-      // Vite's build-time DEV flag rather than a server call, since this is a
-      // client-only UI decision with nothing to ask the Worker.
-      if (!import.meta.env.DEV) {
-        return (
-          <Alert severity="info">
-            The Airports pane is temporarily offline and will return soon.
-          </Alert>
-        );
-      }
-      return <Airports />;
-    }
-    // Ships to production, unlike the Airports pane above: the cached graphs
-    // are a fraction of that ~72k-row table, and this pane is most useful where
-    // the real quota and the real tracked routes are. It shares no data with
-    // the programs/currencies queries, so it renders before their gates too.
-    if (active === "seatsaero") return <RouteGraphPane />;
-    if (programsQ.isLoading || currenciesQ.isLoading)
+  if (active === "airports") {
+    // The Airports pane hits a ~72k-row reference table and a world geo dump —
+    // fine for local dev, not worth serving in production right now. Gated on
+    // Vite's build-time DEV flag rather than a server call, since this is a
+    // client-only UI decision with nothing to ask the Worker.
+    if (!import.meta.env.DEV) {
       return (
-        <Stack sx={{ py: 8, alignItems: "center" }}>
-          <CircularProgress />
-        </Stack>
+        <Alert severity="info">The Airports pane is temporarily offline and will return soon.</Alert>
       );
-    if (programsQ.error)
-      return <Alert severity="error">Failed to load programs: {String(programsQ.error)}</Alert>;
-    if (!programsQ.data) return null;
-
-    const programs = programsQ.data;
-    switch (active) {
-      case "currencies":
-        return <CurrenciesSection currencies={currenciesQ.data ?? []} programs={programs} />;
-      case "airline-programs":
-        return (
-          <ProgramsSection
-            title="Airline programs"
-            icon={<FlightRoundedIcon sx={{ color: "secondary.main", transform: "rotate(45deg)" }} />}
-            programs={programs.filter((p) => p.kind === "airline")}
-          />
-        );
-      case "airlines":
-        return <AirlinesSection airlines={airlinesQ.data ?? []} programs={programs} />;
-      case "hotels":
-        return (
-          <ProgramsSection
-            title="Hotel programs"
-            icon={<HotelRoundedIcon sx={{ color: "secondary.main" }} />}
-            programs={programs.filter((p) => p.kind === "hotel")}
-          />
-        );
-      default:
-        return null;
     }
+    return <Airports />;
   }
 
-  // A document, not a workbench — so unlike the Routes page it asks the shell
-  // for the page margin and the scroll container.
-  return (
-    <PagePad>
-    <Stack
-      direction={{ xs: "column", md: "row" }}
-      spacing={{ xs: 2, md: 3 }}
-      sx={{ alignItems: { md: "flex-start" } }}
-    >
-      {/* A column beside the content from `md` up; a scrollable strip above it
-          below that. This follows the seam `STICKY_NAV_TOP` already names — "a
-          nav is only pinned from `md` up" — to its conclusion: under that width
-          it should not be a COLUMN either. A 190px rail on a 390px screen left
-          about 150px for the pane it was navigating.
+  if (programsQ.isLoading || currenciesQ.isLoading)
+    return (
+      <Stack sx={{ py: 8, alignItems: "center" }}>
+        <CircularProgress />
+      </Stack>
+    );
+  if (programsQ.error)
+    return <Alert severity="error">Failed to load programs: {String(programsQ.error)}</Alert>;
+  if (!programsQ.data) return null;
 
-          One `Tabs` with a branched `orientation`, never two hidden by `sx`:
-          `orientation` and `variant` are props rather than styles, and two tab
-          lists would put two `role="tab"` nodes named "Airports" in the document
-          — which is both wrong for a screen reader and ambiguous for the UI
-          harness's landmarks. */}
-      <Tabs
-        orientation={narrow ? "horizontal" : "vertical"}
-        variant={narrow ? "scrollable" : "standard"}
-        scrollButtons="auto"
-        allowScrollButtonsMobile
-        value={tab}
-        onChange={(_, v: number) => setTab(v)}
-        sx={{
-          flexShrink: 0,
-          minWidth: { md: 190 },
-          maxWidth: "100%",
-          // Pinned at its own resting position, the same as the Routes rail —
-          // the content pane scrolls past a tab column that never moves.
-          position: { md: "sticky" },
-          top: { md: STICKY_NAV_TOP },
-          // The rule follows the orientation: it is the edge this nav shares
-          // with the pane, so it is on the right of a column and under a strip.
-          borderRight: { md: 1 },
-          borderBottom: { xs: 1, md: 0 },
-          borderColor: "divider",
-          "& .MuiTab-root": {
-            minHeight: 44,
-            gap: 1.25,
-            // Left-aligned only as a column. A horizontal strip centres its own
-            // labels, and forcing them left just makes the icons ragged.
-            alignItems: { md: "flex-start" },
-            justifyContent: { md: "flex-start" },
-            textAlign: { md: "left" },
-          },
-        }}
-      >
-        {LIBRARY_TABS.map((t) => (
-          <Tab key={t.key} label={t.label} icon={t.icon} iconPosition="start" />
-        ))}
-      </Tabs>
-
-      {/* minWidth: 0 keeps the wide tables and the map from forcing the flex row
-          (and with it the whole page) into a horizontal scroll. */}
-      <Box sx={{ flex: 1, minWidth: 0 }}>{panel()}</Box>
-    </Stack>
-    </PagePad>
-  );
+  const programs = programsQ.data;
+  switch (active) {
+    case "airline-programs":
+      return (
+        <ProgramsSection
+          title="Airline programs"
+          icon={<FlightRoundedIcon sx={{ color: "secondary.main", transform: "rotate(45deg)" }} />}
+          programs={programs.filter((p) => p.kind === "airline")}
+        />
+      );
+    case "airlines":
+      return <AirlinesSection airlines={airlinesQ.data ?? []} programs={programs} />;
+    case "hotels":
+      return (
+        <ProgramsSection
+          title="Hotel programs"
+          icon={<HotelRoundedIcon sx={{ color: "secondary.main" }} />}
+          programs={programs.filter((p) => p.kind === "hotel")}
+        />
+      );
+    default:
+      return <CurrenciesSection currencies={currenciesQ.data ?? []} programs={programs} />;
+  }
 }

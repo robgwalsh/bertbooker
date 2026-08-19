@@ -38,9 +38,23 @@ export function PairLookup() {
         title="Who flies this pair?"
         icon={<AltRouteRoundedIcon sx={{ color: "secondary.main" }} />}
       />
+      {/* `flex: 1` on both, so they split the 640 evenly. Without it each field
+          is only as wide as its own content, and "Destination" is long enough
+          that its own label clips — which was survivable when this was the third
+          section of a Library tab and is not, now that it is the whole page. */}
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 2, maxWidth: 640 }}>
-        <AirportAutocomplete label="Origin" value={origin} onChange={setOrigin} />
-        <AirportAutocomplete label="Destination" value={destination} onChange={setDestination} />
+        <AirportAutocomplete
+          label="Origin"
+          value={origin}
+          onChange={setOrigin}
+          sx={{ flex: 1 }}
+        />
+        <AirportAutocomplete
+          label="Destination"
+          value={destination}
+          onChange={setDestination}
+          sx={{ flex: 1 }}
+        />
       </Stack>
 
       {!ready && (

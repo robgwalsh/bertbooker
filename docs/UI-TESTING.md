@@ -183,7 +183,7 @@ The app talks to exactly one same-origin path prefix, `/api`.
 
 ## 6. The suite
 
-`e2e/pages.spec.ts` walks the three routes. **Nothing in it may depend on data
+`e2e/pages.spec.ts` walks the four pages. **Nothing in it may depend on data
 existing** — the local D1 is whatever the machine's owner last left in it, so an
 assertion on a route name would pass here and fail there, which teaches everyone
 to ignore the suite. Each page is identified by its own furniture:
@@ -211,17 +211,17 @@ through that callback), a wrong password is named, and the right one opens the
 app. The wrong-password test is the only place in the suite that opts out of the
 console guard, because provoking a 401 is its entire purpose.
 
-`e2e/mobile.spec.ts` is the same three routes at **390×844**, under the same
+`e2e/mobile.spec.ts` is the same four pages at **390×844**, under the same
 no-data rule — which constrains it more than it looks, because the finds cards
 and the Routes rail/editor swap both need a tracked route to exist. What it does
 assert holds on an empty database:
 
 | assertion | why it is worth a test |
 |---|---|
-| `scrollWidth - clientWidth <= 1` on all three routes | the document deliberately cannot scroll (`html, body, #root` are 100%), so horizontal overflow is content painted off the edge of the screen with nothing that can reach it. `PagePad`'s `overflowX: auto` is what surfaces a stray wide child *to this assertion* rather than clipping it out of sight. |
-| the tab strip's right edge is left of `[data-testid="app-bar-controls"]` | this bug shipped once. The Toolbar is `overflow: visible` (that is what lets the active tab paint over the bar's bottom rule), so when the two sides stop fitting they **overlap instead of clipping**. It is geometry; measuring is the only way to see it. A fourth tab now fails a test. |
-| Library's tablist is not `aria-orientation="vertical"` | the 190px column becomes a scrollable strip below `md`. MUI only emits the attribute for the vertical case, so its absence *is* the assertion. |
-| Sign out and all three tabs are visible | the bar is balanced by dropping the quota chip, never the controls. |
+| `scrollWidth - clientWidth <= 1` on all four pages | the document deliberately cannot scroll (`html, body, #root` are 100%), so horizontal overflow is content painted off the edge of the screen with nothing that can reach it. `PagePad`'s `overflowX: auto` is what surfaces a stray wide child *to this assertion* rather than clipping it out of sight. |
+| the tab strip's right edge is left of `[data-testid="app-bar-controls"]` | this bug shipped once. The Toolbar is `overflow: visible` (that is what lets the active tab paint over the bar's bottom rule), so when the two sides stop fitting they **overlap instead of clipping**. It is geometry; measuring is the only way to see it. This is the gate a new tab has to pass — Tools went in fourth and cleared it with 105px to spare, which is a thing that had to be *measured*: CLAUDE.md had predicted a fourth tab would fail. |
+| the Library's and Tools' section nav is wider than 300px at 390px | those navs are a 190px column from `md` up and a scrolling strip below it, and the only difference visible from outside is the box. This used to read MUI's `aria-orientation` off a `<Tabs>`; the sections are routes now, so the nav is anchors and there is no attribute left to ask. |
+| Sign out and all four tabs are visible | the bar is balanced by dropping the quota chip, never the controls. |
 
 It uses per-test `test.use({ viewport })` rather than a second Playwright
 project, deliberately: `workers: 1` and `fullyParallel: false` against one shared
@@ -240,7 +240,7 @@ not asserted. Width and pointer are separate axes on purpose; see `COARSE` in
 npm run ui:shot -- --help                      # flags, and every theme id
 npm run ui:shot -- --path /alerts
 npm run ui:shot -- --path / --theme review     # 4 palettes
-npm run ui:shot -- --path /library --click 'text=Airports' --wait '.leaflet-container'
+npm run ui:shot -- --path /library/airports --wait '.leaflet-container'
 npm run ui:shot -- --no-auth --path /          # photograph the login dialog
 npm run ui:shot -- --path / --width 390 --height 844   # the phone
 ```

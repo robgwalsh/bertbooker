@@ -23,7 +23,7 @@ it to refuse a call — the one place that does read it before spending is
 |---|---|---|---|
 | `GET /partnerapi/search` (Cached Search) | 1 call per page | a page of availability across ~20 programs, a whole date range, several airports | **yes — this is Search** |
 | `GET /partnerapi/trips/{id}` (Get Trips) | 1 call **per availability row** | the real legs, including per-leg times | **yes — on a click** |
-| `GET /partnerapi/routes` (Get Routes) | 1 call **per source** | every city pair that program's inventory is monitored on | **yes — the Library's seats.aero pane** (§12) |
+| `GET /partnerapi/routes` (Get Routes) | 1 call **per source** | every city pair that program's inventory is monitored on | **yes — the Tools page's Data coverage tab** (§12) |
 | `POST /partnerapi/live` | 1 call per (route, date, program), 5–15s | a real-time query against the airline | **no** |
 
 Cached Search is by far the best value the API offers, which is why a year-long
@@ -534,7 +534,7 @@ failing:
 ## 12. The route graph
 
 `GET /partnerapi/routes?source=<name>` returns every city pair a program's award
-inventory is monitored on. It backs the Library's **seats.aero** pane, and it is
+inventory is monitored on. It backs the Tools page's **Data coverage** tab, and it is
 appended as §12 rather than inserted so the section numbers `CLAUDE.md` and
 `docs/ALERTS.md` cite do not move.
 
@@ -614,8 +614,9 @@ checks a budget before spending. Three guards in `SourceBar.tsx` are what keep
 that from being a call spent by accident, and all three are load-bearing:
 
 - It fires on an explicit **selection, never on mount.** Opening the tab must
-  cost nothing — the UI harness clicks it on every run, and `e2e/seatsaero.spec.ts`
-  leans on exactly this. It is also why no spec there may pick a source.
+  cost nothing — the UI harness visits `/tools/coverage` on every run, and
+  `e2e/tools.spec.ts` leans on exactly this. It is also why no spec there may
+  pick a source.
 - Only a source with **no fetch record at all.** A `failed` one has been asked
   already; retrying is what Refresh is for, and auto-retrying would spend a call
   every time someone flipped back to it.

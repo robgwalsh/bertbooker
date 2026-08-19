@@ -201,13 +201,21 @@ export function RouteNav({
       }}
     >
       {/* The sidebar's section header, in VS Code's own idiom: small, spaced,
-          uppercase, on the chrome ground, with its one action at the right.
-          `useFlexGap`, so the New button's `ml: auto` actually reaches that
-          edge — Stack's default `spacing` is a margin-left on every child but
-          the first, and that margin outranks `auto`. `py: 1` and an
-          unshrunk `size="small"` button match `RouteHeader`'s own row
-          exactly — same padding, same button, so the two headers' bottom
-          rules land on one line across the sidebar/editor seam. */}
+          uppercase, with its one action at the right. `useFlexGap`, so the
+          New button's `ml: auto` actually reaches that edge — Stack's
+          default `spacing` is a margin-left on every child but the first,
+          and that margin outranks `auto`. `py: 1` and an unshrunk
+          `size="small"` button match `RouteHeader`'s own row exactly — same
+          padding, same button, so the two headers' bottom rules land on one
+          line across the sidebar/editor seam.
+
+          Painted `background.default`, NOT the sidebar's own `background.chrome`
+          — that is the PAGE colour, the same one `RouteHeader` sits on and the
+          same one `NavLink`'s active tab paints itself (router.tsx). Without
+          this the header read as part of the chrome rail underneath it rather
+          than as the top edge of the open Routes tab; now the tab strip, this
+          header and the editor's header are one continuous plane of the same
+          colour, with only the rail's list below it left on the chrome ground. */}
       <Stack
         direction="row"
         spacing={1}
@@ -217,6 +225,7 @@ export function RouteNav({
           py: 1,
           alignItems: "center",
           flexShrink: 0,
+          bgcolor: "background.default",
           borderBottom: 1,
           borderColor: "divider",
         }}

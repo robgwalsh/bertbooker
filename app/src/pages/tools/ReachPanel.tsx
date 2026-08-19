@@ -33,11 +33,11 @@ export function ReachPanel() {
   return (
     <Box>
       <SectionHeader
-        title="Your tracked routes"
+        title="Validate Routes"
         icon={<PublicRoundedIcon sx={{ color: "secondary.main" }} />}
       />
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Validates tracked routes are covered by seats.aero data.
+        Validates that your tracked routes are covered by seats.aero data.
       </Typography>
       <ReachBody />
     </Box>

@@ -27,7 +27,7 @@ import { expect, test } from "./fixtures.js";
 const PHONE = { width: 390, height: 844 };
 
 /** Every route, so a page that overflows is caught wherever it lives. */
-const PATHS = ["/", "/library", "/alerts"];
+const PATHS = ["/", "/library", "/tools", "/alerts"];
 
 test.describe("at 390px", () => {
   test.use({ viewport: PHONE });
@@ -56,8 +56,10 @@ test.describe("at 390px", () => {
     // (which is what lets the active tab paint over the bar's bottom rule), so
     // when the two sides stop fitting they OVERLAP rather than clip — the quota
     // chip landed on top of the last tab. It is geometry, so measuring the
-    // two boxes is the only way to see it. Add a fourth tab and this fails,
-    // instead of the failure being something a person has to notice.
+    // two boxes is the only way to see it. It is the gate a new tab has to get
+    // past, instead of the failure being something a person has to notice —
+    // Tools went in under it, which is why that label is the shortest on the
+    // bar.
     const nav = await page.locator("header nav").boundingBox();
     const controls = await page.getByTestId("app-bar-controls").boundingBox();
     expect(nav, "the tab strip should be laid out").not.toBeNull();
@@ -68,15 +70,24 @@ test.describe("at 390px", () => {
     ).toBeLessThanOrEqual(controls!.x + 1);
   });
 
-  test("Library's nav is a horizontal strip, not a 190px column", async ({ page }) => {
-    await page.goto("/library");
-    // MUI only emits `aria-orientation` for the vertical case, so the absence of
-    // it IS the horizontal assertion — and asserting the attribute is absent is
-    // what makes this fail if the column comes back.
-    const tablist = page.getByRole("tablist");
-    await expect(tablist).toBeVisible();
-    await expect(tablist).not.toHaveAttribute("aria-orientation", "vertical");
-  });
+  for (const path of ["/library", "/tools"]) {
+    test(`${path}'s section nav is a horizontal strip, not a 190px column`, async ({ page }) => {
+      await page.goto(path);
+      // GEOMETRY, because there is no longer an attribute to ask. This used to
+      // read MUI's `aria-orientation` off a `<Tabs>`; the nav is anchors now
+      // (each section is a route), so the only thing that distinguishes a strip
+      // from a column is its box. A 190px `md` column would fail this outright,
+      // and so would a column that had simply been left at its content width.
+      const nav = page.getByTestId("section-nav");
+      await expect(nav).toBeVisible();
+      const box = await nav.boundingBox();
+      expect(box, "the section nav should be laid out").not.toBeNull();
+      expect(
+        box!.width,
+        `${path}'s section nav is still a column at ${PHONE.width}px`,
+      ).toBeGreaterThan(300);
+    });
+  }
 
   test("the shell is intact", async ({ page }) => {
     await page.goto("/");
@@ -84,10 +95,12 @@ test.describe("at 390px", () => {
     // quota chip, not the controls. `pages.spec.ts` asserts the same thing at
     // 1440; this is the half that would break first if that ever changed.
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-    // All three tabs still reachable at 390 — none is scrolled out or covered.
-    // The dev and deployed bars carry the same three; this is the whole strip.
-    for (const tab of ["Routes", "Library", "Alerts"]) {
-      await expect(page.getByRole("link", { name: tab })).toBeVisible();
+    // All four tabs still reachable at 390 — none is scrolled out or covered.
+    // The dev and deployed bars carry the same four; this is the whole strip.
+    // Scoped to `header`: the section navs are links too, and "Library" would
+    // otherwise be ambiguous the moment one of those pages is open.
+    for (const tab of ["Routes", "Library", "Tools", "Alerts"]) {
+      await expect(page.locator("header").getByRole("link", { name: tab })).toBeVisible();
     }
   });
 });

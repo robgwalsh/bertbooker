@@ -22,7 +22,7 @@ import {
 } from "../../lib/currencies";
 import { CurrencyIcon } from "../../components/brand";
 import { ProgramTileGrid } from "./BrandTile";
-import { SectionHeader } from "./SectionHeader";
+import { SectionHeader } from "../../components/SectionHeader";
 import type { CurrencyInfo, ProgramInfo } from "../../api";
 
 /** The couple's four transfer currencies, and what each one reaches.

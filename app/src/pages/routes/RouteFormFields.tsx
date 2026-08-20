@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import {
   Box,
+  Button,
   Checkbox,
   Chip,
   FormControl,
@@ -43,11 +44,18 @@ export function RouteFormFields({
   form,
   setForm,
   focus,
+  onSuggestVia,
+  suggestingVia,
 }: {
   form: RouteForm;
   setForm: React.Dispatch<React.SetStateAction<RouteForm>>;
   /** Land on this field when the form opens. See `RouteField`. */
   focus?: RouteField;
+  /** Ask the route graph for hubs and fill the Via field. Supplied by the EDIT
+   *  dialog only — a new route has its hubs filled in server-side on save, and
+   *  an existing one can otherwise never be re-ranked. */
+  onSuggestVia?: () => void;
+  suggestingVia?: boolean;
 }) {
   const estimate = estimateCalls(form, form.dateStart, form.dateEnd, form.roundTrip);
 

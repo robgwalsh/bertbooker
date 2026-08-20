@@ -57,6 +57,14 @@ export function EditRouteDialog({
     if (route) setForm(formFromRoute(route));
   }, [route?.id]);
 
+  // Ask the route graph what hubs it would pick, and put them in the form. A
+  // mutation rather than a query because it is an ACT — you press a button and
+  // something changes on screen — even though the request itself writes nothing.
+  const suggestVia = useMutation({
+    mutationFn: () => api.suggestRoutePaths(route!.id),
+    onSuccess: ({ via }) => setForm((f) => ({ ...f, via })),
+  });
+
   // The mutation variable is "…and then search it": one write path, so the two
   // buttons cannot drift on what they save, only on what happens after.
   const save = useMutation<unknown, Error, boolean>({
@@ -111,7 +119,23 @@ export function EditRouteDialog({
       >
         <DialogTitle>Edit route</DialogTitle>
         <DialogContent>
-          <RouteFormFields form={form} setForm={setForm} focus={target?.focus} />
+          <RouteFormFields
+            form={form}
+            setForm={setForm}
+            focus={target?.focus}
+            // Fills the field; Save is what commits. So asking what the graph
+            // thinks is free and reversible, which it would not be if the
+            // endpoint wrote — and this is the only way to re-rank a route that
+            // already has hubs, since PATCH deliberately keeps those.
+            onSuggestVia={route ? () => void suggestVia.mutate() : undefined}
+            suggestingVia={suggestVia.isPending}
+          />
+          {suggestVia.isSuccess && suggestVia.data.via.length === 0 && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Every fetched program is monitored on this pair already, or none of them reaches it
+              with a stop. Either way there is nothing to add.
+            </Alert>
+          )}
           {save.isError && (
             <Alert severity="error" sx={{ mt: 2 }}>
               Could not save: {String(save.error)}

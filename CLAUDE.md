@@ -439,6 +439,46 @@ Delta seat reachable.
   route-graph writer binds a 500-row chunk as ONE JSON parameter and expands it
   with `json_each` (`api/src/db/routeGraph.ts`) instead of a multi-row `VALUES`,
   which would fit twelve rows and need ~700 statements for one program.
+- **A route with `via` HUBS plans TWO seats.aero queries per date chunk, and it
+  is the only setting that changes what a search costs.** A cross product rides
+  in one call, but `SFO→ICN` and `ICN→KTM` are different markets, so
+  `planRoute` returns **query groups** — `outbound` (origins → destinations ∪
+  hubs, so the direct pair is still asked every search) and `inbound` (hubs →
+  destinations). `plan.tasks` is therefore `chunks × groups`, **chunk-major**,
+  and that order is load-bearing: `from` is a bare index into it and
+  `alerts/sweep.ts` resumes from `tasks_ok + tasks_failed`. The role reaches
+  `seatsAeroTaskKey` so two groups of one chunk cannot collide on
+  `search_tasks`'s unique key. Everything that budgets calls counts **tasks**,
+  not chunks (`routeSweepCost`, `estimateSearchCalls`) — counting chunks would
+  price a hub route at half what it spends, and guessing low is the one
+  direction `docs/ALERTS.md` §4 forbids. Hubs are filled in automatically on
+  save when the pair reaches nothing directly (`autoVia`), capped at `MAX_VIA`,
+  and **ignored on a round trip**. A route's own legs come back under it
+  (`ROUTE_FINDS_MATCH` has a branch each way) and `splitDirectAndLegs` keeps
+  them out of the finds table — they belong to journeys.
+- **`cash_fees_cents` is NOT always USD**, and `dollars()` assumes it is.
+  seats.aero quotes Aeroplan in CAD and Korean Air out of Seoul in KRW, where
+  2,400,000 read as dollars is $24,029.90 against about $1,700. Use `money()`
+  (`lib/format.ts`), and never sum fees across currencies — `Journey.feesCurrency`
+  is null exactly when the legs disagree, which is the instruction to show the
+  legs rather than a total.
+- **A JOURNEY is stitched at READ TIME and its total is an addition we did.**
+  `app/src/lib/multiLeg.ts` joins a stored leg into a hub with a stored leg out
+  of it, so a tracked SFO→KTM — a pair seats.aero holds no market on, which
+  therefore never has a find of its own — can still show priced answers built
+  from the SFO→ICN and ICN→KTM routes beside it. It reads the WHOLE dashboard
+  payload rather than one route's slice, because the legs belong to other routes
+  by construction; that is the entire premise, and it is why this needed no
+  migration, no endpoint and no metered call. Same standing as `roundtrip.ts`,
+  which it is modelled on and borrows `collapseLegs`/`betterLeg` from rather than
+  re-deriving. Three claims on that pane are ours and every surface says so: the
+  total is a sum of separate awards, the connection is unprotected, and the
+  ground time is unknown until both legs are enriched. **Legs in different
+  programs get the amber treatment** — a 3px rule down the journey plus a
+  `2 awards` chip — because two programs is two tickets in two currencies that
+  can never become one booking. Round-trip routes are excluded on purpose: four
+  legs and a pairing of pairings is a different feature, and `RoundTripTable`
+  already owns that pane.
 - **A connection through the route graph is LEGS, not a trip**, and the two
   route-graph tools both say so. A pair seats.aero does not monitor returns
   nothing from a search however many hubs join it — availability is held per

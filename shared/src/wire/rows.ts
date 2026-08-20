@@ -23,6 +23,19 @@ export interface TrackedRoute {
    *  set. */
   origins: string | null;
   destinations: string | null;
+  /**
+   * JSON array of hub IATA codes this route routes THROUGH, or null for none.
+   *
+   * A GATHERING setting, like `round_trip` and unlike every filter here: the
+   * search plans a second query per date range for it (origins to the hubs, then
+   * the hubs to the destinations), because a cross product rides in one call but
+   * two different markets cannot. It exists because a pair no program is
+   * monitored on — SFO-KTM is in nobody's graph — comes back empty from every
+   * search forever while still being reachable with a stop, and the alternative
+   * was a sibling route per leg cluttering the rail. Ignored on a round trip;
+   * see migrations/0004_route_via.sql.
+   */
+  via: string | null;
   date_start: string;
   date_end: string;
   cabins: string | null; // JSON array of cabin codes, or null = any cabin
@@ -140,6 +153,10 @@ export interface Find {
   seats_available: number;
   miles_cost: number;
   cash_fees_cents: number;
+  /** ISO 4217 for cash_fees_cents. NOT always USD — seats.aero quotes Aeroplan
+   *  in CAD and Korean Air out of Seoul in KRW, and 2,400,000 KRW read as
+   *  dollars is $24,029.90 instead of about $1,700. Format with money(). */
+  fees_currency?: string | null;
   /** Cash fare for the same itinerary — NOT the award tax (that's
    *  cash_fees_cents). Null when no source could see a fare. */
   cash_price_cents?: number | null;
@@ -246,6 +263,11 @@ export interface RouteInput {
    *  primary airport. */
   origins: string[];
   destinations: string[];
+  /** Hubs to route through, at most `MAX_VIA`. **Absent means "work it out"** —
+   *  the Worker fills it from the route graph when the pair reaches nothing
+   *  directly — while an EMPTY ARRAY means "no hubs, I mean it". Ignored on a
+   *  round trip. */
+  via?: string[];
   dateStart: string;
   dateEnd: string;
   /** Empty = any cabin. */

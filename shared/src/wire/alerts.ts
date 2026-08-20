@@ -97,6 +97,15 @@ export interface AlertScheduleRoute {
   id: number;
   label: string;
   chunks: number;
+  /**
+   * seats.aero queries per date chunk: 1 normally, 2 for a route with hubs.
+   *
+   * Carried so `estimatedCalls` still FOLLOWS from what the page shows. Cost is
+   * `chunks × this × pages`, and without it a hub route quotes twice the calls
+   * its visible chunk count explains — a number that looks like a bug in the
+   * page rather than the price of a second market.
+   */
+  queriesPerChunk: number;
   /** The window has fallen entirely into the past — the route cannot be swept
    *  at all, which is different from merely idle. */
   windowExpired: boolean;

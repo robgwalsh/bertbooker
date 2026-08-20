@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Chip,
+  IconButton,
   List,
   ListItemButton,
   Stack,
@@ -10,6 +11,7 @@ import {
   Typography,
 } from "@mui/material";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import NotificationsNoneRoundedIcon from "@mui/icons-material/NotificationsNoneRounded";
 import { ALERT_HEALTH, alertHealth } from "../../lib/alerts";
@@ -149,6 +151,17 @@ function RailAlertBell({ alert }: { alert?: AlertScheduleRoute }) {
 export interface RouteCount {
   found: number;
   roundTrip: boolean;
+  /**
+   * Journeys stitched from OTHER routes' legs, for a route the sources hold no
+   * market on.
+   *
+   * Counted separately and never added to `found`, because it is a weaker kind
+   * of answer: a journey is two award bookings this app joined at read time, not
+   * one seat somebody is selling. It earns its own chip for the reason the
+   * `unsearched` one exists — a route reading `0` is otherwise the only signal,
+   * and nobody opens a route that says it has nothing.
+   */
+  viaJourneys?: number;
 }
 
 export function RouteNav({
@@ -159,6 +172,8 @@ export function RouteNav({
   selectedId,
   onSelect,
   onAdd,
+  onDelete,
+  deletingId,
 }: {
   routes: TrackedRoute[];
   counts: Map<number, RouteCount>;
@@ -172,6 +187,12 @@ export function RouteNav({
   selectedId?: number;
   onSelect: (id: number) => void;
   onAdd: () => void;
+  /** Opens the removal confirmation for a row. The rail never deletes anything
+   *  itself — a 14px target one click from an undo-less action has to go
+   *  through the same dialog the header's button used to open. */
+  onDelete: (route: TrackedRoute) => void;
+  /** The route whose delete is in flight, so its button can't be pressed twice. */
+  deletingId?: number;
 }) {
   return (
     // The sidebar. Not a `Paper` any more, and that is the whole change: a card
@@ -336,7 +357,7 @@ export function RouteNav({
                     mark={r.alerts_enabled === 1 ? <RailAlertBell alert={alerts.get(r.id)} /> : null}
                   />
                 </Box>
-                <Box sx={{ ml: "auto", flexShrink: 0 }}>
+                <Box sx={{ ml: "auto", flexShrink: 0, display: "flex", alignItems: "center", gap: 0.5 }}>
                   {found > 0 ? (
                     // The number alone can't say what it counts, and the two
                     // kinds of route count different things — see `RouteCount`.
@@ -356,7 +377,71 @@ export function RouteNav({
                       <Chip size="small" variant="outlined" color="warning" label="unsearched" />
                     )
                   )}
+                  {/* Its own chip beside the find count, never folded into it: a
+                      journey is two bookings joined at read time, not a seat
+                      anybody sells as one. Without it a route that seats.aero
+                      holds no market on reads `0` forever and nobody opens it. */}
+                  {count?.viaJourneys ? (
+                    <Tooltip
+                      title={`${count.viaJourneys} way${count.viaJourneys === 1 ? "" : "s"} to get there with a stop, built from legs your other routes found — separate awards, not one booking`}
+                    >
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        color="secondary"
+                        label={`${count.viaJourneys} via`}
+                      />
+                    </Tooltip>
+                  ) : null}
                 </Box>
+                {/* Removal lives on the row it removes, at icon weight, in
+                    the top-right CORNER of the row rather than in the line of
+                    chips beside it.
+
+                    It was a labelled Remove button in the editor's header,
+                    beside Search and Edit — which made it the third full-weight
+                    control on the pane you are reading, and it could only ever
+                    act on the route already open. Here it reaches any route
+                    without selecting it first, and the dialog behind it is
+                    unchanged: this is a smaller target for the same two-step
+                    action, not a faster one.
+
+                    Negative margins rather than `position: absolute`, so it
+                    still takes its own width in the flex row: the count chips
+                    shrink away from it instead of being painted over. They pull
+                    it into the row's own `px: 2` / `py: 1.25` padding, which is
+                    what puts it in the corner of the rectangle rather than
+                    inset from it.
+
+                    `stopPropagation`, because the row is itself a button:
+                    without it a click would select the route on the way to
+                    opening the dialog, and cancelling would leave you on a
+                    route you never asked to open. */}
+                <Tooltip title="Remove this route">
+                  <span style={{ alignSelf: "flex-start" }}>
+                    <IconButton
+                      size="small"
+                      aria-label={`Remove ${sideLabel(r.origins, r.origin)} ${directionArrow(r)} ${sideLabel(r.destinations, r.destination)}`}
+                      disabled={deletingId === r.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(r);
+                      }}
+                      sx={{
+                        p: 0.25,
+                        mt: -0.75,
+                        mr: -1.25,
+                        // Quiet until pointed at: it sits in a row whose job is
+                        // to be read, and the only destructive control on the
+                        // page should not be the brightest thing in it.
+                        color: "text.disabled",
+                        "&:hover": { color: "error.light", bgcolor: "transparent" },
+                      }}
+                    >
+                      <DeleteOutlineRoundedIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
               </Stack>
               <Typography
                 variant="caption"

@@ -50,7 +50,7 @@ tracked route window
    │ effectiveSearchWindow — clamp to [today, today+365]
    ▼
 90-day chunks, at most 5 (SEATSAERO_CHUNK_DAYS, SEATSAERO_MAX_CHUNKS)
-   │ one task per chunk
+   │ one task per chunk PER QUERY — two queries on a route with hubs (§12)
    ▼
 each chunk pages until hasMore is false, at most 10 (SEATSAERO_MAX_PAGES)
    │ take=500 with trips (SEATSAERO_TAKE_WITH_TRIPS)
@@ -751,6 +751,52 @@ The verdict that comes out is **`indirect`**, ranked between `gap` and `ok`
 because it genuinely is between them: the network reaches the pair, and the route
 as written still returns nothing. Calling it `ok` would hide work the user has to
 do.
+
+### A route that carries its own hubs
+
+A tracked route may store `via` hubs (`migrations/0004_route_via.sql`), and it
+then plans **two queries per date chunk** rather than one:
+
+```
+outbound   SFO -> ICN,DEL,HKG,KTM      origins × (destinations ∪ hubs)
+inbound    ICN,DEL,HKG -> KTM          hubs × destinations
+```
+
+It cannot be one query. The whole cross product rides in a single call (§2), but
+`SFO->ICN` and `ICN->KTM` are different markets, and no single pair of airport
+lists names both without also naming hub-to-hub pairs nobody asked for. So the
+one thing §2's economics did not cover is the one thing hubs change: a year-long
+route goes from **5 calls to 10**, and `plan.tasks` becomes `chunks × groups`,
+**chunk-major**. Per-TASK cost is untouched, which is why
+`MAX_CALLS_PER_REQUEST`, the cron's 30-second CPU rule and `run_continue` all
+keep working unchanged — and why everything that budgets calls had to start
+counting tasks instead of chunks (`docs/ALERTS.md` §4).
+
+The outbound query carries the DIRECT pair deliberately: the hubs simply join its
+destination list, so the pair the route is named for is still asked every search
+at no extra call, and the day a program starts flying it the route notices.
+
+Hubs are capped at **three** (`MAX_VIA`), and the cap is about ROWS rather than
+quota — a fourth costs no calls but pushes the outbound query past what
+`SEATSAERO_MAX_PAGES` covers on a busy pair, at which point the chunk narrows its
+own coverage claim (§7) and the calls dialog marks it `partial`. Measured on a
+live database: one busy market over a year already spent 32 calls across five
+ranges, about 6 of the 10 allowed pages. The headroom is real but not generous.
+
+Hubs are filled in automatically by `autoVia` when a route is saved and its pair
+reaches nothing directly, using the same `searchGraphPaths` this section
+describes — which moved to `api/src/search/graphPaths.ts` when it gained a third
+caller. `via` is ignored on a round trip, silently: four query groups and a
+pairing of pairings is a different feature, and a route flipped to round trip
+long after its hubs were filled must not become unsearchable.
+
+**What happens after the legs are stored is not in this file.** Once a route has searched its hubs, the legs are ordinary finds, and joining them back into an
+SFO→KTM answer is a read over stored rows with no seats.aero in it at all —
+`app/src/lib/multiLeg.ts`, rendered by `pages/routes/MultiLegTable.tsx`. It
+belongs to the finds pipeline rather than to this integration, and the one thing
+worth carrying across the boundary is the vocabulary: a path here is a claim
+about monitored markets, a *journey* there is a claim about stored availability,
+and neither is a claim that anybody will sell you the whole thing as one ticket.
 
 ---
 

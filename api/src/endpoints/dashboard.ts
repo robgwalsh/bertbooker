@@ -51,7 +51,7 @@ dashboard.get("/api/dashboard", async (c) => {
       // it afterwards re-ran `baselineOnEnable`, moving the digest clock too.
       // The last three are state rather than settings, and are here because the
       // Routes page draws a route's alert health beside it (see app/src/lib/alerts.ts).
-      "SELECT id, origin, destination, origins, destinations," +
+      "SELECT id, origin, destination, origins, destinations, via," +
         " date_start, date_end, cabins, currencies, min_seats, direct_only, round_trip," +
         " last_checked_at," +
         " alerts_enabled, alert_email, alert_on, alert_min_drop_pct," +

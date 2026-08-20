@@ -14,6 +14,24 @@ import {
  *  The two client-only states sit alongside the server's own task statuses
  *  rather than replacing them, so `blocked` still means exactly what it means in
  *  `search_tasks`: we did not get an answer. */
+
+/**
+ * Which planned date range a TASK index belongs to.
+ *
+ * Chunk-major, matching `planSearchPass`: with two queries per range, tasks 0
+ * and 1 are both the first range. Guards a zero or ragged group count by falling
+ * back to the range at that index, so a frame from a Worker that plans
+ * differently narrows the picture rather than crashing it.
+ */
+function plannedFor(
+  chunks: readonly { start: string; end: string }[],
+  total: number,
+  index: number,
+): { start: string; end: string } {
+  const groups = chunks.length > 0 ? Math.max(1, Math.round(total / chunks.length)) : 1;
+  return chunks[Math.min(Math.floor(index / groups), chunks.length - 1)] ?? chunks[0]!;
+}
+
 export interface ChunkState {
   start: string;
   end: string;
@@ -123,17 +141,24 @@ export function useRouteSearch(): RouteSearch {
                   // resuming across UTC midnight re-plans with every boundary
                   // shifted a day, and the bar would otherwise keep drawing the
                   // old ones.
+                  // A task is one QUERY over one date range, and a route with
+                  // hubs plans two queries per range — so `total` is
+                  // `chunks × groups` and the mapping is CHUNK-MAJOR: tasks
+                  // 0..groups-1 all belong to chunk 0. `plannedFor` is that
+                  // arithmetic; it was `i % chunks.length`, which happened to be
+                  // the identity while the two counts were equal and is the
+                  // wrong range the moment they are not.
                   chunks:
                     s.chunks.length === f.total
                       ? s.chunks.map((c, i) => {
-                          const planned = f.chunks[i % f.chunks.length]!;
+                          const planned = plannedFor(f.chunks, f.total, i);
                           return c.start === planned.start && c.end === planned.end
                             ? c
                             : { ...c, start: planned.start, end: planned.end };
                         })
                       : Array.from({ length: f.total }, (_, i) => ({
-                          start: f.chunks[i % f.chunks.length]!.start,
-                          end: f.chunks[i % f.chunks.length]!.end,
+                          start: plannedFor(f.chunks, f.total, i).start,
+                          end: plannedFor(f.chunks, f.total, i).end,
                           status: "pending" as const,
                           httpCalls: [],
                         })),

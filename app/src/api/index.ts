@@ -99,6 +99,7 @@ export {
   ENRICH_MAX_PER_RUN,
   MAX_DESTINATIONS,
   MAX_ORIGINS,
+  MAX_VIA,
   SEATSAERO_CHUNK_DAYS,
   SEATSAERO_MAX_CHUNKS,
   SEATSAERO_MAX_PAGES,
@@ -118,6 +119,7 @@ import {
   addTrackedRoute,
   dashboard,
   deleteTrackedRoute,
+  suggestRoutePaths,
   trackedRoutes,
   updateTrackedRoute,
 } from "./trackedRoutes";
@@ -160,6 +162,10 @@ export const api = {
   addTrackedRoute,
   updateTrackedRoute,
   deleteTrackedRoute,
+
+  /** Hubs the route graph would suggest for a route. Free, and writes
+   *  nothing — the edit dialog fills its Via field with the answer. */
+  suggestRoutePaths,
 
   /** Search a route against seats.aero, on the Worker. A stream, so it is a bare
    *  generator rather than a `req` call — see `searchRoute`. */

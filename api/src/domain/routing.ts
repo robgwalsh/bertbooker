@@ -26,11 +26,11 @@ import { SEATSAERO_MAX_PAGES } from "../../../shared/src/wire/seatsaero.js";
 // and re-exported here, so every consumer of this module sees them in one
 // place. The SPA reads all four; the caps are VALUES rather than types, so
 // they carry runtime code, not just type information.
-import { MAX_DESTINATIONS, MAX_ORIGINS } from "../../../shared/src/wire/routing.js";
-import type { RoutePair, RouteSpec } from "../../../shared/src/wire/routing.js";
+import { MAX_DESTINATIONS, MAX_ORIGINS, MAX_VIA } from "../../../shared/src/wire/routing.js";
+import type { RouteLegRole, RoutePair, RouteSpec } from "../../../shared/src/wire/routing.js";
 
-export { MAX_DESTINATIONS, MAX_ORIGINS } from "../../../shared/src/wire/routing.js";
-export type { RoutePair, RouteSpec } from "../../../shared/src/wire/routing.js";
+export { MAX_DESTINATIONS, MAX_ORIGINS, MAX_VIA } from "../../../shared/src/wire/routing.js";
+export type { RouteLegRole, RoutePair, RouteSpec } from "../../../shared/src/wire/routing.js";
 
 /** Uppercase, trim, drop blanks, dedupe, and sort.
  *
@@ -118,10 +118,33 @@ export function searchSpec(spec: RouteSpec, roundTrip = false): Required<RouteSp
   return roundTrip ? roundTripSpec(spec) : normalizeSpec(spec);
 }
 
+/**
+ * One seats.aero QUERY: a pair of airport lists, and the pairs it answers for.
+ *
+ * A route used to be exactly one of these, because the whole cross product rides
+ * in a single call. Hubs break that — not for cost but for arithmetic. `SFO->ICN`
+ * and `ICN->KTM` are different markets, and no single pair of lists names both
+ * without also naming hub-to-hub pairs nobody asked for. Two lists cannot
+ * express a path, so a path is two queries.
+ */
+export interface RouteLegGroup {
+  /** `direct` is the whole of a route with no hubs. The other two are the halves
+   *  of a route with them, and the name reaches `seatsAeroTaskKey` so two groups
+   *  over one date range cannot collide on `search_tasks`'s unique key. */
+  role: RouteLegRole;
+  origins: string[];
+  destinations: string[];
+  /** What this query's coverage claim is made of. */
+  pairs: RoutePair[];
+}
+
 export interface RoutePlan extends Required<RouteSpec> {
   /** What the coverage claim is made of. For a round trip this holds BOTH
-   *  directions, which is what lets one task claim both. */
+   *  directions, which is what lets one task claim both. The union of the
+   *  groups' pairs, deduped. */
   pairs: RoutePair[];
+  /** The queries to issue per date chunk. One without hubs, two with them. */
+  groups: RouteLegGroup[];
 }
 
 /**
@@ -132,22 +155,106 @@ export interface RoutePlan extends Required<RouteSpec> {
  * Throws `RouteSpecError` on a spec the user should not have been allowed to
  * save — callers turn that into a 400, never an empty result.
  */
-export function planRoute(spec: RouteSpec, roundTrip = false): RoutePlan {
+export function planRoute(spec: RouteSpec, roundTrip = false, via?: readonly string[]): RoutePlan {
   const { origins, destinations } = searchSpec(spec, roundTrip);
-  return { origins, destinations, pairs: pairsOf(origins, destinations) };
+
+  // Hubs are ignored on a round trip, and silently rather than by throwing: a
+  // route can be flipped to round trip long after its hubs were filled in, and
+  // refusing to plan it would break a search over a setting the form does not
+  // even offer. Four query groups and a pairing of pairings is a different
+  // feature; until it exists this is the honest reading.
+  const hubs = roundTrip ? [] : viaFor(origins, destinations, via);
+
+  if (!hubs.length) {
+    const pairs = pairsOf(origins, destinations);
+    return { origins, destinations, pairs, groups: [{ role: "direct", origins, destinations, pairs }] };
+  }
+
+  // The outbound query carries the DIRECT pair too, because the hubs simply join
+  // its destination list and `pairsOf` drops nothing that matters. So the pair a
+  // route is named for is still asked about every search, at no extra call —
+  // which is what lets a hub route notice the day a program starts flying it.
+  const outboundTo = normalizeAirports([...destinations, ...hubs]);
+  const groups: RouteLegGroup[] = [
+    {
+      role: "outbound",
+      origins,
+      destinations: outboundTo,
+      pairs: pairsOf(origins, outboundTo),
+    },
+    { role: "inbound", origins: hubs, destinations, pairs: pairsOf(hubs, destinations) },
+  ];
+
+  return { origins, destinations, pairs: dedupePairs(groups.flatMap((g) => g.pairs)), groups };
 }
 
-/** Every city pair a search touches, round trip included. */
-export function searchPairs(spec: RouteSpec, roundTrip = false): RoutePair[] {
-  return planRoute(spec, roundTrip).pairs;
+/**
+ * The hubs a plan will actually use: normalized, capped, and with anything that
+ * is already an endpoint removed.
+ *
+ * A hub that is one of the route's own airports is not a connection through the
+ * route, it is a leg of it — and left in, it would put `SFO` on both sides of
+ * the outbound query and ask for pairs `pairsOf` then drops, wasting rows on
+ * nothing. Truncates rather than throws: hubs are filled in automatically, and a
+ * route must never become unsearchable because the graph offered a fourth one.
+ */
+function viaFor(
+  origins: readonly string[],
+  destinations: readonly string[],
+  via?: readonly string[],
+): string[] {
+  const endpoints = new Set([...origins, ...destinations]);
+  return normalizeAirports(via).filter((code) => !endpoints.has(code)).slice(0, MAX_VIA);
+}
+
+const dedupePairs = (pairs: readonly RoutePair[]): RoutePair[] => {
+  const seen = new Map<string, RoutePair>();
+  for (const p of pairs) seen.set(`${p.origin}>${p.destination}`, p);
+  return [...seen.values()];
+};
+
+/**
+ * How many seats.aero queries one date chunk of this route costs.
+ *
+ * The multiplier between "date chunks" and "tasks", which is the unit everything
+ * downstream budgets in. Never throws: it is called to PRICE a route, and one
+ * route the normalizer refuses must not take the Alerts tab's arithmetic down
+ * with it. A route that cannot be planned costs the same as a plain one, which
+ * is the harmless direction — it will fail to plan long before it spends.
+ */
+export function queryGroupCount(
+  spec: RouteSpec,
+  roundTrip = false,
+  via?: readonly string[],
+): number {
+  try {
+    return planRoute(spec, roundTrip, via).groups.length;
+  } catch {
+    return 1;
+  }
+}
+
+/** Every city pair a search touches, round trip and hubs included. */
+export function searchPairs(
+  spec: RouteSpec,
+  roundTrip = false,
+  via?: readonly string[],
+): RoutePair[] {
+  return planRoute(spec, roundTrip, via).pairs;
 }
 
 export interface CallEstimate {
   pairs: number;
-  /** One call per date chunk — what a search costs when every chunk fits in a
-   *  single page. */
+  /** Queries per date chunk: 1 without hubs, 2 with them. The multiplier both
+   *  ends below are missing without it. */
+  groups: number;
+  /** Tasks the search plans — `chunks * groups`, and the unit everything
+   *  downstream counts in. `search_runs.tasks_planned` is this number. */
+  tasks: number;
+  /** One call per TASK — what a search costs when every query fits in a single
+   *  page. */
   floor: number;
-  /** Every chunk paginating to `SEATSAERO_MAX_PAGES`. Reachable on a wide route
+  /** Every task paginating to `SEATSAERO_MAX_PAGES`. Reachable on a wide route
    *  over a long window, and the point at which coverage starts narrowing. */
   ceiling: number;
 }
@@ -163,12 +270,20 @@ export function estimateSearchCalls(
   spec: RouteSpec,
   chunks: number,
   roundTrip = false,
+  via?: readonly string[],
 ): CallEstimate {
+  const plan = planRoute(spec, roundTrip, via);
+  const groups = plan.groups.length;
+  const tasks = chunks * groups;
   return {
-    // Round trip raises the pair count and leaves floor/ceiling alone, which is
-    // the honest shape of it: both directions ride in the same call.
-    pairs: searchPairs(spec, roundTrip).length,
-    floor: chunks,
-    ceiling: chunks * SEATSAERO_MAX_PAGES,
+    // Round trip raises the pair count and leaves the call counts alone, which
+    // is the honest shape of it: both directions ride in the same call. HUBS do
+    // not — they are separate markets, so they raise `groups`, and that is the
+    // whole difference between the two settings' economics.
+    pairs: plan.pairs.length,
+    groups,
+    tasks,
+    floor: tasks,
+    ceiling: tasks * SEATSAERO_MAX_PAGES,
   };
 }

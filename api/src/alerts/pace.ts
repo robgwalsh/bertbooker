@@ -36,28 +36,50 @@ export interface AlertRouteCost {
    *  the window has fallen entirely into the past, which is a route that cannot
    *  be swept at all rather than a free one. */
   chunks: number;
+  /**
+   * seats.aero QUERIES per chunk: 1 for a plain route, 2 for one with hubs.
+   *
+   * The unit of cost is the TASK — one (chunk, query) pair — and it stopped
+   * being the chunk when a route gained hubs, because `SFO->ICN` and `ICN->KTM`
+   * are different markets and cannot ride in one call. Optional and defaulting
+   * to 1 so a caller that has not been taught about hubs is merely as wrong as
+   * it was before, rather than newly broken.
+   */
+  groups?: number;
   /** What the route's last sweep actually spent (`search_runs.calls`), when one
    *  has run. Undefined on a route that has never been swept. */
   observedCalls?: number;
+}
+
+/** Tasks one full sweep plans. The unit `routeSweepCost` counts in, and the
+ *  number `search_runs.tasks_planned` holds. */
+export function routeSweepTasks(route: AlertRouteCost): number {
+  if (route.chunks <= 0) return 0;
+  return route.chunks * Math.max(1, route.groups ?? 1);
 }
 
 /**
  * What one sweep of this route should be budgeted at.
  *
  * The direction of the guess matters more than its accuracy.
- * `estimateSearchCalls` quotes a range — one call per chunk at the floor, ten
- * times that if every chunk paginates out — and the two ends are a factor of ten
+ * `estimateSearchCalls` quotes a range — one call per TASK at the floor, ten
+ * times that if every task paginates out — and the two ends are a factor of ten
  * apart. Guessing low overspends the day's allowance; guessing high sweeps less
  * often than it could. So: **pessimistic while ignorant, measured once measured.**
  *
  * `max(observed, floor)` rather than `observed` alone because a paused sweep
  * records only the calls that pass spent, and a route resumed across three ticks
  * would otherwise look a third as expensive as it is.
+ *
+ * Both ends count tasks rather than chunks. A hub route plans twice the tasks
+ * for the same window, and counting its chunks would budget it at half what it
+ * spends — which is guessing low, the one direction this is built not to.
  */
 export function routeSweepCost(route: AlertRouteCost): number {
-  if (route.chunks <= 0) return 0;
-  if (route.observedCalls == null) return route.chunks * SEATSAERO_MAX_PAGES;
-  return Math.max(route.observedCalls, route.chunks);
+  const tasks = routeSweepTasks(route);
+  if (tasks <= 0) return 0;
+  if (route.observedCalls == null) return tasks * SEATSAERO_MAX_PAGES;
+  return Math.max(route.observedCalls, tasks);
 }
 
 // Declared in `../wire/alerts.ts` beside `AlertSchedulePacing`, the flattened

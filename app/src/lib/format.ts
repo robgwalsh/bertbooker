@@ -16,6 +16,32 @@ export function dollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/**
+ * An award's taxes in the currency it is actually charged in.
+ *
+ * `dollars` assumes USD and most rows are, but not all: seats.aero quotes
+ * Aeroplan in CAD and Korean Air out of Seoul in KRW, where a 2,400,000 figure
+ * rendered through `dollars` reads as $24,029.90 instead of about $1,700. A
+ * number that wrong is worse than no number, and it is the kind a reader acts on.
+ *
+ * Falls back to `dollars` for USD and for an unknown code, so nothing that was
+ * right before changes. `Intl` does the minor-unit arithmetic, which is not
+ * always /100 — JPY and KRW have no minor unit at all.
+ */
+export function money(cents: number, currency?: string | null): string {
+  const code = (currency ?? "USD").toUpperCase();
+  if (code === "USD") return dollars(cents);
+  try {
+    const digits = new Intl.NumberFormat("en-US", { style: "currency", currency: code }).resolvedOptions()
+      .maximumFractionDigits;
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: code }).format(
+      cents / 10 ** (digits === 0 ? 0 : 2),
+    );
+  } catch {
+    return dollars(cents);
+  }
+}
+
 /** "3d ago" / "just now" / "never". Coarse on purpose — this is a freshness
  *  signal, not a timestamp, and to the minute would imply a precision that a
  *  human-triggered search doesn't have. */

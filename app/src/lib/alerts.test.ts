@@ -13,6 +13,7 @@ function route(over: Partial<AlertScheduleRoute> = {}): AlertScheduleRoute {
     id: 1,
     label: "SEA → NRT",
     chunks: 4,
+    queriesPerChunk: 1,
     windowExpired: false,
     estimatedCalls: 40,
     observedCalls: null,

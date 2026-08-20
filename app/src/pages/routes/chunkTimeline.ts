@@ -140,7 +140,8 @@ export interface Timeline {
  * `[today, today + 365]`) — that is the honest thing to draw, because it is what
  * the search is going to look at.
  */
-export function timelineSegments(chunks: ChunkState[]): Timeline {
+export function timelineSegments(tasks: ChunkState[]): Timeline {
+  const chunks = mergeByRange(tasks);
   if (chunks.length === 0) {
     return { segments: [], spanStart: "", spanEnd: "", totalDays: 0 };
   }
@@ -171,14 +172,67 @@ export function timelineSegments(chunks: ChunkState[]): Timeline {
   };
 }
 
+/**
+ * One task per DATE RANGE, worst answer winning.
+ *
+ * A route with hubs plans two queries per range — the hubs, then the hubs onward
+ * — so `run.chunks` holds two tasks with identical dates. This bar is a picture
+ * of the WINDOW, and drawing a range twice would tell the reader the search
+ * covers twice as many days as it does.
+ *
+ * Worst-wins rather than first-wins, and it has to be: if the outbound query
+ * answered and the inbound one failed, the range is not covered, and painting it
+ * as answered is the one thing this bar exists not to do. `offersFound` sums,
+ * because a find from either query is a find in that range. The calls dialog
+ * still shows the queries separately — that is where the per-query detail
+ * belongs.
+ */
+function mergeByRange(tasks: ChunkState[]): ChunkState[] {
+  const byRange = new Map<string, ChunkState>();
+  for (const task of tasks) {
+    const key = `${task.start}..${task.end}`;
+    const seen = byRange.get(key);
+    if (!seen) {
+      byRange.set(key, task);
+      continue;
+    }
+    byRange.set(key, {
+      ...seen,
+      status: worseStatus(seen.status, task.status),
+      offersFound: (seen.offersFound ?? 0) + (task.offersFound ?? 0),
+      // A narrowed claim on EITHER query narrows the range.
+      note: seen.note ?? task.note,
+    });
+  }
+  return [...byRange.values()];
+}
+
+/** Which of two task outcomes a reader should be shown for one range. The order
+ *  is `CHUNK_STATUS`'s own argument: `empty` is an answer and everything below
+ *  it is the absence of one, so an absence always wins. */
+function worseStatus(a: ChunkState["status"], b: ChunkState["status"]): ChunkState["status"] {
+  const rank: Record<ChunkState["status"], number> = {
+    ok: 0,
+    empty: 1,
+    running: 2,
+    pending: 3,
+    skipped: 4,
+    timeout: 5,
+    challenged: 6,
+    blocked: 7,
+    failed: 8,
+  };
+  return rank[b] > rank[a] ? b : a;
+}
+
 /** Ranges the search asked about and got no answer for. These are the ones the
  *  finds table cannot show, because an absent row looks the same as no space. */
 export function gapRanges(chunks: ChunkState[]): ChunkState[] {
-  return chunks.filter((c) => chunkTone(c) === "gap");
+  return mergeByRange(chunks).filter((c) => chunkTone(c) === "gap");
 }
 
 /** Ranges nobody ever got to. Only meaningful once a run has settled — while it
  *  is running these are simply the ones still queued. */
 export function uncheckedRanges(chunks: ChunkState[]): ChunkState[] {
-  return chunks.filter((c) => c.status === "pending" || c.status === "skipped");
+  return mergeByRange(chunks).filter((c) => c.status === "pending" || c.status === "skipped");
 }

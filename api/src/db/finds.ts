@@ -157,27 +157,60 @@ export const ROUTE_FINDS_MATCH = `(
         -- see roundTripSpec), so without the second branch those return legs
         -- would be stored, claimed as covered, and invisible — the exact
         -- "looks like no award space" failure the app is built to avoid.
+        --
+        -- A route with HUBS matches its legs too, and the date test is per
+        -- branch rather than shared because the second leg's is different. Its
+        -- search gathered SFO->ICN and ICN->KTM alongside SFO->KTM (two calls,
+        -- see planRoute), so without these branches the legs would be stored,
+        -- claimed as covered, and invisible — the same failure the round-trip
+        -- branch above exists to prevent. They surface as JOURNEYS rather than as
+        -- rows of their own; RoutesPage is what splits them.
         (
-          (EXISTS (
+          (
+            ((EXISTS (
+               SELECT 1 FROM json_each(COALESCE(tr.origins, json_array(tr.origin))) ro
+                WHERE ro.value = f.origin
+             )
+             AND EXISTS (
+               SELECT 1 FROM json_each(COALESCE(tr.destinations, json_array(tr.destination))) rd
+                WHERE rd.value = f.destination
+             ))
+            OR
+            (tr.round_trip = 1
+             AND EXISTS (
+               SELECT 1 FROM json_each(COALESCE(tr.destinations, json_array(tr.destination))) rd
+                WHERE rd.value = f.origin
+             )
+             AND EXISTS (
+               SELECT 1 FROM json_each(COALESCE(tr.origins, json_array(tr.origin))) ro
+                WHERE ro.value = f.destination
+             )))
+            AND f.flight_date BETWEEN tr.date_start AND tr.date_end
+          )
+          OR
+          -- First leg: an origin to a hub, inside the window like any other.
+          (tr.via IS NOT NULL
+           AND EXISTS (
              SELECT 1 FROM json_each(COALESCE(tr.origins, json_array(tr.origin))) ro
               WHERE ro.value = f.origin
            )
+           AND EXISTS (SELECT 1 FROM json_each(tr.via) rv WHERE rv.value = f.destination)
+           AND f.flight_date BETWEEN tr.date_start AND tr.date_end)
+          OR
+          -- Second leg: a hub to a destination, and it may depart the day AFTER
+          -- the window closes. An overnight in the hub on the last gathered date
+          -- is a real journey, and the shared window test would clip exactly it.
+          -- The one day mirrors DEFAULT_MAX_CONNECT_DAYS in lib/multiLeg.ts,
+          -- which is what decides whether the pair actually joins; widening one
+          -- without the other only ever wastes rows.
+          (tr.via IS NOT NULL
+           AND EXISTS (SELECT 1 FROM json_each(tr.via) rv WHERE rv.value = f.origin)
            AND EXISTS (
              SELECT 1 FROM json_each(COALESCE(tr.destinations, json_array(tr.destination))) rd
               WHERE rd.value = f.destination
-           ))
-          OR
-          (tr.round_trip = 1
-           AND EXISTS (
-             SELECT 1 FROM json_each(COALESCE(tr.destinations, json_array(tr.destination))) rd
-              WHERE rd.value = f.origin
            )
-           AND EXISTS (
-             SELECT 1 FROM json_each(COALESCE(tr.origins, json_array(tr.origin))) ro
-              WHERE ro.value = f.destination
-           ))
+           AND f.flight_date BETWEEN tr.date_start AND date(tr.date_end, '+1 day'))
         )
-        AND f.flight_date BETWEEN tr.date_start AND tr.date_end
         -- Honor the route's cabin filter (NULL = any cabin), matching the
         -- snapshot's scalar cabin against the route's JSON cabin array.
         AND (tr.cabins IS NULL

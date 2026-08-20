@@ -1,4 +1,5 @@
 import type { Find } from "../../api";
+import type { Journey } from "../../lib/multiLeg";
 import type { RoundTripPair } from "../../lib/roundtrip";
 
 // React keys for the two finds tables.
@@ -45,6 +46,28 @@ export function pairKey(p: RoundTripPair, index: number): string {
     p.inbound.flight_date,
     p.inbound.program,
     p.cabin,
+    index,
+  ].join("|");
+}
+
+/**
+ * One multi-leg journey's key.
+ *
+ * Every leg, for the reason `pairKey` names both: one leg into a hub joins as
+ * many journeys as there are legs out of it, and keying on the first alone would
+ * collapse a whole hub's worth of options into one row. The cabin is per leg
+ * here rather than per journey, so it rides along inside each leg's segment
+ * instead of once at the end.
+ */
+export function journeyKey(j: Journey, index: number): string {
+  return [
+    ...j.legs.flatMap(({ find: f }) => [
+      f.origin,
+      f.destination,
+      f.flight_date,
+      f.program,
+      f.cabin,
+    ]),
     index,
   ].join("|");
 }

@@ -146,3 +146,60 @@ describe("gapRanges / uncheckedRanges", () => {
     expect(uncheckedRanges(mixed).map((c) => c.start)).toEqual(["2026-11-26"]);
   });
 });
+
+describe("timelineSegments — a route with hubs", () => {
+  // Two queries per date range, so `run.chunks` holds two tasks with identical
+  // dates. The bar is a picture of the WINDOW; drawing a range twice would say
+  // the search covers twice as many days as it does.
+  const task = (start: string, end: string, over: Partial<ChunkState> = {}): ChunkState => ({
+    start,
+    end,
+    status: "ok",
+    httpCalls: [],
+    ...over,
+  });
+
+  it("draws one segment per date range, not one per query", () => {
+    const t = timelineSegments([
+      task("2027-03-01", "2027-05-29"),
+      task("2027-03-01", "2027-05-29"),
+      task("2027-05-30", "2027-08-27"),
+      task("2027-05-30", "2027-08-27"),
+    ]);
+    expect(t.segments).toHaveLength(2);
+    expect(t.spanStart).toBe("2027-03-01");
+    expect(t.spanEnd).toBe("2027-08-27");
+  });
+
+  it("takes the WORSE of the two queries — a half-answered range is not answered", () => {
+    // If the outbound query answered and the inbound failed, the range is not
+    // covered, and painting it answered is what this bar exists not to do.
+    const t = timelineSegments([
+      task("2027-03-01", "2027-05-29", { status: "ok", offersFound: 3 }),
+      task("2027-03-01", "2027-05-29", { status: "failed" }),
+    ]);
+    expect(t.segments).toHaveLength(1);
+    expect(t.segments[0]!.tone).toBe("gap");
+  });
+
+  it("sums the finds across a range's queries", () => {
+    const t = timelineSegments([
+      task("2027-03-01", "2027-05-29", { status: "ok", offersFound: 3 }),
+      task("2027-03-01", "2027-05-29", { status: "ok", offersFound: 4 }),
+    ]);
+    expect(t.segments[0]!.tone).toBe("found");
+  });
+
+  it("narrows the range when EITHER query narrowed its claim", () => {
+    const t = timelineSegments([
+      task("2027-03-01", "2027-05-29", { status: "ok", offersFound: 1 }),
+      task("2027-03-01", "2027-05-29", { status: "ok", note: "coverage narrowed to 40 dates" }),
+    ]);
+    expect(t.segments[0]!.narrowed).toBe(true);
+  });
+
+  it("leaves a plain route's bar exactly as it was", () => {
+    const one = [task("2027-03-01", "2027-05-29"), task("2027-05-30", "2027-08-27")];
+    expect(timelineSegments(one).segments).toHaveLength(2);
+  });
+});

@@ -23,6 +23,21 @@ export interface RouteSpec {
 }
 
 /**
+ * Which query of a route's plan a task belongs to.
+ *
+ * A route with no hubs plans one query and it is `direct`. A route with hubs
+ * plans two — `outbound` from the origins to the hubs (and the destinations, so
+ * the direct pair is still asked about), then `inbound` from the hubs to the
+ * destinations. It cannot be one query: a cross product rides in a single call,
+ * but `SFO->ICN` and `ICN->KTM` are different markets.
+ *
+ * Declared here rather than beside `RouteLegGroup` in `api/src/domain/routing.ts`
+ * because the search stream carries it, and a wire frame may name nothing the
+ * SPA cannot import.
+ */
+export type RouteLegRole = "direct" | "outbound" | "inbound";
+
+/**
  * Caps, and why they are small.
  *
  * Not a spend limit — adding pairs costs almost no calls, because the cap is on
@@ -40,3 +55,16 @@ export interface RouteSpec {
  */
 export const MAX_ORIGINS = 3;
 export const MAX_DESTINATIONS = 3;
+
+/**
+ * Hubs a route may route THROUGH, and the one cap here that IS about spend.
+ *
+ * Unlike the two above, hubs do not ride in the same call: a cross product is
+ * one query, but `SFO->ICN` and `ICN->KTM` are different markets, so a route
+ * with hubs plans two queries per date range instead of one. Adding hubs past
+ * that costs no further calls — they join the lists either side — so what this
+ * bounds is ROWS. Three keeps the first query to four markets, which is what
+ * keeps a busy pair inside `SEATSAERO_MAX_PAGES` rather than paginating out and
+ * narrowing its own coverage claim.
+ */
+export const MAX_VIA = 3;

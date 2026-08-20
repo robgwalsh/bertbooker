@@ -25,8 +25,9 @@ import { defaultRouteWindow } from "../../lib/routeWindow";
  * **The connections half is a different kind of claim from the direct half, and
  * the pane has to say so.** seats.aero holds availability per monitored market,
  * so a pair in nobody's graph returns nothing from a search no matter how many
- * hubs join it — the legs are the searchable objects, which is why the only
- * action offered is to track them.
+ * hubs join it — the legs are the searchable objects. Tracking one of these
+ * paths creates ONE route carrying its hubs, which then searches both legs and
+ * joins them back into journeys under itself.
  */
 export function PairLookup() {
   const [origin, setOrigin] = useState("");
@@ -239,7 +240,7 @@ function Connections({
           markets are monitored, chained; searching the pair itself still returns
           nothing, which is why the only button here creates routes. */}
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-        Each leg is searchable on its own; the pair is not. Track the legs to search them.
+        Each leg is searchable on its own; the pair is not. Tracking one of these makes a single route that searches both legs and joins the results.
       </Typography>
       {/* A GRID on the container rather than a Stack of rows, so the distance,
           the programs and the button line up down the list — a ragged action
@@ -285,16 +286,17 @@ function PathRow({
   const track = useMutation({
     mutationKey: ["route-graph", "track-legs"],
     mutationFn: async () => {
-      // One route per leg, in order, because that is what the legs ARE: two
-      // separately searchable pairs. Sequential rather than parallel so a
-      // failure half way leaves a comprehensible state rather than a race.
-      for (const leg of path.legs) {
-        await api.addTrackedRoute({
-          origins: [leg.origin],
-          destinations: [leg.destination],
-          ...defaultRouteWindow(),
-        });
-      }
+      // ONE route, carrying its hubs — not a route per leg. Both would work,
+      // because the journeys pane joins whatever legs it can find, but a route
+      // per leg fills the rail with fragments that each need their own search
+      // while the trip you actually wanted appears nowhere. The route plans the
+      // extra query itself now.
+      await api.addTrackedRoute({
+        origins: [path.legs[0]!.origin],
+        destinations: [path.legs.at(-1)!.destination],
+        via: path.via,
+        ...defaultRouteWindow(),
+      });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["tracked-routes"] });
@@ -360,7 +362,7 @@ function PathRow({
         onClick={() => track.mutate()}
         sx={{ justifySelf: "end", whiteSpace: "nowrap" }}
       >
-        {track.isSuccess ? "Tracked" : track.isPending ? "Adding…" : "Track these legs"}
+        {track.isSuccess ? "Tracked" : track.isPending ? "Adding…" : "Track this route"}
       </Button>
     </>
   );

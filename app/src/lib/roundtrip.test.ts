@@ -32,6 +32,7 @@ function route(p: Partial<TrackedRoute> & Pick<TrackedRoute, "id">): TrackedRout
     destination: "HND",
     origins: null,
     destinations: null,
+    via: null,
     date_start: "2027-03-01",
     date_end: "2027-03-31",
     cabins: null,

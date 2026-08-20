@@ -4,6 +4,7 @@ import { parseAlertTypes, selectAlertable } from "../alerts/select.js";
 import type { ChangeSummary } from "../domain/diff.js";
 import { PORTAL_CURRENCIES } from "../domain/programs.js";
 import { planSeatsAeroChunks } from "../providers/seatsaero.js";
+import { queryGroupCount } from "../domain/routing.js";
 import { todayISO } from "../providers/window.js";
 import type { Env } from "../bindings.js";
 import { ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte } from "../db/finds.js";
@@ -67,6 +68,8 @@ export interface AlertRouteRow {
   cabins: string | null;
   min_seats: number;
   round_trip: number;
+  /** Hubs, which double the queries per chunk — see `routeSweepCost`. */
+  via: string | null;
   alert_email: string | null;
   alert_on: string | null;
   alert_min_drop_pct: number;
@@ -103,6 +106,7 @@ export async function alertRouteRows(env: Env, email: string): Promise<AlertRout
   const { results } = await env.DB.prepare(
     `SELECT tr.id, tr.origin, tr.destination, tr.origins, tr.destinations,
             tr.date_start, tr.date_end, tr.cabins, tr.min_seats, tr.round_trip,
+            tr.via,
             tr.alert_email, tr.alert_on, tr.alert_min_drop_pct,
             tr.alert_last_attempt_at, tr.alert_last_digest_at,
             tr.alert_consecutive_failures, tr.last_checked_at,
@@ -117,6 +121,39 @@ export async function alertRouteRows(env: Env, email: string): Promise<AlertRout
     .bind(email)
     .all<AlertRouteRow>();
   return results ?? [];
+}
+
+/**
+ * What each route costs a sweep, keyed by id.
+ *
+ * ONE implementation with two callers — the scheduler and the Alerts tab —
+ * because `docs/ALERTS.md` §4 is explicit that a page quoting a cadence the
+ * scheduler does not keep is worse than no number at all. It used to be a bare
+ * chunk count duplicated in both; hubs made the cost `chunks × queries` and gave
+ * the duplication somewhere new to drift.
+ */
+export function alertRouteCosts(
+  rows: readonly AlertRouteRow[],
+  today: string,
+): Map<number, AlertRouteCost> {
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        routeId: r.id,
+        chunks: planSeatsAeroChunks(r.date_start, r.date_end, today).length,
+        groups: queryGroupCount(
+          {
+            origins: parseList(r.origins, r.origin),
+            destinations: parseList(r.destinations, r.destination),
+          },
+          r.round_trip === 1,
+          parseList(r.via),
+        ),
+        observedCalls: r.observed_calls == null ? undefined : Number(r.observed_calls),
+      },
+    ]),
+  );
 }
 
 /** `SEA/PDX → NRT/HND` — the route's identity is its shape, which is what both
@@ -174,20 +211,12 @@ export async function runAlertTick(
   }
 
   const today = todayISO();
-  const chunksFor = new Map<number, number>();
-  const costs: AlertRouteCost[] = routes.map((r) => {
-    const chunks = planSeatsAeroChunks(r.date_start, r.date_end, today).length;
-    chunksFor.set(r.id, chunks);
-    return {
-      routeId: r.id,
-      chunks,
-      observedCalls: r.observed_calls == null ? undefined : Number(r.observed_calls),
-    };
-  });
+  const costFor = alertRouteCosts(routes, today);
+  const chunksOf = (id: number) => costFor.get(id)?.chunks ?? 0;
 
   const { dailyBudget, reserve, maxCallsPerTick } = ALERT_DEFAULTS(env);
 
-  const pacing = sweepPacing({ routes: costs, dailyBudget });
+  const pacing = sweepPacing({ routes: [...costFor.values()], dailyBudget });
   if (!pacing.affordable && opts.force === undefined) {
     // Not a clamp and not a throw. An unaffordable set is a real state the
     // Alerts tab renders; sweeping anyway would spend the reserve a manual
@@ -211,7 +240,7 @@ export async function runAlertTick(
       // Not an alert route (or not this account's). Reported rather than thrown,
       // so the caller reads one channel for every reason a tick did nothing.
       result.skipped.push({ routeId: opts.force, reason: "not_alert_route" });
-    } else if ((chunksFor.get(target.id) ?? 0) <= 0) {
+    } else if (chunksOf(target.id) <= 0) {
       // `dueRoutes` would have filtered this; forcing must not route around the
       // reason. `planSearchPass` refuses an expired window, and letting it get
       // that far would bump `alert_consecutive_failures` and back the route off
@@ -223,7 +252,7 @@ export async function runAlertTick(
     const due = dueRoutes(
       routes.map((r) => ({
         routeId: r.id,
-        chunks: chunksFor.get(r.id) ?? 0,
+        chunks: chunksOf(r.id),
         alertLastAttemptAt: r.alert_last_attempt_at,
         lastCheckedAt: r.last_checked_at,
         consecutiveFailures: r.alert_consecutive_failures,
@@ -237,7 +266,8 @@ export async function runAlertTick(
   if (target) {
     const cost = routeSweepCost({
       routeId: target.id,
-      chunks: chunksFor.get(target.id) ?? 0,
+      chunks: chunksOf(target.id),
+      groups: costFor.get(target.id)?.groups,
       observedCalls: target.observed_calls == null ? undefined : Number(target.observed_calls),
     });
     const budget = await readBudgetState(env.DB, now);

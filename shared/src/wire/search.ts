@@ -1,4 +1,4 @@
-import type { RoutePair } from "./routing.js";
+import type { RouteLegRole, RoutePair } from "./routing.js";
 import type { SourceTaskStatus, RunStatus } from "./domain.js";
 import type { SeatsAeroCall, SeatsAeroChunk } from "./seatsaero.js";
 
@@ -33,12 +33,22 @@ export type SearchEvent =
     }
   | {
       type: "chunk_start";
+      /**
+       * The TASK index, which is no longer the same as the chunk index.
+       *
+       * A route with hubs plans two queries per date range, so two frames share
+       * one `start`/`end` and differ only in `role` and airports. Anything
+       * drawing a date bar has to group on the dates, not on this.
+       */
       index: number;
       total: number;
       start: string;
       end: string;
       origins: string[];
       destinations: string[];
+      /** Which half of a hub route this query is, or `direct` for a route with
+       *  no hubs. Absent on frames from before hubs existed. */
+      role?: RouteLegRole;
     }
   // One HTTP call to seats.aero, the moment it finishes. Carries the response
   // body (bounded by CAPTURE_BUDGET_BYTES) so the UI can show the exact payload
@@ -50,6 +60,8 @@ export type SearchEvent =
       index: number;
       start: string;
       end: string;
+      /** Pairs with `chunk_start`'s. */
+      role?: RouteLegRole;
       status: SourceTaskStatus;
       offersFound: number;
       snapshotsWritten: number;

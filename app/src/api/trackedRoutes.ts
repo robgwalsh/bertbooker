@@ -22,5 +22,16 @@ export const updateTrackedRoute = (id: number, body: Partial<RouteInput>) =>
     body: JSON.stringify(body),
   });
 
+/**
+ * What hubs the route graph would suggest for this route right now.
+ *
+ * **Writes nothing** — it fills the edit dialog's Via field and Save is what
+ * commits, so asking is free and Cancel still cancels. PATCH will not re-ask for
+ * a route that already has hubs (its merge keeps what somebody chose), so this
+ * is the only way to re-rank after the graph gains a program.
+ */
+export const suggestRoutePaths = (id: number) =>
+  req<{ via: string[] }>(`/tracked-routes/${id}/paths`);
+
 export const deleteTrackedRoute = (id: number) =>
   req<{ ok: true }>(`/tracked-routes/${id}`, { method: "DELETE" });

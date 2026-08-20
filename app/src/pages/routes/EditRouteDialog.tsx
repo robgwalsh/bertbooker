@@ -64,6 +64,9 @@ export function EditRouteDialog({
       api.updateTrackedRoute(route!.id, {
         origins: form.origins,
         destinations: form.destinations,
+        // A GATHERING setting, and this handler enumerates every field it sends —
+        // omitted here it would silently never save.
+        via: form.via,
         dateStart: form.dateStart,
         dateEnd: form.dateEnd,
         cabins: form.cabins,

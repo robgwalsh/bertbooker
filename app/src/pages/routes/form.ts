@@ -21,6 +21,9 @@ import type { AlertType, TrackedRoute } from "../../api";
 export interface RouteForm {
   origins: string[];
   destinations: string[];
+  /** Hubs to route through. A GATHERING setting like roundTrip — it plans a
+   *  second seats.aero query per date range — and unavailable on a round trip. */
+  via: string[];
   dateStart: string;
   dateEnd: string;
   cabins: string[];
@@ -66,6 +69,9 @@ export function defaultRouteForm(): RouteForm {
     // product in one call.
     origins: [] as string[],
     destinations: [] as string[],
+    // Filled in by the WORKER when this route is saved and its pair reaches
+    // nothing directly, which is why the form starts empty rather than guessing.
+    via: [] as string[],
     // Shared with the Tools page's "Track these legs", which creates routes too.
     ...defaultRouteWindow(),
     // Empty = every cabin. The default USED to be business-only, which quietly
@@ -91,6 +97,7 @@ export function formFromRoute(r: TrackedRoute): RouteForm {
   return {
     origins: parseCodes(r.origins, r.origin),
     destinations: parseCodes(r.destinations, r.destination),
+    via: parseCodeList(r.via),
     dateStart: r.date_start,
     dateEnd: r.date_end,
     cabins: parseCodeList(r.cabins),
@@ -125,6 +132,33 @@ export function parseAlertOn(json: string | null): AlertType[] {
   }
 }
 
+
+/**
+ * The form as a CREATE body.
+ *
+ * One line of difference from the form itself, and it is load-bearing: `via` is
+ * **omitted** rather than sent empty when the field was left alone. The Worker
+ * reads an absent `via` as "work it out from the route graph" and an empty array
+ * as "no hubs, I mean it" — three-valued on purpose — and this form always HAS
+ * the field. Posting it wholesale therefore said "no hubs" on every new route
+ * and `autoVia` never ran once, which is precisely the bug that made a
+ * freshly-created SFO→KTM sit there saying it had found nothing.
+ *
+ * A user who deliberately empties Via in the ADD dialog still gets hubs, and
+ * that is the right way round: creating a route is the one moment nobody has an
+ * opinion yet, and the hubs land in the header where one edit removes them.
+ * Editing is different — see `EditRouteDialog`, which sends `via` always, so
+ * clearing the field there really does clear it.
+ *
+ * Pure and in `form.ts` rather than inline in the dialog so a test can reach it:
+ * this is a wire contract expressed in one `?:`, which is exactly the kind that
+ * breaks in silence.
+ */
+export function createRouteBody(form: RouteForm): Omit<RouteForm, "via"> & { via?: string[] } {
+  if (form.via.length) return form;
+  const { via: _dropped, ...rest } = form;
+  return rest;
+}
 
 /** A route the form cannot yet submit. Shared, so the Add dialog and the edit
  *  dialog cannot disagree about what a complete route is. */

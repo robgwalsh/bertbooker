@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Find } from "../../api";
 import type { RoundTripPair } from "../../lib/roundtrip";
-import { findKey, pairKey } from "./findKey";
+import type { Journey } from "../../lib/multiLeg";
+import { findKey, journeyKey, pairKey } from "./findKey";
 
 const find = (over: Partial<Find> = {}): Find => ({
   origin: "SFO",
@@ -82,5 +83,66 @@ describe("pairKey", () => {
 
   it("is stable for the same pair at the same offset", () => {
     expect(pairKey(pair(), 2)).toBe(pairKey(pair(), 2));
+  });
+});
+
+describe("journeyKey", () => {
+  const leg = (origin: string, destination: string, over: Partial<Find> = {}) => ({
+    find: find({ origin, destination, ...over }),
+    gapMinutes: null,
+  });
+
+  const journey = (over: Partial<Journey> = {}): Journey => ({
+    legs: [leg("SFO", "ICN"), leg("ICN", "KTM", { flight_date: "2026-03-15" })],
+    via: ["ICN"],
+    connectDays: 1,
+    totalMiles: 60_000,
+    totalFeesCents: 1_120,
+    feesCurrency: "USD",
+    seats: 2,
+    programs: ["ana"],
+    mixed: false,
+    ...over,
+  });
+
+  it("separates two onward legs joined to one first leg", () => {
+    // The whole point of the pane: one leg into a hub joins every leg out of it
+    // in the window, so the second half of the key is what keeps them distinct.
+    const a = journey();
+    const b = journey({
+      legs: [leg("SFO", "ICN"), leg("ICN", "KTM", { flight_date: "2026-03-16" })],
+    });
+    expect(journeyKey(a, 0)).not.toBe(journeyKey(b, 0));
+  });
+
+  it("separates two journeys through different hubs", () => {
+    const viaDoh = journey({
+      legs: [leg("SFO", "DOH"), leg("DOH", "KTM", { flight_date: "2026-03-15" })],
+      via: ["DOH"],
+    });
+    expect(journeyKey(journey(), 0)).not.toBe(journeyKey(viaDoh, 0));
+  });
+
+  it("separates journeys that differ only in a leg's cabin", () => {
+    // Cabin is PER LEG here, not per journey — economy to the hub under a
+    // business long-haul is a different answer from business throughout.
+    const economyFirst = journey({
+      legs: [leg("SFO", "ICN", { cabin: "economy" }), leg("ICN", "KTM", { flight_date: "2026-03-15" })],
+    });
+    expect(journeyKey(journey(), 0)).not.toBe(journeyKey(economyFirst, 0));
+  });
+
+  it("separates journeys that differ only in a leg's program", () => {
+    const mixed = journey({
+      legs: [leg("SFO", "ICN"), leg("ICN", "KTM", { flight_date: "2026-03-15", program: "alaska" })],
+      programs: ["ana", "alaska"],
+      mixed: true,
+    });
+    expect(journeyKey(journey(), 0)).not.toBe(journeyKey(mixed, 0));
+  });
+
+  it("separates the same journey at two page offsets, and is stable at one", () => {
+    expect(journeyKey(journey(), 0)).not.toBe(journeyKey(journey(), 10));
+    expect(journeyKey(journey(), 2)).toBe(journeyKey(journey(), 2));
   });
 });

@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "../alerts/pace.js";
 import { parseAlertTypes } from "../alerts/select.js";
-import { planSeatsAeroChunks } from "../providers/seatsaero.js";
 import { todayISO } from "../providers/window.js";
 import type { Env, Vars } from "../bindings.js";
 import type {
@@ -11,7 +10,7 @@ import type {
 } from "../../../shared/src/wire/index.js";
 import { allowedRecipients } from "../alerts/email.js";
 import { isLocalRequest } from "../middleware/security.js";
-import { ALERT_DEFAULTS, alertRouteRows, routeLabel, runAlertTick } from "../alerts/sweep.js";
+import { ALERT_DEFAULTS, alertRouteRows, routeLabel, runAlertTick, alertRouteCosts } from "../alerts/sweep.js";
 import { decideSweep, readBudgetState } from "../alerts/budget.js";
 
 /**
@@ -41,16 +40,10 @@ alerts.get("/api/alerts/schedule", async (c) => {
   const cfg = ALERT_DEFAULTS(c.env);
 
   const today = todayISO();
-  const chunksFor = new Map<number, number>();
-  const costs: AlertRouteCost[] = rows.map((r) => {
-    const chunks = planSeatsAeroChunks(r.date_start, r.date_end, today).length;
-    chunksFor.set(r.id, chunks);
-    return {
-      routeId: r.id,
-      chunks,
-      observedCalls: r.observed_calls == null ? undefined : Number(r.observed_calls),
-    };
-  });
+  // The SAME cost function the scheduler prices with. docs/ALERTS.md §4: a page
+  // quoting a cadence the sweeper does not keep is worse than no number.
+  const costFor = alertRouteCosts(rows, today);
+  const costs: AlertRouteCost[] = [...costFor.values()];
 
   const pacing = sweepPacing({ routes: costs, dailyBudget: cfg.dailyBudget });
   const intervalMinutes = pacing.affordable ? pacing.intervalMinutes : null;
@@ -60,7 +53,7 @@ alerts.get("/api/alerts/schedule", async (c) => {
         dueRoutes(
           rows.map((r) => ({
             routeId: r.id,
-            chunks: chunksFor.get(r.id) ?? 0,
+            chunks: costFor.get(r.id)?.chunks ?? 0,
             alertLastAttemptAt: r.alert_last_attempt_at,
             lastCheckedAt: r.last_checked_at,
             consecutiveFailures: r.alert_consecutive_failures,
@@ -116,7 +109,8 @@ alerts.get("/api/alerts/schedule", async (c) => {
       allowedRecipients: allowedRecipients(c.env),
     },
     routes: rows.map((r) => {
-      const chunks = chunksFor.get(r.id) ?? 0;
+      const cost = costFor.get(r.id);
+      const chunks = cost?.chunks ?? 0;
       return {
         id: r.id,
         label: routeLabel(r),
@@ -126,11 +120,8 @@ alerts.get("/api/alerts/schedule", async (c) => {
         // at planning and burn a tick to learn what the plan already knows — so
         // it is surfaced by name rather than left looking merely idle.
         windowExpired: chunks === 0,
-        estimatedCalls: routeSweepCost({
-          routeId: r.id,
-          chunks,
-          observedCalls: r.observed_calls == null ? undefined : Number(r.observed_calls),
-        }),
+        queriesPerChunk: cost?.groups ?? 1,
+        estimatedCalls: cost ? routeSweepCost(cost) : 0,
         observedCalls: r.observed_calls == null ? null : Number(r.observed_calls),
         alertOn: parseAlertTypes(r.alert_on),
         alertMinDropPct: r.alert_min_drop_pct,

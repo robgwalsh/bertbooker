@@ -29,7 +29,6 @@ import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { alpha } from "@mui/material/styles";
 import { api, ENRICH_MAX_PER_RUN, type Find, type SearchCall, type TrackedRoute } from "../../api";
 import { PagePad } from "../../components/PagePad";
 import { useIsNarrow, useIsPhone } from "../../hooks/useBreakpoints";
@@ -38,7 +37,9 @@ import { usePreferences } from "../../lib/preferences";
 import { PRIMARY_METERED_SOURCE } from "../../lib/quota";
 import { parseCodes } from "../../lib/routeShape";
 import { pairRoundTrips, splitDirections } from "../../lib/roundtrip";
+import { splitDirectAndLegs, stitchJourneys, type JourneyResult } from "../../lib/multiLeg";
 import { FindsTable } from "./FindsTable";
+import { MultiLegTable } from "./MultiLegTable";
 import { RoundTripTable } from "./RoundTripTable";
 import { useRouteSearch } from "./useRouteSearch";
 import { useRouteEnrich } from "./useRouteEnrich";
@@ -56,6 +57,18 @@ import { estimateCalls } from "./estimate";
 import { directionArrow, sideLabel } from "./labels";
 import type { EditTarget } from "./form";
 import type { RoutesSearchParams } from "./searchParams";
+
+/** A round-trip route is never stitched, so its pane has nothing to hand the
+ *  journeys table. Module-scoped rather than an inline literal: a fresh object
+ *  each render would be a new prop identity every time. */
+const EMPTY_JOURNEYS: JourneyResult = {
+  journeys: [],
+  considered: 0,
+  truncated: false,
+  hubs: [],
+  outboundSlots: 0,
+  inboundSlots: 0,
+};
 
 export function Routes() {
   const qc = useQueryClient();
@@ -227,10 +240,33 @@ export function Routes() {
   // `considered` rather than `pairs.length`: the pairing caps what it RETURNS at
   // 200 cheapest, and the chip is answering "how many are there", not "how many
   // fit on screen".
+  // Ways to get there with a stop, for a route the sources hold no market on.
+  //
+  // Reads `data.bestFinds` and NOT `findsByRoute`, which is the whole premise:
+  // the legs belong to OTHER tracked routes — SFO->ICN and ICN->KTM are ordinary
+  // markets with their own routes, while SFO->KTM has none and never will.
+  // Skipped for a round trip, whose pane already answers a different question
+  // (`MultiLegTable`).
+  const journeysByRoute = new Map<number, JourneyResult>(
+    data.trackedRoutes
+      .filter((r) => r.round_trip !== 1)
+      .map((r) => [r.id, stitchJourneys(r, data.bestFinds)]),
+  );
+
   const counts = new Map<number, RouteCount>(
     data.trackedRoutes.map((r) => {
       const fs = findsByRoute.get(r.id) ?? [];
-      if (r.round_trip !== 1) return [r.id, { found: fs.length, roundTrip: false }];
+      if (r.round_trip !== 1) {
+        return [
+          r.id,
+          {
+            found: splitDirectAndLegs(r, fs).direct.length,
+            roundTrip: false,
+            // Beside the find count, never inside it — see `RouteCount`.
+            viaJourneys: journeysByRoute.get(r.id)?.considered ?? 0,
+          },
+        ];
+      }
       const { outbound, inbound } = splitDirections(r, fs);
       // The trip length is a reading preference belonging to whichever route is
       // OPEN, so every other row is counted the way its pane would open — the
@@ -326,12 +362,17 @@ export function Routes() {
               selectedId={selected?.id}
               onSelect={(id) => setSearch({ route: id })}
               onAdd={() => setAddOpen(true)}
+              onDelete={(r) => setConfirmDel(r)}
+              deletingId={del.isPending ? del.variables : undefined}
             />
           )}
           {data.trackedRoutes
             .filter((r) => r.id === selected?.id)
             .map((r) => {
-              const routeFinds = findsByRoute.get(r.id) ?? [];
+              // A route with hubs gets its LEGS back under it too. They are half
+              // an answer, not an answer, so the table below shows only what the
+              // route is named for and the legs appear inside journeys.
+              const { direct: routeFinds } = splitDirectAndLegs(r, findsByRoute.get(r.id) ?? []);
               const run = search.runs[r.id];
               const running = search.isRunning(r.id);
               const enrichRun = enrich.runs[r.id];
@@ -432,18 +473,21 @@ export function Routes() {
                             </span>
                           </Tooltip>
                         )}
-                        {/* Edit and Remove carry the same weight as Search:
-                            same size, same fill, same labelled shape, and only
-                            the colour saying what each is for. They were two
-                            small icons beside a filled button, which reads as
-                            one control and some decoration — but correcting a
-                            window you got wrong is as much a part of running a
-                            route as searching it, and both of these are one
-                            undo-less click from a dialog you have to mean.
-                            Neutral and error tints rather than solid fills, so
-                            "equal" doesn't mean three shouting buttons.
+                        {/* Edit carries the same weight as Search: same size,
+                            same fill, same labelled shape, and only the colour
+                            saying what each is for. Correcting a window you got
+                            wrong is as much a part of running a route as
+                            searching it. A neutral tint rather than a solid
+                            fill, so "equal" doesn't mean two shouting buttons.
 
-                            Everything the spec beside these buttons states is
+                            Remove used to sit here as a third. It moved to the
+                            rail (`RouteNav`), as a 14px icon on the row it acts
+                            on: it could only ever remove the route already open,
+                            so a labelled button in the editor's header spent
+                            header weight on the one action you would want to
+                            take WITHOUT opening a route first.
+
+                            Everything the spec beside this button states is
                             editable from Edit — the row is that form, read-only,
                             and Edit is where the call cost is quoted. */}
                         <Button
@@ -459,25 +503,6 @@ export function Routes() {
                           }}
                         >
                           Edit
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="error"
-                          onClick={() => setConfirmDel(r)}
-                          disabled={del.isPending && del.variables === r.id}
-                          startIcon={<DeleteOutlineRoundedIcon fontSize="small" />}
-                          sx={{
-                            color: "error.light",
-                            bgcolor: (t) => alpha(t.palette.error.main, 0.18),
-                            boxShadow: "none",
-                            "&:hover": {
-                              bgcolor: (t) => alpha(t.palette.error.main, 0.3),
-                              boxShadow: "none",
-                            },
-                          }}
-                        >
-                          Remove
                         </Button>
                       </>
                     }
@@ -537,7 +562,13 @@ export function Routes() {
                           showMap={prefs.showMapColumn}
                         />
                       ) : null}
-                      {routeFinds.length === 0 ? (
+                      {/* Empty only when there is NOTHING — no direct find and no
+                          journey. A route whose pair nobody sells has no direct
+                          finds by definition, so gating on those alone printed
+                          "no award space" directly above several hundred priced
+                          journeys. */}
+                      {routeFinds.length === 0 &&
+                      (journeysByRoute.get(r.id)?.journeys.length ?? 0) === 0 ? (
                         // "Nobody has looked" and "looked, found nothing" are the two
                         // answers this app exists to keep apart, so the empty state
                         // has to say which one it is.
@@ -551,6 +582,14 @@ export function Routes() {
                             : "This route has never been searched. Press Search to look for award space."}
                         </Typography>
                       ) : null}
+                      {/* UNDER the direct finds, never instead of them: a journey
+                          is two award bookings joined at read time, which is a
+                          weaker answer than one seat somebody is selling and must
+                          not displace it. Renders nothing when nothing stitches. */}
+                      <MultiLegTable
+                        result={journeysByRoute.get(r.id) ?? EMPTY_JOURNEYS}
+                        showMap={prefs.showMapColumn}
+                      />
                     </>
                   )}
                 </Box>

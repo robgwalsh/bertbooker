@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { ALL_ALERT_TYPES } from "../alerts/select.js";
 import { baselineOnEnable } from "../alerts/pace.js";
-import { normalizeSpec } from "../domain/routing.js";
+import { MAX_VIA, normalizeSpec, searchPairs } from "../domain/routing.js";
+import { fetchedSources, graphRowsForPairs, readFetchRecords } from "../db/routeGraph.js";
+import { searchGraphPaths } from "../search/graphPaths.js";
 import { isRecipientAllowed } from "../alerts/email.js";
 import type { Env, Vars } from "../bindings.js";
 import type { RouteInput, TrackedRoute } from "../../../shared/src/wire/index.js";
@@ -57,6 +59,16 @@ interface RouteBody {
    *  an older client still works, and are the fallback when these are absent. */
   origins?: string[] | null;
   destinations?: string[] | null;
+  /**
+   * Hubs to route through, at most `MAX_VIA`.
+   *
+   * Three-valued, and all three mean different things. **Absent** = "work it
+   * out": the Worker asks the route graph and fills in the best hubs, which is
+   * the whole point — a route on a pair nobody monitors should not need the user
+   * to know that, or to know which hubs. **An empty array** = "no hubs, I mean
+   * it", and is never auto-filled over. **A list** is taken as given.
+   */
+  via?: string[] | null;
   dateStart?: string;
   dateEnd?: string;
   cabins?: string[] | null;
@@ -94,6 +106,71 @@ interface RouteBody {
  */
 type Assert<T extends true> = T;
 type _RouteInputIsAcceptable = Assert<RouteInput extends RouteBody ? true : false>;
+
+/**
+ * The hubs a route should monitor, worked out from the route graph.
+ *
+ * Called only when the client sent no `via` at all, and only for a one-way
+ * route. What it answers is "does anybody actually sell this pair" — and when
+ * nobody does, which stops would fix it. A pair somebody monitors gets NO hubs:
+ * the search already finds its connections, because seats.aero returns
+ * connecting itineraries within a monitored market, and a second query would be
+ * spent asking about a market the first one already covers.
+ *
+ * Costs nothing. Every read below is D1, over the graph the Tools page already
+ * bought. Failure is silent and yields no hubs: a route must be creatable on a
+ * day the route graph is empty, and "no hubs" is exactly what an unfetched graph
+ * should conclude.
+ */
+async function autoVia(
+  db: D1Database,
+  spec: { origins: string[]; destinations: string[] },
+  roundTrip: boolean,
+): Promise<string[]> {
+  if (roundTrip) return [];
+  try {
+    const pairs = searchPairs(spec, false);
+    if (!pairs.length) return [];
+
+    const records = await readFetchRecords(db);
+    const fetched = new Set(fetchedSources(records));
+    if (!fetched.size) return [];
+
+    // A pair anybody monitors needs no hubs — see above.
+    const direct = await graphRowsForPairs(db, pairs);
+    const flown = new Set(
+      direct.filter((r) => fetched.has(r.source)).map((r) => `${r.origin}>${r.destination}`),
+    );
+    const gaps = pairs.filter((p) => !flown.has(`${p.origin}>${p.destination}`));
+    if (!gaps.length) return [];
+
+    const { results } = await searchGraphPaths(db, gaps, { fetched, maxStops: 2 });
+
+    // Hubs in the order the paths were RANKED — shortest detour first — deduped
+    // across a multi-airport route's several gap pairs, and capped. `planRoute`
+    // caps again, because this is not the only way a `via` can arrive.
+    const hubs: string[] = [];
+    for (const pair of gaps) {
+      const found = results.get(`${pair.origin}>${pair.destination}`);
+      for (const path of found?.paths ?? []) {
+        for (const hub of path.via) {
+          if (!hubs.includes(hub)) hubs.push(hub);
+          if (hubs.length >= MAX_VIA) return hubs;
+        }
+      }
+    }
+    return hubs;
+  } catch {
+    // A route that cannot be priced is still a route worth saving.
+    return [];
+  }
+}
+
+/** `via` as it should be STORED: null for none, JSON otherwise. Null rather than
+ *  `"[]"` so the column reads the way `cabins` and `currencies` do, and so
+ *  `parseCodeList` needs no special case. */
+const viaColumn = (hubs: string[]): string | null =>
+  hubs.length ? JSON.stringify(hubs.slice(0, MAX_VIA)) : null;
 
 /**
  * Validate the alert settings shared by POST and PATCH.
@@ -174,12 +251,21 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
     return c.json({ error: "bad_route_spec", message: (err as Error).message }, 400);
   }
 
+  // An ABSENT `via` means "work it out"; an empty array means "no hubs". So a
+  // route created anywhere — this dialog, the Tools page, a bare POST — arrives
+  // already knowing how to reach a pair nobody sells, without its creator having
+  // to know that it doesn't.
+  const via =
+    b.via === undefined
+      ? await autoVia(c.env.DB, spec, Boolean(b.roundTrip))
+      : (b.via ?? []);
+
   const res = await c.env.DB.prepare(
     `INSERT INTO tracked_routes
-       (user_email, origin, destination, origins, destinations,
+       (user_email, origin, destination, origins, destinations, via,
         date_start, date_end, cabin, cabins, min_seats, programs, currencies, kind, direct_only,
         round_trip, alerts_enabled, alert_email, alert_on, alert_min_drop_pct)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      RETURNING id`,
   )
     .bind(
@@ -191,6 +277,7 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
       spec.destinations[0]!,
       JSON.stringify(spec.origins),
       JSON.stringify(spec.destinations),
+      viaColumn(via),
       b.dateStart,
       b.dateEnd,
       // Legacy scalar `cabin` (NOT NULL): kept in sync as a representative value
@@ -296,9 +383,24 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
         ? JSON.stringify(b.currencies)
         : null;
 
+  const roundTrip = b.roundTrip === undefined ? Number(row.round_trip ?? 0) : b.roundTrip ? 1 : 0;
+
+  // Unlike the filters above, an ABSENT `via` does NOT simply keep the stored
+  // one — it re-asks, but only when nothing is stored. That is what makes a
+  // route created before hubs existed pick them up the first time it is edited,
+  // while a route whose hubs somebody chose keeps them. An empty array still
+  // means "no hubs", including as a way to say so permanently.
+  const storedVia = storedList(row.via);
+  const via =
+    b.via === undefined
+      ? storedVia.length
+        ? storedVia
+        : await autoVia(c.env.DB, spec, roundTrip === 1)
+      : (b.via ?? []);
+
   await c.env.DB.prepare(
     `UPDATE tracked_routes
-        SET origin = ?, destination = ?, origins = ?, destinations = ?,
+        SET origin = ?, destination = ?, origins = ?, destinations = ?, via = ?,
             date_start = ?, date_end = ?,
             cabin = ?, cabins = ?, currencies = ?, min_seats = ?, direct_only = ?,
             round_trip = ?,
@@ -326,6 +428,7 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
       spec.destinations[0]!,
       JSON.stringify(spec.origins),
       JSON.stringify(spec.destinations),
+      viaColumn(via),
       dateStart,
       dateEnd,
       // Representative value for any `SELECT *` reader; `cabins` is the filter.
@@ -334,7 +437,7 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
       currencies,
       Math.min(Math.max(Math.round(b.minSeats ?? Number(row.min_seats ?? 1)), 1), 9),
       b.directOnly === undefined ? Number(row.direct_only ?? 0) : b.directOnly ? 1 : 0,
-      b.roundTrip === undefined ? Number(row.round_trip ?? 0) : b.roundTrip ? 1 : 0,
+      roundTrip,
       alertsEnabled,
       b.alertEmail === undefined
         ? (row.alert_email as string | null)
@@ -356,6 +459,50 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
     .run();
 
   return c.json({ ok: true });
+});
+
+/**
+ * What hubs the route graph would suggest for this route, right now.
+ *
+ * **A suggestion, and it writes nothing.** That is what makes it usable from the
+ * edit dialog: the answer fills the Via field, the person looks at it, and Save
+ * is what commits — so Cancel still cancels. An endpoint that wrote would make
+ * "let me see what it thinks" an irreversible act.
+ *
+ * It exists because `autoVia`-on-create is a one-shot and the graph moves under a
+ * route: fetch another program on the Tools page and a pair that reached nothing
+ * yesterday may reach three hubs today. PATCH will not re-ask for a route that
+ * already has hubs — its merge rules keep what somebody chose — so without this
+ * there is no way to re-rank at all.
+ *
+ * Costs nothing. `autoVia` is D1 reads over the graph that is already stored.
+ */
+trackedRoutes.get("/api/tracked-routes/:id/paths", async (c) => {
+  const email = c.get("userEmail");
+  const id = Number(c.req.param("id"));
+  const row = await c.env.DB.prepare(
+    `SELECT origin, destination, origins, destinations, round_trip
+       FROM tracked_routes WHERE id = ? AND user_email = ?`,
+  )
+    .bind(id, email)
+    .first<Record<string, unknown>>();
+  if (!row) return c.json({ error: "not_found" }, 404);
+
+  let spec: ReturnType<typeof normalizeSpec>;
+  try {
+    spec = normalizeSpec({
+      origins: storedList(row.origins).length
+        ? storedList(row.origins)
+        : [String(row.origin)],
+      destinations: storedList(row.destinations).length
+        ? storedList(row.destinations)
+        : [String(row.destination)],
+    });
+  } catch (err) {
+    return c.json({ error: "bad_route_spec", message: (err as Error).message }, 400);
+  }
+
+  return c.json({ via: await autoVia(c.env.DB, spec, Number(row.round_trip ?? 0) === 1) });
 });
 
 trackedRoutes.delete("/api/tracked-routes/:id", async (c) => {

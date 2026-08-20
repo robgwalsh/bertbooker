@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { api } from "../../api";
 import { RouteFormFields } from "./RouteFormFields";
-import { defaultRouteForm, routeFormIncomplete, type RouteForm } from "./form";
+import { createRouteBody, defaultRouteForm, routeFormIncomplete, type RouteForm } from "./form";
 
 export function AddRouteDialog({
   open,
@@ -31,7 +31,9 @@ export function AddRouteDialog({
   }, [open]);
 
   const add = useMutation({
-    mutationFn: () => api.addTrackedRoute(form),
+    // NOT `api.addTrackedRoute(form)`. `createRouteBody` omits an empty `via` so
+    // the Worker fills the hubs in — see its docblock, and its test.
+    mutationFn: () => api.addTrackedRoute(createRouteBody(form)),
     onSuccess: ({ id }) => {
       qc.invalidateQueries({ queryKey: ["tracked-routes"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });

@@ -218,15 +218,26 @@ The *direction* of the guess matters more than its accuracy: guessing low
 overspends the day's allowance, guessing high just sweeps less often than it
 could. So — **pessimistic while ignorant, measured once measured.**
 
+The unit is the **task**, not the date chunk: `tasks = chunks × queriesPerChunk`,
+and a route with `via` hubs plans two queries per chunk because `SFO->ICN` and
+`ICN->KTM` are different markets (`docs/SEATS-AERO.md` §12). Counting chunks
+would price such a route at half what it spends — which is guessing low, the one
+direction this table exists not to.
+
 | state | cost |
 |---|---|
 | `chunks <= 0` (window entirely in the past) | `0` — it cannot spend anything |
-| never swept | `chunks × SEATSAERO_MAX_PAGES` — the ceiling |
-| swept before | `max(observedCalls, chunks)` |
+| never swept | `tasks × SEATSAERO_MAX_PAGES` — the ceiling |
+| swept before | `max(observedCalls, tasks)` |
 
-`max(observed, chunks)` rather than `observed` alone because a **paused** sweep
+`max(observed, tasks)` rather than `observed` alone because a **paused** sweep
 records only the calls that pass spent; a route resumed across three ticks would
 otherwise look a third as expensive as it is.
+
+`AlertRouteCost` is built in ONE place (`alertRouteCosts`, `alerts/sweep.ts`) and
+read by both the scheduler and the Alerts tab, and `AlertScheduleRoute` carries
+`queriesPerChunk` so the page's `estimatedCalls` still follows from the chunk
+count it shows.
 
 ### The cadence — `sweepPacing`
 

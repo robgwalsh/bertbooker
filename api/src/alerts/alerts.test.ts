@@ -30,6 +30,20 @@ describe("routeSweepCost", () => {
     expect(routeSweepCost({ routeId: 1, chunks: 5, observedCalls: 2 })).toBe(5);
   });
 
+
+  it("counts TASKS, not chunks — a hub route plans two queries per range", () => {
+    // Counting its chunks would budget a hub route at half what it spends, which
+    // is guessing low: the one direction this is built not to.
+    expect(routeSweepCost({ routeId: 1, chunks: 5, groups: 2 })).toBe(100);
+    expect(routeSweepCost({ routeId: 1, chunks: 5, groups: 2, observedCalls: 4 })).toBe(10);
+  });
+
+  it("treats an absent group count as one, so an untaught caller is merely as wrong as before", () => {
+    expect(routeSweepCost({ routeId: 1, chunks: 5, groups: 1 })).toBe(
+      routeSweepCost({ routeId: 1, chunks: 5 }),
+    );
+  });
+
   it("prices an expired window at zero — it cannot spend anything", () => {
     expect(routeSweepCost({ routeId: 1, chunks: 0, observedCalls: 40 })).toBe(0);
   });

@@ -21,7 +21,7 @@ import { AirportMultiAutocomplete } from "../../components/AirportAutocomplete";
 import { BookableCurrencies, CabinChip, CurrencyIcon } from "../../components/brand";
 import { CURRENCY_LABEL } from "../../lib/currencies";
 import { SWITCH_ROW_ML } from "../../lib/layout";
-import { MAX_DESTINATIONS, MAX_ORIGINS } from "../../api";
+import { MAX_DESTINATIONS, MAX_ORIGINS, MAX_VIA } from "../../api";
 import { CABIN_OPTIONS, FILTER_CURRENCIES } from "./constants";
 import { estimateCalls } from "./estimate";
 import { ALERT_TYPES, ALERT_TYPE_HELP, ALERT_TYPE_LABEL } from "./alertCopy";
@@ -110,6 +110,52 @@ export function RouteFormFields({
           }
           rootRef={focusOn("destinations")}
         />
+        {/* Full width, and only on a one-way route.
+            Hidden rather than disabled when Round trip is on, because the
+            Worker IGNORES hubs there — a control that is visible, editable and
+            has no effect is worse than one that is absent. Left EMPTY on a new
+            route on purpose: the Worker fills it in on save when the pair
+            reaches nothing directly, so the honest default is "I have not
+            worked this out yet" rather than a guess the form cannot make. */}
+        {!form.roundTrip && (
+          <Box sx={{ gridColumn: "1 / -1" }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <AirportMultiAutocomplete
+                  label="Via"
+                  max={MAX_VIA}
+                  value={form.via}
+                  onChange={(codes) => setForm({ ...form, via: codes })}
+                  placeholder="ICN"
+                  helperText={
+                    form.via.length
+                      ? "One extra query per date range, on top of the direct one — the hubs, then the hubs onward."
+                      : onSuggestVia
+                        ? "Hubs to route through. Ask the route graph, or leave empty for none."
+                        : "Hubs to route through. Left empty, this is worked out when you save."
+                  }
+                  rootRef={focusOn("via")}
+                />
+              </Box>
+              {/* Only on an EDIT, and only because that is the one place it is
+                  needed: a new route has its hubs filled in on save, while an
+                  existing one keeps the hubs somebody chose and can otherwise
+                  never be re-ranked when the graph gains a program. Asking
+                  writes nothing — it fills the field and Save commits. */}
+              {onSuggestVia && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={onSuggestVia}
+                  disabled={suggestingVia}
+                  sx={{ mt: 0.5, whiteSpace: "nowrap", flexShrink: 0 }}
+                >
+                  {suggestingVia ? "Looking…" : "Find paths"}
+                </Button>
+              )}
+            </Stack>
+          </Box>
+        )}
         <TextField
           label="From"
           type="date"

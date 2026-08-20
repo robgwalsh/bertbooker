@@ -1,5 +1,5 @@
 import type { ChangeSummary } from "../domain/diff.js";
-import { planRoute, type RoutePair } from "../domain/routing.js";
+import { planRoute, type RouteLegGroup, type RoutePair } from "../domain/routing.js";
 import { applyTask } from "../ingest/apply.js";
 import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../ingest/types.js";
 import { callMetadata, datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk, seatsAeroTaskKey } from "../providers/seatsaero.js";
@@ -102,6 +102,10 @@ export interface TrackedRouteRow {
   /** 1 = search BOTH directions. Unlike every other per-route flag this one
    *  changes what is gathered, not what is shown. */
   round_trip: number;
+  /** JSON array of hub IATA codes, or null. The OTHER gathering setting, and
+   *  the only one that changes what a search COSTS: hubs are separate markets,
+   *  so they plan a second query per date chunk. Ignored on a round trip. */
+  via: string | null;
 }
 
 /** Every way a search can be refused before it spends anything.
@@ -122,13 +126,25 @@ export interface SearchPlan {
   route: TrackedRouteRow;
   apiKey: string;
   email: string;
+  /** The route's own airports. The QUERIES' airports live on each group, and a
+   *  hub route's differ from these — see `groups`. */
   origins: string[];
   destinations: string[];
+  /** Every pair the whole search touches: the union across groups. */
   pairs: RoutePair[];
   chunks: SeatsAeroChunk[];
-  /** One task per date chunk, so resuming is an index into one list rather than
-   *  a pair of cursors. */
-  tasks: { chunk: SeatsAeroChunk }[];
+  /** The queries per chunk. One for a plain route, two for one with hubs. */
+  groups: RouteLegGroup[];
+  /**
+   * One task per (chunk, group), so resuming is still an index into ONE list
+   * rather than a pair of cursors.
+   *
+   * **Chunk-major, and the order is load-bearing.** `from` is a bare integer
+   * index into this array, and `alerts/sweep.ts` resumes from
+   * `tasks_ok + tasks_failed` — a count. Reordering between passes would make a
+   * resumed sweep re-run some tasks and skip others, silently.
+   */
+  tasks: { chunk: SeatsAeroChunk; group: RouteLegGroup }[];
   /** Where this pass starts in `tasks`. */
   from: number;
 }
@@ -166,6 +182,19 @@ function airportColumn(json: string | null, fallback: string): string[] {
   return [fallback];
 }
 
+/** `via`, which has no scalar to fall back to: NULL means "no hubs", not "use
+ *  the column beside me". Distinct from `airportColumn` for the same reason
+ *  `parseCodeList` is distinct from `parseCodes` in the SPA. */
+function viaColumn(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Everything that can refuse a search, before anything is written or spent.
  *
@@ -185,7 +214,8 @@ export async function planSearchPass(
 ): Promise<{ ok: true; plan: SearchPlan } | { ok: false; failure: PlanFailure }> {
   const route = await db
     .prepare(
-      `SELECT id, origin, destination, origins, destinations, date_start, date_end, round_trip
+      `SELECT id, origin, destination, origins, destinations, date_start, date_end,
+              round_trip, via
          FROM tracked_routes WHERE id = ? AND user_email = ?`,
     )
     .bind(opts.routeId, opts.email)
@@ -214,20 +244,30 @@ export async function planSearchPass(
   let origins: string[];
   let destinations: string[];
   let pairs: RoutePair[];
+  let groups: RouteLegGroup[];
   try {
-    ({ origins, destinations, pairs } = planRoute(
+    ({ origins, destinations, pairs, groups } = planRoute(
       {
         origins: airportColumn(route.origins, route.origin),
         destinations: airportColumn(route.destinations, route.destination),
       },
       roundTrip,
+      // Hubs are a SECOND query per chunk, not more airports on the same one —
+      // `SFO->ICN` and `ICN->KTM` are different markets. `planRoute` owns that
+      // split so the planner, the coverage claim and the cost estimate cannot
+      // disagree about it.
+      viaColumn(route.via),
     ));
   } catch (err) {
     // An unsearchable route is a configuration error, not an empty result.
     return { ok: false, failure: { code: "bad_route_spec", message: (err as Error).message } };
   }
 
-  const tasks = chunks.map((chunk) => ({ chunk }));
+  // Chunk-major: every group of a date range is done before the next range
+  // starts. Both orders cost the same, and this one keeps a paused run's
+  // coverage contiguous in DATE rather than leaving one direction of the whole
+  // window unasked.
+  const tasks = chunks.flatMap((chunk) => groups.map((group) => ({ chunk, group })));
   const from = Math.max(0, Number(opts.from ?? 0) || 0);
   if (from >= tasks.length) {
     return { ok: false, failure: { code: "nothing_to_resume", total: tasks.length } };
@@ -235,7 +275,18 @@ export async function planSearchPass(
 
   return {
     ok: true,
-    plan: { route, apiKey, email: opts.email, origins, destinations, pairs, chunks, tasks, from },
+    plan: {
+      route,
+      apiKey,
+      email: opts.email,
+      origins,
+      destinations,
+      pairs,
+      chunks,
+      groups,
+      tasks,
+      from,
+    },
   };
 }
 
@@ -335,7 +386,12 @@ export async function runSearchPass(
     startedAt?: number;
   } = {},
 ): Promise<SearchPassResult> {
-  const { route, apiKey, origins, destinations, pairs, chunks, tasks, from } = plan;
+  // NOTE what is NOT destructured here: the airports and the pair list. They
+  // belong to a GROUP now, not to the plan, and a hub route's two groups ask
+  // different markets. Reading them plan-wide is how a task would claim coverage
+  // for pairs its own call never asked about — which over-claims, and
+  // over-claiming deletes real finds.
+  const { route, apiKey, pairs, chunks, tasks, from } = plan;
   const maxCalls = opts.maxCalls ?? MAX_CALLS_PER_REQUEST;
   const startedAt = opts.startedAt ?? Date.now();
   const emit = async (e: SearchEvent) => {
@@ -375,7 +431,8 @@ export async function runSearchPass(
       if (i > from && totals.calls >= maxCalls) break;
       if (i > from && opts.deadlineAt != null && Date.now() >= opts.deadlineAt) break;
 
-      const { chunk } = tasks[i]!;
+      const { chunk, group } = tasks[i]!;
+      const { origins, destinations, pairs: groupPairs, role } = group;
       const taskStartedAt = Date.now();
       await emit({
         type: "chunk_start",
@@ -385,6 +442,7 @@ export async function runSearchPass(
         end: chunk.end,
         origins,
         destinations,
+        role,
       });
 
       // The shape of the report is the safety property, so build it in both
@@ -420,13 +478,18 @@ export async function runSearchPass(
         note = out.notes.find((n) => n.includes("coverage narrowed"));
         report = {
           source: SEATSAERO_SOURCE_ID,
-          taskKey: seatsAeroTaskKey(origins, destinations, chunk),
+          // The ROLE is passed now, and has to be: two groups of one chunk can
+          // share airport lists (a route whose only hub is also its only extra
+          // destination), and `search_tasks` is UNIQUE on
+          // (run_id, source, task_key) — the second `recordTask` would overwrite
+          // the first rather than record itself.
+          taskKey: seatsAeroTaskKey(origins, destinations, chunk, role),
           // Real airports, never the joined list: these two land in
           // `search_tasks` as NOT NULL scalars. The pairs the call actually
           // covered — which is what coverage is claimed for — go in `routes`.
           origin: origins[0]!,
           destination: destinations[0]!,
-          routes: pairs,
+          routes: groupPairs,
           dates: datesIn(chunk.start, chunk.end),
           programs: SEATSAERO_PROGRAMS,
           // Both claim coverage. `empty` is the load-bearing one: "I looked and
@@ -458,13 +521,13 @@ export async function runSearchPass(
         if (status === "timeout" && opts.signal?.aborted) aborted = true;
         report = {
           source: SEATSAERO_SOURCE_ID,
-          taskKey: seatsAeroTaskKey(origins, destinations, chunk),
+          taskKey: seatsAeroTaskKey(origins, destinations, chunk, role),
           origin: origins[0]!,
           destination: destinations[0]!,
           // Carried on the failure path too, and it costs nothing: `status`
           // is checked first, so a failed task claims coverage for none of
           // these pairs — exactly as it claims none for a single pair.
-          routes: pairs,
+          routes: groupPairs,
           dates: datesIn(chunk.start, chunk.end),
           programs: SEATSAERO_PROGRAMS,
           status,
@@ -495,6 +558,7 @@ export async function runSearchPass(
         index: i,
         start: chunk.start,
         end: chunk.end,
+        role,
         status: report.status,
         offersFound: applied.offersKept,
         snapshotsWritten: applied.snapshotsWritten,

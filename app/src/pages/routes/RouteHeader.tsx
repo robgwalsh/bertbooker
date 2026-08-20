@@ -145,6 +145,7 @@ export function RouteHeader({
   actions: React.ReactNode;
 }) {
   const cabins = parseCodeList(route.cabins);
+  const via = parseCodeList(route.via);
   const currencies = parseCodeList(route.currencies);
   const days = dayCount(route.date_start, route.date_end);
   const alertsOn = route.alerts_enabled === 1;
@@ -225,6 +226,26 @@ export function RouteHeader({
               onClick={() => onEdit("roundTrip")}
             >
               <Chip size="small" color="primary" variant="outlined" label="Round trip" />
+            </SpecValue>
+          )}
+
+          {/* The OTHER gathering setting, and the only one that changes what a
+              search costs. Sits beside Round trip rather than among the filters
+              below for exactly that reason: everything under this line decides
+              what you are shown, everything above it decides what is fetched. */}
+          {via.length > 0 && (
+            <SpecValue
+              help={`This route also monitors ${via
+                .map((h) => `${route.origin}→${h}→${route.destination}`)
+                .join(", ")}. Nobody sells the pair itself, so the search asks a second query per date range — the hubs, then the hubs onward — and the results are joined into journeys below.`}
+              onClick={() => onEdit("via")}
+            >
+              <Chip
+                size="small"
+                color="secondary"
+                variant="outlined"
+                label={`via ${via.join(", ")}`}
+              />
             </SpecValue>
           )}
 

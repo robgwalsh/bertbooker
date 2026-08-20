@@ -2,6 +2,13 @@
 
 A self-hosted award-travel availability tracker to use with your seats.aero API key, or your own data provider. Run it locally or deploy to a free Cloudflare account.
 
+<table>
+<tr>
+<td width="50%"><img src="docs/images/preview.png" alt="Routes dashboard" width="100%"></td>
+<td width="50%"><img src="docs/images/preview2.png" alt="Tools page" width="100%"></td>
+</tr>
+</table>
+
 ## What you need
 
 | | |

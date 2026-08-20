@@ -13,15 +13,14 @@ A self-hosted award-travel availability tracker to use with your seats.aero API 
 
 | | |
 |---|---|
-| **seats.aero Partner API key** | **Paid**, and the app's primary source — ~20 programs, a year of dates. See [seats.aero/apidocs](https://seats.aero/apidocs) and [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md). Without it the search endpoint answers 503 rather than an empty result, so a missing key can never be mistaken for "no award space". |
+| **seats.aero Partner API key** | **Paid**. See [seats.aero/apidocs](https://seats.aero/apidocs) and [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md). |
 | **Cloudflare account** *(optional)* | Free tier is enough: Workers, D1 and Cron Triggers all fit inside it. The `wrangler` dev dependency does NOT require a cloudflare account, so you can run locally without one. |
 | **Resend account** *(optional)* | Only for the alert digest, and only with a domain you have verified for SPF/DKIM. Without it, sweeps still run and still ingest; each digest is just recorded as `skipped`. |
 
 ## Documentation
 
-- [`docs/SOURCES.md`](docs/SOURCES.md) — what a source is, what may be added, and
-  the three ingest rules that keep the database honest
-- [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md) — currently the only implemented 'source' - seats.aero's paid API, bring your own key.
+- [`docs/SOURCES.md`](docs/SOURCES.md) — how additional data sources can be added
+- [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md) — currently the only implemented data source - seats.aero's paid API, bring your own key.
   full: search, enrich, quota, every payload trap
 - [`docs/ALERTS.md`](docs/ALERTS.md) — the scheduled sweep: pacing, the budget
   guard, the digest

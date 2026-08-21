@@ -21,13 +21,8 @@ A self-hosted award-travel availability tracker to use with your seats.aero API 
 
 - [`docs/SOURCES.md`](docs/SOURCES.md) — how additional data sources can be added
 - [`docs/SEATS-AERO.md`](docs/SEATS-AERO.md) — currently the only implemented data source - seats.aero's paid API, bring your own key.
-  full: search, enrich, quota, every payload trap
 - [`docs/ALERTS.md`](docs/ALERTS.md) — the scheduled sweep: pacing, the budget
   guard, the digest
-- [`docs/SEATS-AERO.md` §12](docs/SEATS-AERO.md) — the **route graph**: which city
-  pairs each program is monitored on, cached per source behind the **Tools**
-  page. Press Fetch to spend one call and store one program's network;
-  everything else on that page is free to browse.
 - [`docs/UI-TESTING.md`](docs/UI-TESTING.md) — driving the SPA headless, with
 
 ## First-time setup

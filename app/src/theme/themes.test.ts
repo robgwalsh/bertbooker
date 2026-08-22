@@ -83,7 +83,7 @@ describe("THEMES", () => {
   it("keeps a theme's own surfaces distinct", () => {
     // bg === chrome is the specific mistake that erases the frame: the tab strip
     // and table heads stop reading as chrome and the app goes back to looking
-    // like a dashboard. High Contrast Dark is the deliberate exception — every
+    // like a status board. High Contrast Dark is the deliberate exception — every
     // surface there is pure black and the structure is carried by borders, which
     // is the entire point of the theme.
     for (const t of THEMES) {

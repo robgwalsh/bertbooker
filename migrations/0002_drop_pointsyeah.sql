@@ -5,7 +5,7 @@
 -- are scoped per source: a row is only ever refreshed or deleted by the source
 -- that wrote it. Delete the source's code and nothing is left with the
 -- authority to clean up after it — every `pointsyeah` row would sit in the
--- table forever, joining the dashboard as a current find and reading as award
+-- table forever, joining the Routes page as a current find and reading as award
 -- space that may not have existed for months.
 --
 -- That is not a hypothesis. Migration 0009 (long since folded into 0001_init)

@@ -284,7 +284,7 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
       // for any SELECT * reader; `cabins` is the authoritative filter now.
       cabins?.length === 1 ? cabins[0] : "any",
       // Store NULL (not "[]") when no filter, so downstream "no filter" checks
-      // and the dashboard join treat an empty selection as "any cabin".
+      // and the Routes page join treat an empty selection as "any cabin".
       cabins ? JSON.stringify(cabins) : null,
       Math.min(Math.max(Math.round(b.minSeats ?? 2), 1), 9),
       b.programs?.length ? JSON.stringify(b.programs) : null,

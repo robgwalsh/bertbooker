@@ -94,9 +94,9 @@ function EnrichControl({ f, labelled }: { f: Find; labelled?: boolean }) {
         program: f.program,
       }),
     onSuccess: () => {
-      // The finds table reads through `findsCte`, as the dashboard does, so
+      // The finds table reads through `findsCte`, as `/api/routes` does, so
       // both keys have to move — and the quota, since a call was spent.
-      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      void qc.invalidateQueries({ queryKey: ["routes"] });
       void qc.invalidateQueries({ queryKey: ["finds"] });
       void qc.invalidateQueries({ queryKey: ["quota"] });
     },

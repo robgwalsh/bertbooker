@@ -56,7 +56,7 @@ export interface FindsTableOptions {
   showMap?: boolean;
   /** Page the rows *here*, in the browser, for callers that hand over the whole
    *  set at once — which is now every caller, since the Routes page's finds
-   *  arrive with the dashboard payload. Still off by default: a server-paged
+   *  arrive with the `/api/routes` payload. Still off by default: a server-paged
    *  caller and this pager would fight over one table. */
   paginate?: boolean;
 }

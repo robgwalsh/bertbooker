@@ -72,7 +72,7 @@ const EMPTY_JOURNEYS: JourneyResult = {
 
 export function Routes() {
   const qc = useQueryClient();
-  const { data, isLoading, error } = useQuery({ queryKey: ["dashboard"], queryFn: api.dashboard });
+  const { data, isLoading, error } = useQuery({ queryKey: ["routes"], queryFn: api.routes });
 
   // How each alert route's sweep is actually going, for the rail's bell and the
   // header's chip.
@@ -171,7 +171,7 @@ export function Routes() {
   /**
    * What both route dialogs end in: select the route, then search it.
    *
-   * A route is a *question*, and until something has looked at it the dashboard
+   * A route is a *question*, and until something has looked at it the page
    * cannot tell "nothing is available" from "nobody has asked" — the one
    * confusion this app is built to avoid. Editing has the same problem in
    * miniature: a window moved forward two months is mostly dates nobody has
@@ -192,7 +192,7 @@ export function Routes() {
     mutationFn: (id: number) => api.deleteTrackedRoute(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tracked-routes"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["routes"] });
       setConfirmDel(null);
     },
   });
@@ -287,7 +287,7 @@ export function Routes() {
     // else. No page padding, no gap between the panes, no rounded cards — what
     // separates them is a change of GROUND (the rail is `background.chrome`, the
     // editor is `background.default`, exactly VS Code's sidebar/editor pair) plus
-    // that single rule. Gaps and shadows are how a dashboard says "these are
+    // that single rule. Gaps and shadows are how a status board says "these are
     // different"; an editor says it with colour and a line, and gets the pixels
     // back.
     <Box sx={{ height: "100%", minHeight: 0 }}>
@@ -552,7 +552,7 @@ export function Routes() {
                         // around it would put a second border a pixel inside the
                         // pane and a margin outside that.
                         //
-                        // Paged in the browser: the dashboard payload carries
+                        // Paged in the browser: the `/api/routes` payload carries
                         // every find for every route, and a wide window can hold
                         // hundreds — enough that mounting them all made opening
                         // the route visibly slow.

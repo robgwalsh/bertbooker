@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS tracked_routes (
   -- A READ filter, and only a read filter. Gather wide, query narrow:
   -- connecting itineraries are still gathered, still stored and still claim
   -- coverage; this decides only what the route's own pane shows. It is applied
-  -- in the dashboard join beside `cabins` / `currencies` / `min_seats`, which is
+  -- in the Routes page join beside `cabins` / `currencies` / `min_seats`, which is
   -- the one place a route's filters are ever applied — nothing about the search
   -- plan or the coverage claim reads it, and nothing may.
   direct_only     INTEGER NOT NULL DEFAULT 0,
@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS tracked_routes (
   -- `roundTripSpec` in shared/src/routing.ts.
   --
   -- Two consequences worth knowing:
-  --   * The DASHBOARD JOIN must match both directions for these routes, or the
+  --   * The ROUTES PAGE JOIN must match both directions for these routes, or the
   --     return legs this gathers would be stored and invisible.
   --   * Roughly twice the rows come back per chunk, so a busy route is likelier
   --     to paginate out at SEATSAERO_MAX_PAGES. That NARROWS the coverage claim
@@ -513,6 +513,12 @@ CREATE TABLE IF NOT EXISTS search_coverage (
 );
 -- Answers "how stale is this find" and "which dates in my window has nobody ever
 -- checked" without scanning per-source rows.
+--
+-- DROPPED BY 0005, and replaced by idx_scov_current, which carries `program`
+-- between `flight_date` and `checked_at`. Its one reader was the `coverage` CTE
+-- in db/finds.ts, which grouped the WHOLE table on every read; once that became
+-- a correlated per-slice MAX() the missing `program` column was what stood
+-- between the lookup and a single seek.
 CREATE INDEX IF NOT EXISTS idx_scov_freshness
   ON search_coverage (origin, destination, flight_date, checked_at DESC);
 

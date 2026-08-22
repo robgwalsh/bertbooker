@@ -8,7 +8,7 @@ A self-hosted award-travel availability tracker to use with your seats.aero API 
 
 <table>
 <tr>
-<td width="33.3%"><img src="docs/images/preview.png" alt="Routes dashboard" width="100%"></td>
+<td width="33.3%"><img src="docs/images/preview.png" alt="Routes page" width="100%"></td>
 <td width="33.3%"><img src="docs/images/preview2.png" alt="Tools page" width="100%"></td>
 <td width="33.3%"><img src="docs/images/preview3.png" alt="Library page" width="100%"></td>
 </tr>

@@ -50,7 +50,7 @@ export function EditRouteDialog({
   const [form, setForm] = useState<RouteForm>(defaultRouteForm);
 
   // Seed from whichever route is being edited. Keyed on the id rather than the
-  // object: the dashboard refetches for reasons of its own (a search finishing
+  // object: the page refetches for reasons of its own (a search finishing
   // under this route), and re-seeding on a new object identity would throw away
   // half-typed edits every time one landed.
   useEffect(() => {
@@ -93,13 +93,13 @@ export function EditRouteDialog({
       // Read off the closure, not off the prop at call time: `onClose` clears
       // the parent's `editRoute` before this line would be re-evaluated.
       const id = route!.id;
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["routes"] });
       qc.invalidateQueries({ queryKey: ["tracked-routes"] });
       onClose();
       // A plain save needs nothing further: the dialog is only ever opened on the
       // selected route, and the invalidations above already redraw its pane with
       // the new spec. The invalidations are what makes it honest — a narrowed
-      // route hides stored finds the moment the dashboard refetches.
+      // route hides stored finds the moment the page refetches.
       if (thenSearch) onSaved(id);
     },
   });

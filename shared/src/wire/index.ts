@@ -11,7 +11,7 @@ export * from "./seatsaero.js";
 export * from "./rows.js";
 export * from "./reference.js";
 export * from "./routeGraph.js";
-export * from "./dashboard.js";
+export * from "./routes.js";
 export * from "./search.js";
 export * from "./enrich.js";
 export * from "./alerts.js";

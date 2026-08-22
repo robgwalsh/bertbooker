@@ -143,7 +143,7 @@ export function useRouteEnrich(): RouteEnrich {
           patch((s) => ({ ...s, status: "error", error: String(err) }));
         } finally {
           inFlight.current.delete(id);
-          void qc.invalidateQueries({ queryKey: ["dashboard"] });
+          void qc.invalidateQueries({ queryKey: ["routes"] });
           void qc.invalidateQueries({ queryKey: ["finds"] });
           void qc.invalidateQueries({ queryKey: ["quota"] });
         }

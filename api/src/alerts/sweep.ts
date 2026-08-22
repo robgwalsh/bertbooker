@@ -7,7 +7,7 @@ import { planSeatsAeroChunks } from "../providers/seatsaero.js";
 import { queryGroupCount } from "../domain/routing.js";
 import { todayISO } from "../providers/window.js";
 import type { Env } from "../bindings.js";
-import { ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte } from "../db/finds.js";
+import { ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte, routeFindsScope } from "../db/finds.js";
 import { idempotencyKey, sendEmail } from "./email.js";
 import { openSearchRun, planSearchPass, runSearchPass } from "../search/run.js";
 import { decideSweep, readBudgetState } from "./budget.js";
@@ -402,14 +402,22 @@ async function noteFailure(env: Env, routeId: number): Promise<void> {
 /**
  * The `changeKey`s that survive THIS route's own filters.
  *
- * One query, and it is the same SQL the dashboard's join uses
+ * One query, and it is the same SQL the Routes page's join uses
  * (`ROUTE_FINDS_MATCH`) — so an alert can never fire on a find the route's own
  * pane would hide. Re-implementing the cabin/currency/nonstop rules in
  * TypeScript would have been a fourth copy of a rule CLAUDE.md already warns is
  * duplicated, and the only copy blind to the cross-source collapse.
+ *
+ * **Scoped to this one route**, which is the whole reason this function stopped
+ * being the most expensive statement in the app: it used to pass an empty
+ * `FindsScope`, so it collapsed every snapshot of every route to answer about
+ * one — 171,471 rows read for a route whose entire input was 23. `AlertRouteRow`
+ * already carries every column `routeFindsScope` needs, so this costs no extra
+ * query. See `routeFindsScope` for why the scope is a superset of
+ * `ROUTE_FINDS_MATCH` rather than a second copy of it.
  */
 async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string>> {
-  const cte = findsCte({ where: [], binds: [] });
+  const cte = findsCte(routeFindsScope([route]));
   const { results } = await env.DB.prepare(
     `${cte.sql}
      SELECT f.route_key, f.program, f.cabin

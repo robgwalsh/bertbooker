@@ -300,7 +300,7 @@ function PathRow({
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["tracked-routes"] });
-      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["routes"] });
       // The reach panel's verdicts are about these very pairs.
       await queryClient.invalidateQueries({ queryKey: ["route-graph", "reach"] });
     },

@@ -25,7 +25,7 @@ import { alerts } from "./endpoints/alerts.js";
 import { reference } from "./endpoints/reference.js";
 import { airports } from "./endpoints/airports.js";
 import { seatsaeroRoutes } from "./endpoints/seatsaeroRoutes.js";
-import { dashboard } from "./endpoints/dashboard.js";
+import { routes } from "./endpoints/routes.js";
 import { trackedRoutes } from "./endpoints/trackedRoutes.js";
 
 // THIS WORKER NEVER CALLS AN AIRLINE'S OWN SITE. The rule is about who is being
@@ -131,7 +131,7 @@ app.route("/", seatsaeroRoutes);
 
 // The Routes page's payload — monitors joined to their current finds. The only
 // reader of `findsCte`.
-app.route("/", dashboard);
+app.route("/", routes);
 
 // The saved searches themselves. Mounted last of the `/api/tracked-routes`
 // owners, deliberately; see the order note above.

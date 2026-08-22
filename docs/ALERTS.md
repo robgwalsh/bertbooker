@@ -371,7 +371,7 @@ to ignore the mail.
 The other half of the question is *would this route's own pane show this find?*
 — cabins, currencies, seats, nonstop, and the cross-source collapse. That is
 **not** re-implemented in TypeScript. `sweepRoute` runs `routeFindKeys`, which is
-the dashboard's own CTE (`findsCte` + `ROUTE_FINDS_MATCH` + `ROUTE_FINDS_SEATS`
+the Routes page's own CTE (`findsCte` + `ROUTE_FINDS_MATCH` + `ROUTE_FINDS_SEATS`
 in `api/src/db/finds.ts`) restricted to the one route, and hands the resulting
 `changeKey` set in.
 
@@ -572,7 +572,7 @@ refused send leaves the rows intact so the next cycle tries again.
 host, answered server-side rather than by making the SPA probe for a 404: a
 button that appears only to fail is worse than no button.
 
-### The page is the feature's safety mechanism, not its dashboard
+### The page is the feature's safety mechanism, not its status board
 
 `app/src/pages/alerts/AlertsPage.tsx` is ordered **problems, cadence, routes, history** —
 anything that would make the mail stop is above the fold. That ordering is why

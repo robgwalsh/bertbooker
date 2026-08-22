@@ -346,12 +346,15 @@ export async function airportCoords(
 
   const { results } = await db
     .prepare(
+      // A plain join, not a `GROUP BY iata` derived table. That form was
+      // MATERIALIZED per call — a full walk of `idx_airports_iata`'s 72,454
+      // entries to look up a handful of codes — and it was guarding against
+      // duplicate IATA codes that the seed does not contain. See `airportJoin`
+      // in endpoints/seatsaeroRoutes.ts; `scripts/build-airports.mjs` is what
+      // keeps that true.
       `SELECT a.iata, a.latitude, a.longitude
          FROM json_each(?1) k
-         JOIN (SELECT iata, latitude, longitude FROM airports
-                WHERE iata IS NOT NULL AND iata != ''
-                GROUP BY iata) a
-           ON a.iata = k.value`,
+         JOIN airports a ON a.iata = k.value AND a.iata != ''`,
     )
     .bind(JSON.stringify(wanted))
     .all<{ iata: string; latitude: number | null; longitude: number | null }>();

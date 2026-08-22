@@ -8,7 +8,7 @@ import type { ApiErrorBody, SearchEvent } from "../../../shared/src/wire/index.j
  * Deliberately not TanStack Query: this is a stream whose *partial* state is the
  * point (chunk rows filling in one at a time), not a request/response a cache can
  * hold. Every chunk's finds are already in D1 by the time you see its frame, so
- * invalidating `["dashboard"]` at the end is a refresh, not the delivery.
+ * invalidating `["routes"]` at the end is a refresh, not the delivery.
  *
  * Failures before the first byte arrive as a status code, because the Worker does
  * everything fallible before opening the stream — a missing API key is a 503 here

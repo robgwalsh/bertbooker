@@ -165,7 +165,7 @@ const slotKey = (f: Find) => `${f.origin}|${f.destination}|${f.flight_date}|${f.
  * arrive when one find is tagged under two overlapping tracked routes.
  *
  * Collapsing to CHEAPEST rather than most-seats is safe because each route's own
- * `min_seats` was already applied server-side by the dashboard join, so every
+ * `min_seats` was already applied server-side by the Routes page join, so every
  * survivor already clears the floor.
  */
 export function collapseLegs(finds: readonly Find[]): Find[] {

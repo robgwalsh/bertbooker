@@ -97,7 +97,7 @@ previews_enabled = false
 # email when a sweep fails (only when it finds something), these logs and the
 # Alerts tab are the two places a broken scheduler is visible. `runAlertTick` is
 # therefore awaited rather than fire-and-forget, so a throw shows here as a
-# failed invocation. The dashboard's Cron Triggers tab is the third surface.
+# failed invocation. Cloudflare's own dashboard, on its Cron Triggers tab, is the third.
 [observability]
 enabled = true
 

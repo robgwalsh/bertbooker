@@ -129,7 +129,7 @@ describe("coverageSlices", () => {
   it("claims the empty window too — 'I looked and there is nothing' is an answer", () => {
     // This is the whole reason the status enum distinguishes `empty` from
     // `failed`. Without a coverage claim here, space that genuinely went away
-    // would never be pruned and the dashboard would show it forever.
+    // would never be pruned and the Routes page would show it forever.
     expect(coverageSlices(task({ status: "empty", offers: [] }))).toHaveLength(1);
   });
 
@@ -236,12 +236,18 @@ function stubDb(baseline: StubbedRow[]) {
   const inserts: unknown[][] = [];
   const deletes: unknown[][] = [];
   const coverage: unknown[][] = [];
+  /** Every `.all()` read, so a test can assert on the baseline query's SHAPE
+   *  and not only on what came back from it. */
+  const reads: { sql: string; args: unknown[] }[] = [];
 
   const statement = (sql: string) => ({
     bind: (...args: unknown[]) => ({
       sql,
       args,
-      all: async () => ({ results: sql.includes("SELECT") ? baseline : [] }),
+      all: async () => {
+        reads.push({ sql, args });
+        return { results: sql.includes("SELECT") ? baseline : [] };
+      },
       run: async () => ({ meta: { changes: 1 } }),
       first: async () => null,
     }),
@@ -259,7 +265,7 @@ function stubDb(baseline: StubbedRow[]) {
     },
   } as unknown as D1Database;
 
-  return { db, inserts, deletes, coverage };
+  return { db, inserts, deletes, coverage, reads };
 }
 
 /** The columns `loadPreviousForSource` selects, for one stored snapshot. */
@@ -309,6 +315,47 @@ describe("applyTask — write-on-change", () => {
     const out = await applyTask(db, "run-1", seatsAeroTask());
     expect(inserts).toHaveLength(0);
     expect(out.snapshotsWritten).toBe(0);
+  });
+
+  it("reads its baseline with the EXACT pair test, not just the airport sets", async () => {
+    // A data-destroying trap, pinned. `loadPreviousForSource` carries indexable
+    // `origin IN (...)`/`destination IN (...)` clauses so it can seek
+    // idx_snap_route_date instead of scanning — but those are a SUPERSET of the
+    // pairs the task touched, and `prunable` filters on (flightDate, program)
+    // only. It has no pair test of its own.
+    //
+    // So if the exact `(origin || '-' || destination) IN (...)` residual is ever
+    // "simplified" away as redundant, this query starts returning rows for pairs
+    // the task never asked about, `prunable` sees them as covered-and-missing,
+    // and applyTask DELETES them. Touch SFO->NRT, OAK->NRT and SFO->HND and the
+    // cross product hands you OAK->HND — a real pair, another search's find.
+    const { db, reads } = stubDb([]);
+    await applyTask(
+      db,
+      "run-1",
+      task({
+        source: "seatsaero",
+        origin: "SFO",
+        destination: "NRT",
+        programs: ["alaska"],
+        offers: [
+          offer({ source: "seatsaero", origin: "SFO", destination: "HND" }),
+          offer({ source: "seatsaero", origin: "OAK", destination: "NRT" }),
+        ],
+      }),
+    );
+    const baseline = reads.find((r) => r.sql.includes("FROM availability_snapshots"));
+    expect(baseline).toBeDefined();
+    expect(baseline!.sql).toContain("(origin || '-' || destination) IN");
+    expect(baseline!.sql).toContain("(s.origin || '-' || s.destination) IN");
+    // And the pairs bound are the touched ones, never their cross product.
+    expect(baseline!.args).toContain("SFO-NRT");
+    expect(baseline!.args).toContain("SFO-HND");
+    expect(baseline!.args).toContain("OAK-NRT");
+    expect(baseline!.args).not.toContain("OAK-HND");
+    // D1 refuses a query over 100 bound parameters, and this one binds its sets
+    // twice. The narrowing is dropped rather than the correctness above it.
+    expect(baseline!.args.length).toBeLessThanOrEqual(100);
   });
 
   it("STILL writes nothing when the stored row has been enriched since", async () => {

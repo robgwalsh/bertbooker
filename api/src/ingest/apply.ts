@@ -246,6 +246,47 @@ async function loadPreviousForSource(
   const pairs = routes.map((r) => `${r.origin}-${r.destination}`);
   const placeholders = pairs.map(() => "?").join(", ");
 
+  // NARROWING clauses, in front of the exact pair test below.
+  //
+  // `(origin || '-' || destination)` is a COMPUTED expression and no index can
+  // serve it, so this query used to scan the whole table once per ingest task.
+  // These two `IN` lists and the date range are an exact prefix of
+  // `idx_snap_route_date` (migration 0005), which turns the scan into a seek.
+  //
+  // **They narrow, they do not decide.** The pair test stays exactly as it was,
+  // and it must: `prunable` filters on (flightDate, program) ONLY — it has no
+  // route-pair test at all — so this list is the one thing standing between a
+  // task and pruning a pair it never touched. The cross product of these two
+  // sets contains pairs that are not in `routes` (touch SFO->NRT, OAK->NRT and
+  // SFO->HND and the product hands you OAK->HND), and a row returned for one of
+  // those would be handed to `prunable` and DELETED. Narrow with these; decide
+  // with the pair list.
+  //
+  // The date range rides along on the OUTER half only — the inner already has
+  // one of its own further down, and `idx_snap_route_date` wants the three
+  // columns together to seek rather than filter afterwards. On the outer it is
+  // implied rather than new: `latest` is already restricted to [lo, hi], and
+  // route_key IS origin-destination-flight_date, so `latest.route_key =
+  // s.route_key` already pins s.flight_date inside the range. Stating it is
+  // what lets the index do the work.
+  const origins = [...new Set(routes.map((r) => r.origin))];
+  const destinations = [...new Set(routes.map((r) => r.destination))];
+  // D1 allows 100 bound parameters. Both halves carry the full sets, so the
+  // narrowing costs `2 * (origins + destinations) + 2` on top of what was
+  // already there. Over budget, drop the narrowing rather than the correctness
+  // below it — slow and right beats refused.
+  const narrowBinds = 2 * (origins.length + destinations.length) + 2;
+  const narrow = pairs.length * 2 + 4 + narrowBinds <= 100;
+  const sets = (alias: string) =>
+    `${alias}origin IN (${origins.map(() => "?").join(", ")})
+              AND ${alias}destination IN (${destinations.map(() => "?").join(", ")})
+              AND `;
+  const nearIn = narrow ? sets("") : "";
+  const nearOut = narrow ? `${sets("s.")}s.flight_date BETWEEN ? AND ?
+          AND ` : "";
+  const inBinds = narrow ? [...origins, ...destinations] : [];
+  const outBinds = narrow ? [...origins, ...destinations, lo, hi] : [];
+
   const { results } = await db
     .prepare(
       `SELECT ${SNAPSHOT_COLUMNS}
@@ -253,15 +294,15 @@ async function loadPreviousForSource(
          JOIN (
            SELECT route_key, program, cabin, MAX(captured_at) AS mx
              FROM availability_snapshots
-            WHERE (origin || '-' || destination) IN (${placeholders}) AND source = ?
+            WHERE ${nearIn}(origin || '-' || destination) IN (${placeholders}) AND source = ?
               AND flight_date BETWEEN ? AND ?
             GROUP BY route_key, program, cabin
          ) latest
            ON latest.route_key = s.route_key AND latest.program = s.program
           AND latest.cabin = s.cabin AND latest.mx = s.captured_at
-        WHERE (s.origin || '-' || s.destination) IN (${placeholders}) AND s.source = ?`,
+        WHERE ${nearOut}(s.origin || '-' || s.destination) IN (${placeholders}) AND s.source = ?`,
     )
-    .bind(...pairs, task.source, lo, hi, ...pairs, task.source)
+    .bind(...inBinds, ...pairs, task.source, lo, hi, ...outBinds, ...pairs, task.source)
     .all();
 
   return results.map((r) => ({ result: rowToResult(r), rawHash: String(r.raw_hash ?? "") }));

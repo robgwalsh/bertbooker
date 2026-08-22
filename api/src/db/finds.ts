@@ -1,4 +1,5 @@
 import { PORTAL_CURRENCIES } from "../domain/programs.js";
+import { addDaysISO } from "../providers/window.js";
 
 /**
  * The read side of the pivot.
@@ -12,8 +13,8 @@ import { PORTAL_CURRENCIES } from "../domain/programs.js";
  * disagree about the same seat.
  *
  * Hence one CTE, built here and used by every reader. There were three readers
- * once — the dashboard, the SPA's database browser, and `GET /api/finds` — and
- * the dashboard is the only one left. The rule survives them, because the next
+ * once — the Routes page, the SPA's database browser, and `GET /api/finds` — and
+ * the Routes page is the only one left. The rule survives them, because the next
  * reader added is exactly when a second hand-written collapse would creep back
  * in. The tables it reads are defined in migrations/0001_init.sql.
  */
@@ -30,11 +31,167 @@ export const FIND_COLUMNS = `f.origin, f.destination, f.flight_date, f.route_key
        f.detail_level, f.enriched_at, f.source_record_id,
        f.stop_count, f.airlines, f.direct_airlines, f.direct_miles_cost`;
 
-/** A predicate narrowing which snapshot rows enter the collapse at all. Keeping
- *  this tight matters: without it every query group-bys the whole table. */
+/**
+ * A predicate narrowing which snapshot rows enter the collapse at all. Keeping
+ * this tight matters: without it every query group-bys the whole table.
+ *
+ * It went unused by both callers for long enough to become the app's largest
+ * expense — `findsCte` was reading **168,280 rows to return 7,468**, on a table
+ * of 7,900, and three variants of it were 88% of every row this database read.
+ * `routeFindsScope` below is what fills it in.
+ *
+ * **A scope predicate may constrain `origin`, `destination` and `flight_date`,
+ * and nothing else.** Those three *are* `route_key` (`routeKey()`,
+ * `domain/types.ts`), and `route_key` is in every group key this CTE uses —
+ * `per_source` groups by (route_key, program, cabin, source), `cash_any` by
+ * (route_key, program, cabin), `finds` by (route_key, program, cabin). So a
+ * predicate that is a function of `route_key` includes or excludes each group
+ * **whole**, and can never change which row wins a collapse or make a cash fare
+ * vanish out of `cash_any`. A predicate naming `program`, `cabin`, `source`,
+ * `captured_at` or `source_fetched_at` can do exactly that, and would look like
+ * it worked.
+ *
+ * Column names go in UNQUALIFIED. The text is interpolated twice — into the
+ * inner grouping subquery, where the table is bare, and into the outer join,
+ * where it is aliased `s`. Neither is ambiguous, because `latest` projects only
+ * route_key/program/cabin/source/mx. (`route_key` itself WOULD be ambiguous in
+ * the outer position, which is a second reason the rule above is the rule.)
+ */
 export interface FindsScope {
   where: string[];
   binds: unknown[];
+}
+
+/** No narrowing — the whole table enters the collapse. What both callers used
+ *  to pass, and what `routeFindsScope` falls back to when a route set is too
+ *  wide to describe inside D1's bind limit. Slow and right. */
+const UNSCOPED: FindsScope = { where: [], binds: [] };
+
+/** The `tracked_routes` columns a scope is derived from — the same ones
+ *  `ROUTE_FINDS_MATCH` reads off `tr`. Structurally satisfied by
+ *  `AlertRouteRow` and by the Routes page's route SELECT, so neither caller needs
+ *  an extra query. */
+export interface ScopedRoute {
+  origin: string;
+  destination: string;
+  origins: string | null;
+  destinations: string | null;
+  via: string | null;
+  date_start: string;
+  date_end: string;
+  round_trip: number;
+}
+
+/**
+ * D1 allows **100 bound parameters per query**. `scope.binds` is consumed TWICE
+ * (see `findsCte`), and every caller appends two binds of its own, so the
+ * ceiling on a scope is `(100 - 2) / 2 = 49`. 45 leaves a little room for a
+ * caller that grows a third bind.
+ */
+const MAX_SCOPE_BINDS = 45;
+
+/** `tracked_routes`' JSON list columns, with the scalar fallback the schema's
+ *  `COALESCE(tr.origins, json_array(tr.origin))` idiom applies in SQL. Mirrors
+ *  `parseList` in `alerts/sweep.ts`, which also parses cabins; kept separate
+ *  rather than shared because that one belongs to the sweep's row shape. */
+function codeList(json: string | null, fallback?: string): string[] {
+  if (json) {
+    try {
+      const parsed: unknown = JSON.parse(json);
+      if (Array.isArray(parsed) && parsed.length) return parsed.map(String);
+    } catch {
+      /* fall through to the scalar */
+    }
+  }
+  return fallback ? [fallback] : [];
+}
+
+/**
+ * The `FindsScope` for a set of tracked routes — a **provable superset** of
+ * every find `ROUTE_FINDS_MATCH` could accept for any of them.
+ *
+ * It lives here, beside the predicate it is a claim about, because the two have
+ * to be read together. **A branch added to `ROUTE_FINDS_MATCH` without a
+ * matching widening here silently drops finds** — out of the Routes page, and out
+ * of alert digests, which send no mail when they find nothing and so cannot
+ * tell you.
+ *
+ * The proof, branch by branch. Let `O` be the origin set built below, `D` the
+ * destination set, and `[lo, hi]` the date range. For a find `f` that
+ * `ROUTE_FINDS_MATCH` accepts under route `tr`:
+ *
+ * | branch | requires | covered because |
+ * | --- | --- | --- |
+ * | forward | `f.origin ∈ origins`, `f.destination ∈ destinations`, date in `[date_start, date_end]` | `origins ⊆ O`, `destinations ⊆ D`, and `[date_start, date_end] ⊆ [lo, hi]` |
+ * | round trip | `f.origin ∈ destinations`, `f.destination ∈ origins`, same dates | the `round_trip` clause adds `destinations → O` and `origins → D` |
+ * | first hub leg | `f.origin ∈ origins`, `f.destination ∈ via` | `origins ⊆ O`; the hub loop adds `via → D` |
+ * | second hub leg | `f.origin ∈ via`, `f.destination ∈ destinations`, date in `[date_start, date_end + 1 day]` | the hub loop adds `via → O`; `destinations ⊆ D`; `hi` is widened by a day |
+ *
+ * Everything else in `ROUTE_FINDS_MATCH` — cabins, currencies, `direct_only` —
+ * and `ROUTE_FINDS_SEATS` only narrow further, so none of them can admit a find
+ * this scope excludes.
+ *
+ * The `+1 day` is applied to EVERY route rather than only to hub routes. It is
+ * trivially still a superset, it costs at most one extra day of rows, and it
+ * removes a conditional that would otherwise have to be kept in step with the
+ * second-leg branch — the one case where an overnight in the hub on the last
+ * gathered date is a real journey.
+ *
+ * **Why `IN` lists and not `route_key` prefix ranges.** A range per
+ * (origin, destination) pair reads beautifully — `route_key` already leads two
+ * indexes, and one route measured 82 rows read against 171,471. But the pair
+ * set is `(origins × destinations) ∪ (destinations × origins) ∪
+ * (origins × via) ∪ (via × destinations)`, which is O(n²) in the route's width:
+ * at `MAX_ORIGINS`/`MAX_DESTINATIONS`/`MAX_VIA` of three that is 36 pairs, 72
+ * binds, **144 after the double consumption** — against a hard limit of 100, for
+ * a route shape the UI will happily let you build. The sets below are O(n):
+ * nine a side worst case, twenty binds, forty doubled.
+ */
+export function routeFindsScope(routes: readonly ScopedRoute[]): FindsScope {
+  const origins = new Set<string>();
+  const destinations = new Set<string>();
+  let lo: string | undefined;
+  let hi: string | undefined;
+
+  for (const r of routes) {
+    const o = codeList(r.origins, r.origin);
+    const d = codeList(r.destinations, r.destination);
+    const via = codeList(r.via);
+    // Can't happen — the scalars are NOT NULL — but an empty side would make
+    // `origin IN ()` a syntax error, and unscoped is the safe direction.
+    if (!o.length || !d.length) return UNSCOPED;
+
+    for (const x of o) origins.add(x);
+    for (const x of d) destinations.add(x);
+    if (r.round_trip === 1) {
+      for (const x of d) origins.add(x);
+      for (const x of o) destinations.add(x);
+    }
+    // A hub is reachable as either side: origins → hub is the first leg, hub →
+    // destinations the second.
+    for (const x of via) {
+      origins.add(x);
+      destinations.add(x);
+    }
+
+    if (lo === undefined || r.date_start < lo) lo = r.date_start;
+    const end = addDaysISO(r.date_end, 1);
+    if (hi === undefined || end > hi) hi = end;
+  }
+  if (lo === undefined || hi === undefined) return UNSCOPED;
+
+  const o = [...origins];
+  const d = [...destinations];
+  if (o.length + d.length + 2 > MAX_SCOPE_BINDS) return UNSCOPED;
+
+  return {
+    where: [
+      `origin IN (${o.map(() => "?").join(", ")})`,
+      `destination IN (${d.map(() => "?").join(", ")})`,
+      `flight_date BETWEEN ? AND ?`,
+    ],
+    binds: [...o, ...d, lo, hi],
+  };
 }
 
 /**
@@ -51,7 +208,11 @@ export interface FindsScope {
  *     `mergeContributions` applied at write time.)
  *  3. `finds` — one row per (route_key, program, cabin), the freshest
  *     `source_fetched_at` winning, with the carried cash fare coalesced in and
- *     `last_checked_at` joined from `search_coverage`.
+ *     `last_checked_at` read out of `search_coverage` by a correlated seek.
+ *
+ * There was a fourth step once — a `coverage` CTE that grouped the whole of
+ * `search_coverage` to supply that last column. It collapsed nothing and cost
+ * 46,368 rows read every time. See the comment at the correlated subquery.
  *
  * The bare-column-with-MAX in step 3 is SQLite-specific and deliberate: it
  * returns the whole row that produced the max, which is exactly the winner.
@@ -84,11 +245,6 @@ cash_any AS (
    WHERE cash_price_cents IS NOT NULL
    GROUP BY route_key, program, cabin
 ),
-coverage AS (
-  SELECT origin, destination, flight_date, program, MAX(checked_at) AS checked_at
-    FROM search_coverage
-   GROUP BY origin, destination, flight_date, program
-),
 finds AS (
   SELECT p.origin, p.destination, p.flight_date, p.route_key, p.program, p.cabin,
          p.seats_available, p.miles_cost, p.cash_fees_cents, p.fees_currency,
@@ -109,14 +265,37 @@ finds AS (
          p.stop_count, p.airlines, p.direct_airlines, p.direct_miles_cost,
          COALESCE(p.cash_price_cents, ca.cp) AS cash_price_cents,
          COALESCE(p.cash_price_currency, ca.cc) AS cash_price_currency,
-         cov.checked_at AS last_checked_at,
+         -- "When did anyone last look at this slice?", as a correlated seek
+         -- rather than a whole-table GROUP BY. (No backticks in here — this is
+         -- a template literal.)
+         --
+         -- The coverage CTE this replaces collapsed NOTHING: there is one
+         -- source, so its GROUP BY read all 46,368 rows of search_coverage and
+         -- returned 46,368 of them — unfiltered, on every Routes page load and
+         -- every alert tick. It was the single largest term in the query.
+         --
+         -- Safe against the bare-column rule this SELECT relies on, because all
+         -- four correlated columns are CONSTANT within the group: the group key
+         -- is (route_key, program, cabin), and route_key IS
+         -- origin-destination-flight_date (routeKey(), domain/types.ts). So it
+         -- cannot matter which row of the group SQLite evaluates this on.
+         --
+         -- A LEFT JOIN miss and MAX() over the empty set agree on NULL, so
+         -- "nobody ever checked" reads exactly as it did.
+         --
+         -- Wants idx_scov_current (migration 0005) to be one row per seek —
+         -- four equality terms and MAX on a trailing DESC column. Measured on
+         -- the old index these same lookups cost 74,969 rows.
+         (SELECT MAX(sc.checked_at)
+            FROM search_coverage sc
+           WHERE sc.origin = p.origin
+             AND sc.destination = p.destination
+             AND sc.flight_date = p.flight_date
+             AND sc.program = p.program) AS last_checked_at,
          MAX(p.source_fetched_at) AS _winner
     FROM per_source p
     LEFT JOIN cash_any ca
       ON ca.route_key = p.route_key AND ca.program = p.program AND ca.cabin = p.cabin
-    LEFT JOIN coverage cov
-      ON cov.origin = p.origin AND cov.destination = p.destination
-     AND cov.flight_date = p.flight_date AND cov.program = p.program
    GROUP BY p.route_key, p.program, p.cabin
 )`;
   return { sql, binds: [...scope.binds, ...scope.binds] };
@@ -133,12 +312,12 @@ finds AS (
  * view once its dollar price is known, which is the entire reason cash pricing
  * exists.
  *
- * This one is a shared constant because the dashboard join and the alert sweep
+ * This one is a shared constant because the Routes page join and the alert sweep
  * are asking exactly the same question — *what would this route show me?* — and
  * an alert that fired on a find the route's own pane hides would be
  * indistinguishable from a bug in either half.
  *
- * A correlated fragment rather than a bind-list builder because the dashboard
+ * A correlated fragment rather than a bind-list builder because the Routes page
  * joins the whole table and the sweep joins one row of it; sharing the SQL text
  * keeps them literally identical, where two builders would only look it.
  *
@@ -249,7 +428,7 @@ export const ROUTE_FINDS_MATCH = `(
       )`;
 
 /** The route's seat floor. Separate from `ROUTE_FINDS_MATCH` only because the
- *  dashboard has always applied it in `WHERE` rather than in the join, and this
+ *  Routes page has always applied it in `WHERE` rather than in the join, and this
  *  extraction changes no SQL. */
 export const ROUTE_FINDS_SEATS = `f.seats_available >= tr.min_seats`;
 

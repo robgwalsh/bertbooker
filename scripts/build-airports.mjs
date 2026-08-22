@@ -106,6 +106,37 @@ async function main() {
 
   console.log(`Parsed ${records.length} airports (excluding closed).`);
 
+  // ONE ROW PER IATA CODE, and this is the only place it is enforced.
+  //
+  // Every join that resolves a code to an airport — the Tools route table, its
+  // map, `airportCoords` — is a plain `LEFT JOIN airports ON iata = ?`. Those
+  // used to be `(SELECT … GROUP BY iata)` derived tables defending against
+  // duplicates, which SQLite MATERIALIZED on every use: a full walk of the
+  // 72,454-row iata index, up to four times per `/routes/geo` request, to look
+  // up a handful of codes. Enforcing the invariant here instead is what let
+  // them become index seeks.
+  //
+  // So a duplicate must FAIL THE BUILD rather than pass quietly. The seed uses
+  // `INSERT OR REPLACE`, so a duplicate would not raise anything at load time —
+  // it would just make one pair of the route graph render twice, which is the
+  // kind of bug nobody traces back to an airport file. Upstream is clean today
+  // (9,054 codes, 9,054 distinct); if that changes, decide which row wins here,
+  // deliberately.
+  const byIata = new Map();
+  const dupes = [];
+  for (const a of records) {
+    if (!a.iata) continue;
+    if (byIata.has(a.iata)) dupes.push(`${a.iata}: ${byIata.get(a.iata)} and ${a.ident}`);
+    else byIata.set(a.iata, a.ident);
+  }
+  if (dupes.length) {
+    throw new Error(
+      `OurAirports now has ${dupes.length} duplicate IATA code(s), which the ` +
+        `route-graph joins assume cannot happen:\n  ${dupes.slice(0, 10).join("\n  ")}\n` +
+        `Resolve them here (pick one row per code) before writing the seed.`,
+    );
+  }
+
   const cols =
     "(ident, type, name, iata, icao, city, country, region, continent, latitude, longitude, scheduled)";
   const parts = [

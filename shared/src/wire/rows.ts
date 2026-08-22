@@ -144,7 +144,7 @@ export interface AlertDelivery {
  * this is the wire.
  */
 export interface Find {
-  tracked_route_id?: number; // which route this find belongs to (dashboard)
+  tracked_route_id?: number; // which route this find belongs to (GET /api/routes)
   origin: string;
   destination: string;
   flight_date: string;

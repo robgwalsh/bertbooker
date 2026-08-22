@@ -48,6 +48,38 @@ airports.get("/api/airports/countries", async (c) => {
 // searched. They differ only when NOTHING is selected: the table falls back to a
 // browsable default of major airports (`defaultToMajors`), while the map wants
 // the whole world plotted, so it opts out.
+/**
+ * A user's search box turned into an fts5 MATCH expression, or `null` when
+ * nothing survives.
+ *
+ * fts5 has a query LANGUAGE, and the string arriving here is whatever someone
+ * typed. Quoting is not enough on its own — a bare `AND`, `OR`, `NOT` or `NEAR`
+ * is an operator, and `*`, `^`, `:`, `-`, `(`, `)` and `"` all mean something.
+ * So each token is reduced to letters and digits, then quoted, then given the
+ * one operator this app actually wants: a trailing `*` for prefix matching,
+ * which is what an autocomplete is.
+ *
+ * Between terms the connective is left implicit, which in fts5 is AND. That is
+ * the same rule the loop this replaced enforced by pushing one `where` clause
+ * per token.
+ *
+ * Six tokens max, as before — an airport name is not a sentence, and the cap is
+ * what stops a pasted paragraph becoming a 200-term query.
+ *
+ * Exported for its tests: this is the one place untrusted text becomes query
+ * syntax, so it is worth pinning rather than reaching through `airportFilter`.
+ */
+export function ftsMatchQuery(q: string): string | null {
+  const terms = q
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 6)
+    .map((t) => t.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter(Boolean)
+    .map((t) => `"${t}"*`);
+  return terms.length ? terms.join(" ") : null;
+}
+
 function airportFilter(
   query: (k: string) => string | undefined,
   { defaultToMajors = true }: { defaultToMajors?: boolean } = {},
@@ -84,15 +116,42 @@ function airportFilter(
     binds.push(...types);
   }
 
-  const tokens = q.split(/\s+/).filter(Boolean).slice(0, 6);
-  for (const tok of tokens) {
-    const exact = tok.toUpperCase();
-    const prefix = `${tok}%`;
-    const contains = `%${tok}%`;
-    where.push(
-      "(iata = ? OR iata LIKE ? OR icao LIKE ? OR ident LIKE ? OR name LIKE ? OR city LIKE ? OR country = ? OR region LIKE ?)",
-    );
-    binds.push(exact, prefix, prefix, prefix, contains, contains, exact, contains);
+  // FULL TEXT, replacing an eight-way OR per token.
+  //
+  // That chain was `iata = ? OR iata LIKE ? OR icao LIKE ? OR ident LIKE ? OR
+  // name LIKE '%?%' OR city LIKE '%?%' OR country = ? OR region LIKE '%?%'`.
+  // Three of those disjuncts had a LEADING wildcard, which no index can serve,
+  // and one unindexable disjunct inside an OR forces the whole chain to a table
+  // scan: 72,865 rows read to return 8, on every settled keystroke. See
+  // migration 0006.
+  //
+  // fts5 keeps the semantics that mattered. Within a token the match is across
+  // every indexed column — which is what the OR spelled out by hand — and
+  // between tokens the default connective is AND, which is what pushing one
+  // clause per token into `where` did. What changes: `name`/`city`/`region` go
+  // from SUBSTRING to WORD-PREFIX, so "ternational" stops matching
+  // "International" while "francisco" still matches "San Francisco Intl". That
+  // is a better answer for an autocomplete, but it is a change.
+  //
+  // A `rowid IN (…)` predicate rather than a JOIN, deliberately: `airports_fts`
+  // shares SIX column names with `airports`, so joining it would make `country =
+  // ?`, `iata != ''` and every other clause in this builder ambiguous. As a
+  // subquery, this builder's contract is unchanged — one more entry in `where`,
+  // its bind pushed in SQL order — and both callers need no edit. `rowid` is
+  // unambiguous in both: neither joins anything.
+  if (q) {
+    const match = ftsMatchQuery(q);
+    if (match) {
+      where.push("rowid IN (SELECT rowid FROM airports_fts WHERE airports_fts MATCH ?)");
+      binds.push(match);
+    } else {
+      // `q` was punctuation only. It matched nothing under the LIKE chain
+      // either, and saying so explicitly matters: `q` is non-empty, so the
+      // `defaultToMajors` branch below will not catch it, and without this the
+      // query would fall through to an unfiltered ranked top-N — a list of big
+      // airports presented as if they were results.
+      where.push("1 = 0");
+    }
   }
 
   // No query and no filters → a browsable default of major airports.
@@ -130,7 +189,7 @@ airports.get("/api/airports/geo", async (c) => {
 // ---- Airports: resolve a set of IATA codes in one round trip ----
 // Deliberately NOT routed through `airportFilter`: that builder is a *search*,
 // tuned for ranking partial matches and owning the "no query → major airports"
-// default. This is an exact lookup for codes we already hold — the dashboard
+// default. This is an exact lookup for codes we already hold — the Routes page
 // naming the airports on a tracked route, the trip list plotting them on a map —
 // and wants none of that. Answers with whatever it finds; a code with no row is
 // simply absent, which the caller renders as the bare code rather than as an

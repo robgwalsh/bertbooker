@@ -245,12 +245,25 @@ export function routeFilter(query: (k: string) => string | undefined): {
   return { source, where, binds };
 }
 
-// `airports.iata` is NOT unique — several rows can carry the same code — so both
-// joins pick one row per code rather than joining the table directly. A naive
-// join would multiply a pair into as many edges as it has duplicate endpoints.
-const AIRPORT_PICK = `(SELECT iata, name, city, latitude, longitude FROM airports
-                        WHERE iata IS NOT NULL AND iata != ''
-                        GROUP BY iata)`;
+/**
+ * Join `airports` by IATA code, one row per code.
+ *
+ * This used to be `(SELECT … FROM airports WHERE iata != '' GROUP BY iata)`,
+ * inlined at each use, guarding against duplicate codes multiplying a pair into
+ * several edges. The guard cost more than the thing it guarded against: SQLite
+ * MATERIALIZEs that subquery per use — twice per route query and FOUR times per
+ * `/routes/geo` request, since the shared `from` fragment is used by the count
+ * and the rows — and each materialization walks all 72,454 entries of
+ * `idx_airports_iata`. It measured 34,574 rows read to return 200.
+ *
+ * It was also guarding against nothing: the seed has **9,054 rows with an IATA
+ * code and 9,054 distinct codes**. `scripts/build-airports.mjs` now refuses to
+ * write a seed that would break that, so the invariant is enforced where the
+ * data is made rather than re-derived in every query that reads it. A plain join
+ * is then two `idx_airports_iata` seeks per row.
+ */
+const airportJoin = (alias: string, col: string) =>
+  `LEFT JOIN airports ${alias} ON ${alias}.iata = ${col} AND ${alias}.iata != ''`;
 
 // ---- Slim rows + coordinates for the map -----------------------------------
 seatsaeroRoutes.get("/api/seatsaero/routes/geo", async (c) => {
@@ -259,8 +272,8 @@ seatsaeroRoutes.get("/api/seatsaero/routes/geo", async (c) => {
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 20000, 1), 50000);
 
   const from = `FROM seatsaero_routes r
-                LEFT JOIN ${AIRPORT_PICK} ao ON ao.iata = r.origin
-                LEFT JOIN ${AIRPORT_PICK} ad ON ad.iata = r.destination
+                ${airportJoin("ao", "r.origin")}
+                ${airportJoin("ad", "r.destination")}
                 WHERE ${where.join(" AND ")}`;
 
   const counted = await c.env.DB.prepare(`SELECT COUNT(*) AS n ${from}`)
@@ -491,8 +504,8 @@ seatsaeroRoutes.get("/api/seatsaero/routes", async (c) => {
             ao.name AS origin_name, ao.city AS origin_city,
             ad.name AS destination_name, ad.city AS destination_city
        FROM seatsaero_routes r
-       LEFT JOIN ${AIRPORT_PICK} ao ON ao.iata = r.origin
-       LEFT JOIN ${AIRPORT_PICK} ad ON ad.iata = r.destination
+       ${airportJoin("ao", "r.origin")}
+       ${airportJoin("ad", "r.destination")}
       WHERE ${where.join(" AND ")}
       ORDER BY r.origin, r.destination
       LIMIT ?`,

@@ -1,11 +1,13 @@
 import { req } from "./client";
 import type {
-  DashboardData,
+  RoutesData,
   RouteInput,
   TrackedRoute,
 } from "../../../shared/src/wire/index.js";
 
-export const dashboard = () => req<DashboardData>("/dashboard");
+/** The Routes page in one request — the tracked routes AND the current finds
+ *  under each. `trackedRoutes` below is the route rows alone. */
+export const routes = () => req<RoutesData>("/routes");
 
 export const trackedRoutes = () => req<TrackedRoute[]>("/tracked-routes");
 

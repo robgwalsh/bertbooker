@@ -14,7 +14,7 @@ import { PORTAL_CURRENCIES } from "../domain/programs.js";
  *
  * **This is the reference statement of the rule, and it is mirrored in SQL** —
  * `BOOKABLE_WITH_CLAUSE` in `api/src/db/finds.ts`, plus the same clause
- * hand-written into the dashboard's join. Every filtering caller lives on the
+ * hand-written into the Routes page's join. Every filtering caller lives on the
  * read side and speaks SQL, so nothing here calls this at runtime any more; it
  * is kept because the two halves must agree and this one is the testable one.
  * Change this and change the SQL in the same commit.

@@ -13,7 +13,7 @@ import { addDaysISO, parseCodeList, routeSets } from "./routeShape";
  * for a pair seats.aero holds no market on at all. SFO->KTM is in no program's
  * graph and comes back empty from every search forever; SFO->ICN and ICN->KTM
  * are ordinary markets, and once both are tracked the answer is already sitting
- * in the dashboard payload with nothing to join it.
+ * in the Routes page payload with nothing to join it.
  *
  * **Three things this produces are claims the data does not make**, and every
  * surface rendering them owes the reader all three:
@@ -135,7 +135,7 @@ export interface StitchOptions {
  *    cleared by whichever OTHER route gathered them. Without this a route
  *    filtered to business could show an economy leg it excludes.
  *
- * `finds` is the whole dashboard payload rather than one route's slice: the legs
+ * `finds` is the whole Routes page payload rather than one route's slice: the legs
  * belong to other tracked routes by construction, which is the entire premise.
  */
 export function stitchJourneys(

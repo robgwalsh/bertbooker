@@ -36,7 +36,7 @@ export function AddRouteDialog({
     mutationFn: () => api.addTrackedRoute(createRouteBody(form)),
     onSuccess: ({ id }) => {
       qc.invalidateQueries({ queryKey: ["tracked-routes"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["routes"] });
       setForm(defaultRouteForm());
       onClose();
       // Last, and after the dialog is out of the way: the search's progress

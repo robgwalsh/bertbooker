@@ -55,7 +55,7 @@ export interface ChunkState {
 
 /** One route's search, as it unfolds. Session state only — a reload clears it,
  *  which is exactly right: this is a diagnostic for the run you just triggered.
- *  The *findings* are already in D1 and come back through `["dashboard"]`. */
+ *  The *findings* are already in D1 and come back through `["routes"]`. */
 export interface RunState {
   status: "running" | "done" | "error";
   startedAt: number;
@@ -268,7 +268,7 @@ export function useRouteSearch(): RouteSearch {
           inFlight.current.delete(id);
           // The finds themselves were written chunk by chunk while this ran; this
           // is the refresh that shows them, plus the quota card's number.
-          void qc.invalidateQueries({ queryKey: ["dashboard"] });
+          void qc.invalidateQueries({ queryKey: ["routes"] });
           void qc.invalidateQueries({ queryKey: ["quota"] });
         }
       })();

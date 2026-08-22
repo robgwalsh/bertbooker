@@ -27,7 +27,7 @@
 
 export type {
   // Envelopes and D1 row projections
-  DashboardData,
+  RoutesData,
   TrackedRoute,
   RouteInput,
   Find,
@@ -117,8 +117,8 @@ import { airportCountries, airportNames, airports, airportsGeo } from "./airport
 import { airlines, currencies, programs, quota } from "./reference";
 import {
   addTrackedRoute,
-  dashboard,
   deleteTrackedRoute,
+  routes,
   suggestRoutePaths,
   trackedRoutes,
   updateTrackedRoute,
@@ -140,7 +140,7 @@ import {
  * Every call the SPA can make, in one object.
  *
  * Kept as a single namespace rather than loose exports because it is what the
- * TanStack Query call sites read as (`queryFn: api.dashboard`), and because a
+ * TanStack Query call sites read as (`queryFn: api.routes`), and because a
  * flat list of twenty-odd verbs is easier to scan for "is there already a call
  * for this" than twenty import statements would be.
  */
@@ -150,7 +150,7 @@ export const api = {
   login,
   logout,
 
-  dashboard,
+  routes,
   programs,
   currencies,
   airlines,

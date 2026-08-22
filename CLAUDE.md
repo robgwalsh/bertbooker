@@ -5,7 +5,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 ## What this is
 
 **BertBooker** — a private, self-hosted award-travel availability tracker (a personal
-seats.aero) for two users. A dashboard of monitored routes and a browsable flight
+seats.aero) for two users. A live view of monitored routes and a browsable flight
 database, each result tagged with which of the couple's cards can book it (Chase /
 Capital One / Bilt / Citi — **no Amex**).
 
@@ -116,8 +116,13 @@ npm run probe:seatsaero-search -- --from SFO,OAK --to NRT,HND --days 120
                             # before running either.
 
 # Airport reference data (~72k rows, public-domain OurAirports):
-npm run build:airports          # regenerates seed/airports.sql (needs internet)
-npm run db:seed:airports:local
+npm run build:airports          # regenerates seed/airports.sql (needs internet).
+                                # FAILS if upstream ships a duplicate IATA code —
+                                # see the gotcha; resolve it, don't bypass it.
+npm run db:seed:airports:local  # loads the table AND rebuilds what is derived
+                                # from it (seed/airports_derived.sql: the
+                                # airports_fts index). Both halves, always —
+                                # never run seed/airports.sql on its own.
 npm run build:world             # regenerates app/src/data/worldGeometry.ts, the
                                 # basemap the trip list's route maps draw
                                 # (needs internet)
@@ -315,12 +320,14 @@ under-claims rather than over-claims.
 ### Reading (`api/src/db/finds.ts`)
 
 Every read of a stored find goes through **one CTE** (`findsCte`), so no two
-surfaces can disagree about what a current find is. **The dashboard is the
+surfaces can disagree about what a current find is. **The Routes page is the
 only reader**, which is the arrangement that keeps it exercised: a change
 to this CTE is exercised by the surface that matters. The CTE has one shape: `per_source` (latest per
 route/program/cabin/**source**) → `cash_any` (freshest known fare, any source) →
-`coverage` (MAX `checked_at`) → `finds` (winner by freshest `source_fetched_at`,
-cash price `COALESCE`d forward). A cash fare is an attribute of the itinerary,
+`finds` (winner by freshest `source_fetched_at`, cash price `COALESCE`d forward,
+`last_checked_at` seeked per slice out of `search_coverage`). There was a
+`coverage` step too, grouping that whole table on every read to supply that one
+column; it collapsed nothing and cost 46,368 rows a call. A cash fare is an attribute of the itinerary,
 not a competing claim about it — hence `cash_any`; without it a find's portal
 price would blink in and out as sources take turns being freshest.
 
@@ -401,6 +408,25 @@ Delta seat reachable.
   and it pushes WHERE binds first, so callers append ORDER BY/LIMIT binds after.
 - **`findsCte`'s scope binds are consumed TWICE** (inner grouping and outer
   filter). Get the order wrong and the query silently filters on wrong values.
+  **Both callers now pass a real scope** (`routeFindsScope`), and for a long time
+  neither did — that omission was 88% of every row this database read: the CTE
+  cost **168,280 rows to return 7,468** on a 7,900-row table, and the alert sweep
+  spent 171,471 answering about a route whose whole input was 23 rows.
+  A scope may constrain **`origin`, `destination` and `flight_date` and nothing
+  else**. Those three *are* `route_key`, which is in every group key the CTE
+  uses, so such a predicate includes or excludes each group whole. One naming
+  `program`, `cabin`, `source` or `captured_at` splits a collapse group and
+  changes which row wins — and would look like it worked.
+  `routeFindsScope` must stay a **superset** of `ROUTE_FINDS_MATCH`; a branch
+  added there without a widening here drops finds out of the Routes page and out
+  of alert digests, which send no mail when they find nothing.
+  `finds.test.ts` pins one witness per branch.
+- **D1 bills rows READ, and it counts temp b-tree and sort rows too.** So the
+  only reliable lever is a `WHERE` that scans fewer base rows — measured,
+  rewriting `per_source` as a `ROW_NUMBER()` window made it *worse* (38,637 vs
+  22,835) and `MATERIALIZED` did not recover it. Measure with
+  `wrangler d1 execute --remote --json`'s `meta.rows_read` and
+  `wrangler d1 insights`; do not reason about it from the query's shape.
 - **The local D1 lives under `--persist-to .wrangler-local`** (repo root). Every
   script that touches it — `dev:api` and all the `db:*` ones — runs wrangler from
   the root with `--config api/wrangler.toml`; change one without the
@@ -416,8 +442,35 @@ Delta seat reachable.
   schema**: it still creates `search_logs` and `search_tasks.artifact_path`,
   which 0002 drops. Both are annotated `DROPPED BY 0002` in place — annotate,
   don't delete, or a fresh database and a migrated one stop agreeing.
-  `0003_seatsaero_routes.sql` is the route-graph cache — purely additive, and
-  the next number is 0004.
+  `0003_seatsaero_routes.sql` is the route-graph cache, `0004_route_via.sql` adds
+  hubs, `0005_read_indexes.sql` is the read-path indexes (and drops
+  `idx_scov_freshness`, annotated in 0001 in place), `0006_airports_fts.sql` is
+  the airport full-text index — and **the next number is 0007**.
+- **`wrangler d1 export` does not work on this database any more**, and that is
+  a known, accepted cost rather than a bug. D1 refuses to export a database
+  containing virtual tables, and `airports_fts` (migration 0006) is one. To
+  export: `DROP TABLE airports_fts`, export, then re-create it from 0006 and
+  re-run `db:seed:airports:derived:*`. Nothing in the repo exports today, and
+  the table is derived from generated reference data, so nothing is at risk —
+  but this is why the export fails.
+- **`seed/airports_derived.sql` must run after `seed/airports.sql`, always.**
+  That file does `DELETE FROM airports` and re-inserts every row, which changes
+  every rowid — and `airports_fts` is an EXTERNAL-CONTENT index keyed on exactly
+  those rowids, so a skipped rebuild makes the autocomplete return whichever
+  airport now occupies a matched row. Silent, not loud. The
+  `db:seed:airports:local` / `:remote` scripts chain both halves, which is the
+  only launch path; running `seed/airports.sql` through wrangler by hand is how
+  you get this wrong.
+- **`airports.iata` is UNIQUE, and `scripts/build-airports.mjs` is what enforces
+  it.** Every join that resolves a code to an airport is a plain
+  `LEFT JOIN airports ON iata = ?`. Those used to be `GROUP BY iata` derived
+  tables guarding against duplicate codes; SQLite MATERIALIZEd them per use —
+  twice per route query, four times per `/routes/geo` — walking all 72k entries
+  of `idx_airports_iata` to look up a handful of codes (37,214 rows read to
+  return 200; it is 998 now). Upstream has 9,054 codes and 9,054 distinct, and
+  the generator now **fails the build** rather than writing a duplicate. It has
+  to fail there: the seed uses `INSERT OR REPLACE`, so a duplicate would raise
+  nothing at load time and just render one route-graph pair twice.
 - **`empty` is a SUCCESS, and the route-graph tables exist to say so.**
   seats.aero answers `200 []` for a source name it does not recognise, so
   "no rows for X" is ambiguous between *never asked* and *that name is wrong*
@@ -466,7 +519,7 @@ Delta seat reachable.
   `app/src/lib/multiLeg.ts` joins a stored leg into a hub with a stored leg out
   of it, so a tracked SFO→KTM — a pair seats.aero holds no market on, which
   therefore never has a find of its own — can still show priced answers built
-  from the SFO→ICN and ICN→KTM routes beside it. It reads the WHOLE dashboard
+  from the SFO→ICN and ICN→KTM routes beside it. It reads the WHOLE Routes page
   payload rather than one route's slice, because the legs belong to other routes
   by construction; that is the entire premise, and it is why this needed no
   migration, no endpoint and no metered call. Same standing as `roundtrip.ts`,

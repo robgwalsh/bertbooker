@@ -318,10 +318,17 @@ describe("airportCoords", () => {
     expect(JSON.parse(asked[0]!.args[0] as string)).toEqual(["SFO", "ICN"]);
   });
 
-  it("picks one row per code, because airports.iata is not unique", async () => {
+  it("joins airports directly, so the lookup is a seek rather than a table walk", async () => {
+    // This used to assert `GROUP BY iata` — a derived table guarding against
+    // duplicate codes. SQLite MATERIALIZEs that per call, walking all 72,454
+    // entries of idx_airports_iata to resolve a handful of codes, and the seed
+    // has no duplicates to guard against (9,054 codes, 9,054 distinct).
+    // `scripts/build-airports.mjs` now fails the build rather than writing one,
+    // so the invariant holds where the data is made and this can be a seek.
     const { db, asked } = stubReader([]);
     await airportCoords(db, ["SFO"]);
-    expect(asked[0]!.sql).toContain("GROUP BY iata");
+    expect(asked[0]!.sql).toContain("JOIN airports a ON a.iata = k.value");
+    expect(asked[0]!.sql).not.toContain("GROUP BY iata");
   });
 
   it("drops a null coordinate rather than plotting it at Null Island", async () => {

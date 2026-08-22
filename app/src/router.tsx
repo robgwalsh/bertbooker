@@ -367,7 +367,7 @@ const alertsRoute = createRoute({
 });
 
 // Four pages. The Routes page is the single place stored finds are read:
-// one surface over `findsCte`, rather than a dashboard and a browser
+// one surface over `findsCte`, rather than the Routes page and a database browser
 // drifting apart about what a current find is.
 const routeTree = rootRoute.addChildren([
   indexRoute,

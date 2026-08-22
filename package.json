@@ -20,8 +20,8 @@
     "db:apply:remote": "wrangler d1 migrations apply bertbooker_db --remote --config api/wrangler.toml",
     "db:seed:local": "wrangler d1 execute bertbooker_db --local --persist-to .wrangler-local --config api/wrangler.toml --file seed/programs.sql",
     "db:seed:remote": "wrangler d1 execute bertbooker_db --remote --config api/wrangler.toml --file seed/programs.sql",
-    "db:seed:airports:local": "wrangler d1 execute bertbooker_db --local --persist-to .wrangler-local --config api/wrangler.toml --file seed/airports.sql",
-    "db:seed:airports:remote": "wrangler d1 execute bertbooker_db --remote --config api/wrangler.toml --file seed/airports.sql",
+    "db:seed:airports:local": "npm run db:seed:airports:table:local && npm run db:seed:airports:derived:local",
+    "db:seed:airports:remote": "npm run db:seed:airports:table:remote && npm run db:seed:airports:derived:remote",
     "build:airports": "node scripts/build-airports.mjs",
     "build:world": "node scripts/build-world-geometry.mjs",
     "//probe": "BOTH SPEND METERED seats.aero CALLS. Read docs/SEATS-AERO.md before running either.",
@@ -45,7 +45,11 @@
     "//typecheck": "Five projects, because each has genuinely different compilerOptions: shared and api want @cloudflare/workers-types, app wants DOM + JSX, e2e wants node + Playwright. The fifth checks shared/src/wire ALONE with neither DOM nor workers-types — it is the narrowest, and it is the only pass that can catch a wire file reaching `fetch` or `Response`, which every other project's lib would happily accept while silently dragging the 1436-line seats.aero provider into the SPA's bundle. e2e is checked here rather than being picked up by `test`, which is vitest only.",
     "typecheck": "tsc -p shared/tsconfig.json && tsc -p shared/tsconfig.wire.json && tsc -p api/tsconfig.json && tsc -p app/tsconfig.json && tsc -p e2e/tsconfig.json",
     "//test": "Offline and serverless, as it has always been. The browser suite is `test:ui` and stays out of this on purpose: it needs two servers and a real Chrome.",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:seed:airports:table:local": "wrangler d1 execute bertbooker_db --local --persist-to .wrangler-local --config api/wrangler.toml --file seed/airports.sql",
+    "db:seed:airports:derived:local": "wrangler d1 execute bertbooker_db --local --persist-to .wrangler-local --config api/wrangler.toml --file seed/airports_derived.sql",
+    "db:seed:airports:table:remote": "wrangler d1 execute bertbooker_db --remote --config api/wrangler.toml --file seed/airports.sql",
+    "db:seed:airports:derived:remote": "wrangler d1 execute bertbooker_db --remote --config api/wrangler.toml --file seed/airports_derived.sql"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

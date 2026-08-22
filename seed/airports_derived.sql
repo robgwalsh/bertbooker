@@ -1,0 +1,16 @@
+-- Everything DERIVED from `airports`, rebuilt from scratch.
+--
+-- Re-runnable, and deliberately OUTSIDE migrations/ for the same reason
+-- seed/programs.sql is: it is not a schema change, it is a snapshot of a
+-- generated table that has to be retaken every time that table is reloaded.
+--
+-- RUN THIS AFTER seed/airports.sql, ALWAYS. That file does `DELETE FROM
+-- airports` and re-inserts every row, which changes every rowid — and
+-- `airports_fts` is an EXTERNAL-CONTENT index keyed on exactly those rowids.
+-- Skip this step and the autocomplete silently returns matches for the airport
+-- that used to occupy a row. The `db:seed:airports:*` scripts chain the two so
+-- there is one launch path and it does both; running seed/airports.sql by hand
+-- is the way to get this wrong.
+--
+-- One statement, not 72,491: 'rebuild' tells fts5 to re-read its content table.
+INSERT INTO airports_fts(airports_fts) VALUES('rebuild');

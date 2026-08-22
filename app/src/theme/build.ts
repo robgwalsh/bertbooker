@@ -21,7 +21,7 @@ import {
  * and not twenty-one layouts — a new theme cannot round a corner, change a
  * density or restyle a table, and every theme therefore gets the same app.
  *
- * That app is an *editor*, not a dashboard, and the difference is four
+ * That app is an *editor*, not a status board, and the difference is four
  * decisions, all of them here:
  *
  * - **Square.** 4px, not 14. Rounded cards are a marketing surface; a pane you
@@ -326,7 +326,7 @@ export function buildTheme(spec: ThemeSpec): Theme {
           root: {
             backgroundImage: "none",
             // Opaque, not blurred: a title bar that shows the page through it is
-            // the dashboard cue this replaces.
+            // the status-board cue this replaces.
             backgroundColor: spec.chrome,
             color: spec.text,
             // The heaviest rule in the app — see `ruleStrong`. It is what tells

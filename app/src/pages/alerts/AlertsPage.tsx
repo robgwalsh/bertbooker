@@ -19,7 +19,7 @@ import { TickPanel } from "./TickPanel";
 /**
  * The Alerts tab.
  *
- * **This page is the feature's safety mechanism, not its dashboard.** The app
+ * **This page is the feature's safety mechanism, not its status board.** The app
  * sends no email when a sweep fails — only when it finds something — so a
  * scheduler that is blocked, refused, or quietly failing produces exactly the
  * same silence as one that ran and found nothing. This page is the answer:
@@ -62,7 +62,7 @@ export function Alerts() {
         ["alert-schedule"],
         ["alert-runs"],
         ["alert-deliveries"],
-        ["dashboard"],
+        ["routes"],
         ["quota"],
       ]) {
         qc.invalidateQueries({ queryKey: key });

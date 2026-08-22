@@ -145,56 +145,6 @@ secrets override vars of the same name.
 
 This project does not scrape airline websites.
 
-## Acknowledgements
-
-BertBooker is a hobby project that stands almost entirely on free and
-open-source work. The only thing it pays for is the seats.aero Partner API key;
-everything below is either open source or a free tier.
-
-**The app itself**
-
-| | |
-|---|---|
-| [React](https://react.dev/) · [React DOM](https://react.dev/) | MIT — the SPA |
-| [MUI](https://mui.com/) (`@mui/material`, `@mui/icons-material`) | MIT — every control on the page. The themes are palettes over it; no theme restyles a component. |
-| [Emotion](https://emotion.sh/) (`@emotion/react`, `@emotion/styled`) | MIT — MUI's style engine |
-| [TanStack Router](https://tanstack.com/router) | MIT — typed routes, which is why a Library or Tools tab is a URL rather than state |
-| [TanStack Query](https://tanstack.com/query) | MIT — every read from the Worker |
-| [Hono](https://hono.dev/) | MIT — the Worker's routing and middleware |
-| [Leaflet](https://leafletjs.com/) · [React Leaflet](https://react-leaflet.js.org/) | BSD-2-Clause · Hippocratic-2.1 — the Airports map and the route graph |
-| [Supercluster](https://github.com/mapbox/supercluster) | ISC — clustering ~72k airport markers client-side |
-
-**Building, testing and deploying it**
-
-| | |
-|---|---|
-| [TypeScript](https://www.typescriptlang.org/) | Apache-2.0 — five `tsc` projects, including the narrow one that keeps the wire contract browser-safe |
-| [Vite](https://vite.dev/) · [`@vitejs/plugin-react`](https://github.com/vitejs/vite-plugin-react) | MIT — the dev server and the one bundle `deploy` uploads |
-| [Vitest](https://vitest.dev/) | MIT — the whole offline test run |
-| [Playwright](https://playwright.dev/) | Apache-2.0 — the headless UI harness (`docs/UI-TESTING.md`) |
-| [Wrangler](https://developers.cloudflare.com/workers/wrangler/) · [`@cloudflare/workers-types`](https://github.com/cloudflare/workerd) | MIT OR Apache-2.0 — local D1, `wrangler dev`, and the deploy |
-| [concurrently](https://github.com/open-cli-tools/concurrently) | MIT — `npm run dev` |
-| [Node.js](https://nodejs.org/) | MIT — the generator scripts under `scripts/` |
-
-**Free hosted services the app calls**
-
-| | |
-|---|---|
-| [Cloudflare](https://developers.cloudflare.com/workers/) Workers, D1 and Cron Triggers | The whole deployment fits in the free tier. Optional — it runs locally with no account. |
-| [CARTO](https://carto.com/attributions) basemap tiles, over [OpenStreetMap](https://www.openstreetmap.org/copyright) data | The Airports map's raster tiles, light and dark. The trip list's route maps and the route graph use the baked-in Natural Earth geometry instead and need no network. |
-| [Kiwi.com](https://www.kiwi.com/) airline logos | `images.kiwi.com/airlines/64x64/<iata>.png`, hotlinked and unauthenticated. |
-| [DuckDuckGo](https://duckduckgo.com/) favicon service | The little marks beside transfer currencies and programs. |
-
-Public-domain datasets — [OurAirports](https://ourairports.com/data/) and
-[Natural Earth](https://www.naturalearthdata.com/), the latter via
-[martynafford/natural-earth-geojson](https://github.com/martynafford/natural-earth-geojson) —
-are covered above under *Third-party data and services*.
-
-None of these projects or services are affiliated with BertBooker or endorse it.
-Each is used under its own license and terms; the tiles, logos and favicons in
-particular are third-party endpoints that this project neither controls nor
-caches.
-
 ## License
 
 [MIT](LICENSE) — © 2026 Rob Walsh.

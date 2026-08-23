@@ -127,9 +127,9 @@ function codeList(json: string | null, fallback?: string): string[] {
  * | first hub leg | `f.origin ∈ origins`, `f.destination ∈ via` | `origins ⊆ O`; the hub loop adds `via → D` |
  * | second hub leg | `f.origin ∈ via`, `f.destination ∈ destinations`, date in `[date_start, date_end + 1 day]` | the hub loop adds `via → O`; `destinations ⊆ D`; `hi` is widened by a day |
  *
- * Everything else in `ROUTE_FINDS_MATCH` — cabins, currencies, `direct_only` —
- * and `ROUTE_FINDS_SEATS` only narrow further, so none of them can admit a find
- * this scope excludes.
+ * Everything else in `ROUTE_FINDS_MATCH` — cabins, currencies, `direct_only`,
+ * `point_limit` — and `ROUTE_FINDS_SEATS` only narrow further, so none of them
+ * can admit a find this scope excludes.
  *
  * The `+1 day` is applied to EVERY route rather than only to hub routes. It is
  * trivially still a superset, it costs at most one extra day of rows, and it
@@ -425,6 +425,20 @@ export const ROUTE_FINDS_MATCH = `(
         -- re-search. Same rule the cabin filter follows: gather wide, query
         -- narrow. (No backticks in here — this is a template literal.)
         AND (tr.direct_only = 0 OR f.is_direct = 1)
+        -- The route's points ceiling, when it has one. A READ filter on the same
+        -- footing as the cabin and nonstop clauses: the dearer awards it hides
+        -- are still stored and still claim coverage, so raising the cap shows
+        -- them again with no re-search.
+        --
+        -- Compared against miles_cost, which quotes the CHEAPEST itinerary of
+        -- any shape for this (route, date, program, cabin) — not
+        -- direct_miles_cost, which is what the nonstop costs when a dearer one
+        -- exists. A route capped at 100k with nonstop-only on can therefore show
+        -- a row whose nonstop price is above the cap; that is the same "the cap
+        -- is about the find" reading everywhere else, and direct_only narrowing
+        -- WHICH itineraries exist is a separate question from what they cost.
+        -- (No backticks in here — this is a template literal.)
+        AND (tr.point_limit IS NULL OR f.miles_cost <= tr.point_limit)
       )`;
 
 /** The route's seat floor. Separate from `ROUTE_FINDS_MATCH` only because the

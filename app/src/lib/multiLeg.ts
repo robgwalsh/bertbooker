@@ -202,6 +202,15 @@ export function stitchJourneys(
       const candidates = index.get(`${a.destination}|${addDaysISO(a.flight_date, d)}`);
       if (!candidates) continue;
       for (const b of candidates) {
+        // The cap is about the COST ON THE ROW, and the row's cost is the sum.
+        // `legFilter` already dropped legs over it one at a time — that is the
+        // route's own filter, mirroring ROUTE_FINDS_MATCH — but two affordable
+        // legs still add up to a journey that is not, and printing 131,000 mi
+        // under a chip reading "100,000 mi max" is the app contradicting itself
+        // on one screen. Applied here rather than after `sort` so `considered`
+        // counts what the pane could have shown, exactly as the other filters do.
+        const totalMiles = a.miles_cost + b.miles_cost;
+        if (route.point_limit != null && totalMiles > route.point_limit) continue;
         hubs.add(a.destination);
         const programs = a.program === b.program ? [a.program] : [a.program, b.program];
         const currency = sharedFeesCurrency([a, b]);
@@ -212,7 +221,7 @@ export function stitchJourneys(
           ],
           via: [a.destination],
           connectDays: d,
-          totalMiles: a.miles_cost + b.miles_cost,
+          totalMiles,
           totalFeesCents: a.cash_fees_cents + b.cash_fees_cents,
           feesCurrency: currency,
           seats: Math.min(a.seats_available, b.seats_available),
@@ -292,6 +301,7 @@ function legFilter(route: TrackedRoute): (f: Find) => boolean {
   const currencies = new Set(parseCodeList(route.currencies));
   return (f: Find): boolean => {
     if (f.seats_available < route.min_seats) return false;
+    if (route.point_limit != null && f.miles_cost > route.point_limit) return false;
     if (cabins.size && !cabins.has(f.cabin)) return false;
     if (!currencies.size) return true;
     if (f.cash_price_cents != null) return true;

@@ -1,0 +1,34 @@
+-- A per-route ceiling on what an award may cost, in miles.
+--
+-- Purely ADDITIVE: one nullable column on an existing table. No row is touched,
+-- nothing is dropped, and every existing route reads exactly as it did — NULL
+-- means "no limit", the same shape `cabins`, `currencies` and `via` already use
+-- for "no filter".
+--
+-- A READ filter, and only a read filter, exactly like `direct_only` above it.
+-- Gather wide, query narrow: a 300k first-class seat on a route capped at 100k
+-- is still fetched, still stored and still claims coverage, so raising the cap
+-- brings it straight back with no search and no metered call. Nothing about the
+-- search plan or the coverage claim reads this column, and nothing may — a
+-- filter that narrowed the GATHER would make the cap a claim about what exists
+-- rather than about what you want to see, and lowering it would then destroy
+-- data.
+--
+-- It is applied in `ROUTE_FINDS_MATCH` (api/src/db/finds.ts), beside the cabin,
+-- currency and nonstop clauses, which is the one place a route's filters are
+-- ever applied. So it constrains the Routes page, the round-trip and journey
+-- panes built out of that payload, and — through the same shared SQL — which
+-- changes an alert digest is allowed to mention.
+--
+-- PER ITINERARY, not per trip. The unit it compares against is
+-- `finds.miles_cost`, which is one stored one-way award, the same unit
+-- `min_seats` and the cabin filter are about. A round trip or a hub journey is
+-- stitched at read time out of legs that each already cleared the cap; the app
+-- does not additionally cap their sum, because a sum of separate awards is
+-- something the app computed rather than something a source quoted.
+--
+-- NULL vs 0. Only NULL means "no limit". Zero is refused at the API rather than
+-- stored, because a route that hides every find is indistinguishable from a
+-- broken one — the same reasoning that refuses an empty `alert_on`.
+
+ALTER TABLE tracked_routes ADD COLUMN point_limit INTEGER;

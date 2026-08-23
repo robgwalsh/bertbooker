@@ -10,6 +10,7 @@ import { BookableCurrencies, CabinChip } from "../../components/brand";
 import { parseCodeList } from "../../lib/routeShape";
 import { RouteDiagram } from "./RouteDiagram";
 import { ALERTS_OFF_HELP, alertHelp, alertOnLabel } from "./alertCopy";
+import { miles } from "../../lib/format";
 import { dayCount } from "./labels";
 import { usDate } from "./dates";
 import type { RouteField } from "./form";
@@ -287,6 +288,19 @@ export function RouteHeader({
               onClick={() => onEdit("minSeats")}
             >
               <Chip size="small" variant="outlined" label={`${route.min_seats}+ seats`} />
+            </SpecValue>
+          )}
+
+          {route.point_limit != null && (
+            <SpecValue
+              help="A points ceiling filters what this route SHOWS. Dearer awards are still gathered and still stored, so raising it brings them straight back — no search, no API call."
+              onClick={() => onEdit("pointLimit")}
+            >
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`${miles(route.point_limit)} max`}
+              />
             </SpecValue>
           )}
 

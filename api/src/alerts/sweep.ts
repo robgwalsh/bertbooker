@@ -67,6 +67,10 @@ export interface AlertRouteRow {
   date_end: string;
   cabins: string | null;
   min_seats: number;
+  /** The route's points ceiling, or null. Read for the `gone` branch of
+   *  `selectAlertable` only — every other change type is intersected against
+   *  `ROUTE_FINDS_MATCH`, which applies the column itself. */
+  point_limit: number | null;
   round_trip: number;
   /** Hubs, which double the queries per chunk — see `routeSweepCost`. */
   via: string | null;
@@ -105,7 +109,8 @@ function parseList(json: string | null, fallback?: string): string[] {
 export async function alertRouteRows(env: Env, email: string): Promise<AlertRouteRow[]> {
   const { results } = await env.DB.prepare(
     `SELECT tr.id, tr.origin, tr.destination, tr.origins, tr.destinations,
-            tr.date_start, tr.date_end, tr.cabins, tr.min_seats, tr.round_trip,
+            tr.date_start, tr.date_end, tr.cabins, tr.min_seats, tr.point_limit,
+            tr.round_trip,
             tr.via,
             tr.alert_email, tr.alert_on, tr.alert_min_drop_pct,
             tr.alert_last_attempt_at, tr.alert_last_digest_at,
@@ -386,7 +391,11 @@ async function sweepRoute(
       types: parseAlertTypes(route.alert_on),
       minDropPct: route.alert_min_drop_pct ?? 0,
     },
-    { cabins: parseList(route.cabins), minSeats: route.min_seats },
+    {
+      cabins: parseList(route.cabins),
+      minSeats: route.min_seats,
+      pointLimit: route.point_limit ?? null,
+    },
   );
   if (alertable.length) await fileOutbox(env, route.id, opened.runId, alertable, opts.now);
 }

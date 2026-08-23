@@ -30,6 +30,10 @@ export interface RouteForm {
   currencies: string[];
   minSeats: number;
   directOnly: boolean;
+  /** The most miles a find may cost to be shown, or `null` for no limit. A READ
+   *  filter like the two above it — raising it costs no search. Null rather
+   *  than 0 for "unset", because 0 would hide every find. */
+  pointLimit: number | null;
   /** Watch both directions. One of the two fields on this form that change what
    *  is GATHERED rather than what is shown. */
   roundTrip: boolean;
@@ -82,6 +86,10 @@ export function defaultRouteForm(): RouteForm {
     currencies: [] as string[], // empty = any card the couple holds
     minSeats: 2,
     directOnly: false,
+    // No ceiling. Same reasoning as the empty cabin list above: gathering is
+    // wide and unfiltered, so a cap here only decides what you are shown, and a
+    // default cap would quietly hide space the route already paid to find.
+    pointLimit: null,
     roundTrip: false,
     // Off by default: it is the one setting here that spends metered calls
     // without anyone pressing anything.
@@ -104,6 +112,7 @@ export function formFromRoute(r: TrackedRoute): RouteForm {
     currencies: parseCodeList(r.currencies),
     minSeats: r.min_seats ?? 2,
     directOnly: Boolean(r.direct_only),
+    pointLimit: r.point_limit ?? null,
     roundTrip: Boolean(r.round_trip),
     alertsEnabled: Boolean(r.alerts_enabled),
     alertEmail: r.alert_email ?? "",

@@ -275,8 +275,18 @@ export function Routes() {
         outbound,
         inbound,
         nights && r.id === selected?.id
-          ? { mode: "nights", minNights: nights[0], maxNights: nights[1] }
-          : { mode: "dates", departOn: r.date_start, returnOn: r.date_end },
+          ? {
+              mode: "nights",
+              minNights: nights[0],
+              maxNights: nights[1],
+              pointLimit: r.point_limit,
+            }
+          : {
+              mode: "dates",
+              departOn: r.date_start,
+              returnOn: r.date_end,
+              pointLimit: r.point_limit,
+            },
       );
       return [r.id, { found: paired.considered, roundTrip: true }];
     }),

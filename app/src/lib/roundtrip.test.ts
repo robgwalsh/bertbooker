@@ -39,6 +39,7 @@ function route(p: Partial<TrackedRoute> & Pick<TrackedRoute, "id">): TrackedRout
     currencies: null,
     min_seats: 2,
     direct_only: 0,
+    point_limit: null,
     round_trip: 1,
     last_checked_at: null,
     // Alerts off: this fixture is about round-trip pairing, and a route that
@@ -133,6 +134,24 @@ describe("pairRoundTrips — the derived fields", () => {
     expect(p.totalFeesCents).toBe(1_760);
     expect(p.seats).toBe(2);
     expect(p.cabin).toBe("business");
+  });
+
+  it("caps on the TOTAL, which is the number this pane prints", () => {
+    // Both legs cleared the route's ceiling server-side; their sum does not.
+    // Without this a route chipped "100,000 mi max" prints a 135,000 mi trip.
+    const o = [out("2027-03-01", { miles_cost: 60_000 })];
+    const i = [back("2027-03-08", { miles_cost: 75_000 })];
+    expect(pairRoundTrips(o, i, { ...NIGHTS, pointLimit: 100_000 }).pairs).toEqual([]);
+    expect(pairRoundTrips(o, i, { ...NIGHTS, pointLimit: 135_000 }).pairs).toHaveLength(1);
+    expect(pairRoundTrips(o, i, { ...NIGHTS, pointLimit: null }).pairs).toHaveLength(1);
+  });
+
+  it("counts a capped-out trip as never considered, not as truncated", () => {
+    const o = [out("2027-03-01", { miles_cost: 60_000 })];
+    const i = [back("2027-03-08", { miles_cost: 75_000 })];
+    const r = pairRoundTrips(o, i, { ...NIGHTS, pointLimit: 100_000 });
+    expect(r.considered).toBe(0);
+    expect(r.truncated).toBe(false);
   });
 
   it("sorts by total miles, breaking ties on fewer nights", () => {

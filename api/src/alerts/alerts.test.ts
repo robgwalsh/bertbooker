@@ -306,6 +306,23 @@ describe("selectAlertable", () => {
     expect(out).toEqual([]);
   });
 
+  it("drops a `gone` for an award the route's point limit hid anyway", () => {
+    // It was over the ceiling while it existed, so the pane never showed it and
+    // its disappearance is not this route's news.
+    const tooDear = change({ type: "gone", key: "a", previousSeats: 4, previousMilesCost: 90_000 });
+    const affordable = change({ type: "gone", key: "b", previousSeats: 4, previousMilesCost: 50_000 });
+    // An unpriced summary passes: refusing what we cannot price would silently
+    // drop real disappearances, which is what `gone` exists to catch.
+    const unpriced = change({ type: "gone", key: "c", previousSeats: 4 });
+    const out = selectAlertable(
+      [tooDear, affordable, unpriced],
+      new Set(),
+      { types: ["gone"], minDropPct: 5 },
+      { cabins: null, minSeats: 2, pointLimit: 60_000 },
+    );
+    expect(out.map((c) => c.key)).toEqual(["b", "c"]);
+  });
+
   it("de-duplicates a key seen twice across passes", () => {
     const a = change({ type: "new", key: "a" });
     const out = selectAlertable([a, a], new Set(["a"]), rule, filters);

@@ -445,7 +445,8 @@ Delta seat reachable.
   `0003_seatsaero_routes.sql` is the route-graph cache, `0004_route_via.sql` adds
   hubs, `0005_read_indexes.sql` is the read-path indexes (and drops
   `idx_scov_freshness`, annotated in 0001 in place), `0006_airports_fts.sql` is
-  the airport full-text index — and **the next number is 0007**.
+  the airport full-text index, `0007_route_point_limit.sql` adds the per-route
+  points ceiling — and **the next number is 0008**.
 - **`wrangler d1 export` does not work on this database any more**, and that is
   a known, accepted cost rather than a bug. D1 refuses to export a database
   containing virtual tables, and `airports_fts` (migration 0006) is one. To

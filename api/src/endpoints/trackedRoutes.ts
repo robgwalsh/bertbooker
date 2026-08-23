@@ -78,6 +78,10 @@ interface RouteBody {
   kind?: string;
   /** Show only nonstop finds under this route. A read filter; see the migration. */
   directOnly?: boolean;
+  /** The most miles an award may cost to be shown. A read filter; see
+   *  migrations/0007. Three-valued like the list filters above: absent keeps
+   *  what is stored, `null` clears the limit, a number sets it. */
+  pointLimit?: number | null;
   /** Search BOTH directions. A gathering setting, not a read filter — turning
    *  it on needs a re-search before the return legs exist. */
   roundTrip?: boolean;
@@ -217,6 +221,24 @@ function validateAlerts(
 const clampDropPct = (v: number | undefined, fallback: number): number =>
   v === undefined ? fallback : Math.min(Math.max(Math.round(v), 0), 100);
 
+/**
+ * A points ceiling as it will be stored: a positive whole number, or NULL for
+ * no limit.
+ *
+ * Three-valued in, two-valued out. `undefined` means "leave it alone" and never
+ * reaches here; `null` clears it. **Zero and anything negative clear it too**,
+ * rather than being stored — a route that hides every find it has looks exactly
+ * like a broken one, which is the same reasoning that refuses an empty
+ * `alert_on`. The upper bound is generous on purpose: it exists to keep a typo
+ * out of an INTEGER column, not to have an opinion about award charts.
+ */
+const clampPointLimit = (v: number | null | undefined, fallback: number | null): number | null => {
+  if (v === undefined) return fallback;
+  if (v === null || !Number.isFinite(v)) return null;
+  const n = Math.round(v);
+  return n > 0 ? Math.min(n, 100_000_000) : null;
+};
+
 /** A stored JSON array column back into a code list. Never throws: a route whose
  *  `origins` somehow isn't JSON should edit as unset, not 500. */
 function storedList(v: unknown): string[] {
@@ -264,8 +286,8 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
     `INSERT INTO tracked_routes
        (user_email, origin, destination, origins, destinations, via,
         date_start, date_end, cabin, cabins, min_seats, programs, currencies, kind, direct_only,
-        round_trip, alerts_enabled, alert_email, alert_on, alert_min_drop_pct)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        point_limit, round_trip, alerts_enabled, alert_email, alert_on, alert_min_drop_pct)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      RETURNING id`,
   )
     .bind(
@@ -292,6 +314,8 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
       b.currencies?.length ? JSON.stringify(b.currencies) : null,
       b.kind ?? "flight",
       b.directOnly ? 1 : 0,
+      // NULL = no limit, which is what a route with no opinion gets.
+      clampPointLimit(b.pointLimit, null),
       // Unlike every other flag bound here, this one changes what a search
       // GATHERS: both directions in the one call. See migrations/0004.
       b.roundTrip ? 1 : 0,
@@ -403,6 +427,7 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
         SET origin = ?, destination = ?, origins = ?, destinations = ?, via = ?,
             date_start = ?, date_end = ?,
             cabin = ?, cabins = ?, currencies = ?, min_seats = ?, direct_only = ?,
+            point_limit = ?,
             round_trip = ?,
             alerts_enabled = ?, alert_email = ?, alert_on = ?, alert_min_drop_pct = ?,
             -- Turning alerts ON re-decides the baseline. A route that has been
@@ -437,6 +462,9 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
       currencies,
       Math.min(Math.max(Math.round(b.minSeats ?? Number(row.min_seats ?? 1)), 1), 9),
       b.directOnly === undefined ? Number(row.direct_only ?? 0) : b.directOnly ? 1 : 0,
+      // Absent keeps the stored ceiling; `null` (what the edit form sends for an
+      // empty field) clears it.
+      clampPointLimit(b.pointLimit, row.point_limit == null ? null : Number(row.point_limit)),
       roundTrip,
       alertsEnabled,
       b.alertEmail === undefined

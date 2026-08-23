@@ -80,21 +80,36 @@ export interface RoundTripPair {
  */
 export type RoundTripOptions = RoundTripNights | RoundTripDates;
 
-export interface RoundTripNights {
+/** What both questions share. Extracted so a setting can never be answered on
+ *  one mode and not the other — the same reason the route form has one shape for
+ *  creating and for editing. */
+interface RoundTripCommon {
+  /** Cheapest-first; the rest are dropped and `truncated` says so. */
+  limit?: number;
+  /**
+   * The route's points ceiling, or null/absent for none.
+   *
+   * Compared against `totalMiles`, the SUM — the number this pane prints in its
+   * Cost column. Each leg was already capped server-side by
+   * `ROUTE_FINDS_MATCH`, so this only ever removes trips whose two affordable
+   * halves add up to one that is not; without it a route chipped "100,000 mi
+   * max" would print a 180,000 mi trip and contradict itself on one screen.
+   */
+  pointLimit?: number | null;
+}
+
+export interface RoundTripNights extends RoundTripCommon {
   mode: "nights";
   minNights: number;
   maxNights: number;
-  /** Cheapest-first; the rest are dropped and `truncated` says so. */
-  limit?: number;
 }
 
-export interface RoundTripDates {
+export interface RoundTripDates extends RoundTripCommon {
   mode: "dates";
   /** The outbound's `flight_date`, exactly. */
   departOn: string;
   /** The return's `flight_date`, exactly. */
   returnOn: string;
-  limit?: number;
 }
 
 export interface RoundTripResult {
@@ -228,16 +243,19 @@ export function pairRoundTrips(
   }
 
   const pairs: RoundTripPair[] = [];
-  const add = (o: Find, i: Find, nights: number) =>
+  const add = (o: Find, i: Find, nights: number) => {
+    const totalMiles = o.miles_cost + i.miles_cost;
+    if (opts.pointLimit != null && totalMiles > opts.pointLimit) return;
     pairs.push({
       outbound: o,
       inbound: i,
       nights,
       cabin: o.cabin,
-      totalMiles: o.miles_cost + i.miles_cost,
+      totalMiles,
       totalFeesCents: o.cash_fees_cents + i.cash_fees_cents,
       seats: Math.min(o.seats_available, i.seats_available),
     });
+  };
 
   if (opts.mode === "dates") {
     const nights = daysBetween(opts.departOn, opts.returnOn);

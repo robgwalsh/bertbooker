@@ -45,6 +45,11 @@ export interface TrackedRoute {
    *  itineraries are still stored and still claim coverage, so turning it off
    *  brings them back with no re-search. */
   direct_only: number;
+  /** The most miles an award may cost to be shown under this route, or null for
+   *  no limit. A READ filter like `direct_only`, and compared against one
+   *  stored one-way itinerary's `miles_cost` — the same unit `min_seats` is
+   *  about. Never 0: the API refuses a limit that would hide everything. */
+  point_limit: number | null;
   /** 1 = this route watches BOTH directions. Unlike every other flag here this
    *  is a GATHERING setting, not a read filter: the search puts every airport on
    *  both sides of one seats.aero call, so the return legs exist only once the
@@ -277,6 +282,10 @@ export interface RouteInput {
   minSeats?: number;
   /** Show only nonstop finds. Filters the pane, not the gathering. */
   directOnly?: boolean;
+  /** Hide finds costing more than this many miles. `null` clears the limit;
+   *  absent leaves the stored one alone. Filters the pane, not the gathering,
+   *  so raising it costs no search. */
+  pointLimit?: number | null;
   /** Watch both directions. Changes the GATHERING (one call covers both), so
    *  unlike the filters above it needs a search before it shows anything. */
   roundTrip?: boolean;

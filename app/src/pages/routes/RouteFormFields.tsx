@@ -21,6 +21,7 @@ import {
 import { AirportMultiAutocomplete } from "../../components/AirportAutocomplete";
 import { BookableCurrencies, CabinChip, CurrencyIcon } from "../../components/brand";
 import { CURRENCY_LABEL } from "../../lib/currencies";
+import { miles } from "../../lib/format";
 import { SWITCH_ROW_ML } from "../../lib/layout";
 import { MAX_DESTINATIONS, MAX_ORIGINS, MAX_VIA } from "../../api";
 import { CABIN_OPTIONS, FILTER_CURRENCIES } from "./constants";
@@ -306,9 +307,47 @@ export function RouteFormFields({
             </MenuItem>
           ))}
         </TextField>
-        {/* `alignSelf: start` plus the input's own height, so the switch centres
-            on the Seats FIELD beside it and not on that field plus its helper
-            text — centring in the grid cell sits it visibly low. */}
+
+        {/* A free number rather than a select, unlike Seats beside it: a seat
+            count is a closed set of six, while a points ceiling is whatever the
+            person has in the account — 87,500 is as real an answer as 100,000,
+            and a menu of round numbers would make them round their own budget.
+            EMPTY is the unset value and the only one: 0 is coerced away here and
+            refused by the Worker, because a route that hides every find it has
+            looks exactly like a broken one. */}
+        <TextField
+          label="Point limit"
+          type="number"
+          size="small"
+          fullWidth
+          ref={focusOn("pointLimit")}
+          value={form.pointLimit ?? ""}
+          onChange={(e) => {
+            const raw = e.target.value.trim();
+            const n = Number(raw);
+            setForm({
+              ...form,
+              pointLimit: raw === "" || !Number.isFinite(n) || n <= 0 ? null : Math.round(n),
+            });
+          }}
+          placeholder="No limit"
+          helperText={
+            form.pointLimit == null
+              ? "Empty for no limit."
+              : `Hides awards over ${miles(form.pointLimit)}.`
+          }
+          slotProps={{
+            inputLabel: { shrink: true },
+            htmlInput: { min: 0, step: 5000, "aria-label": "Point limit in miles" },
+          }}
+        />
+
+        {/* The two switches share a row, one grid column each. Both are
+            one-line yes/no answers, and stacking them full-width put a lot of
+            white space between the fields above and the alerts rule below.
+            `alignSelf: start` plus the input height keeps each switch on the
+            same baseline as a field's INPUT rather than centred on the taller
+            cell its neighbour's helper text makes. */}
         <Box sx={{ alignSelf: "start", height: 40, display: "flex", alignItems: "center" }}>
           <FormControlLabel
             sx={{ ml: SWITCH_ROW_ML }}
@@ -333,7 +372,7 @@ export function RouteFormFields({
             pane and can be undone for free; this one decides what the next
             search asks seats.aero for, and until that search runs the return
             direction does not exist to be filtered. */}
-        <Box sx={{ gridColumn: "1 / -1" }}>
+        <Box sx={{ alignSelf: "start", height: 40, display: "flex", alignItems: "center" }}>
           <FormControlLabel
             sx={{ ml: SWITCH_ROW_ML }}
             ref={focusOn("roundTrip")}

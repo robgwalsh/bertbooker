@@ -81,6 +81,9 @@ export function EditRouteDialog({
         currencies: form.currencies,
         minSeats: form.minSeats,
         directOnly: form.directOnly,
+        // `null` when the field is empty, which is what CLEARS the ceiling —
+        // omitting it would keep the stored one and make the field one-way.
+        pointLimit: form.pointLimit,
         roundTrip: form.roundTrip,
         alertsEnabled: form.alertsEnabled,
         // Empty string means "use the account address", which on the wire is

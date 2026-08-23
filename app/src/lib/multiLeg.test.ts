@@ -39,6 +39,7 @@ function route(p: Partial<TrackedRoute> = {}): TrackedRoute {
     currencies: null,
     min_seats: 2,
     direct_only: 0,
+    point_limit: null,
     round_trip: 0,
     last_checked_at: null,
     alerts_enabled: 0,
@@ -200,6 +201,26 @@ describe("stitchJourneys — the route's other filters", () => {
     const r = route({ min_seats: 4 });
     expect(stitch([first("2027-03-10", { seats_available: 2 }), second("2027-03-10", { seats_available: 6 })], r)
       .journeys).toEqual([]);
+  });
+
+  it("drops a leg over the route's point limit", () => {
+    // Borrowed legs never went through ROUTE_FINDS_MATCH under THIS route, so
+    // the ceiling has to be re-applied here or a capped route is shown a
+    // journey built out of an award it would never display on its own.
+    const r = route({ point_limit: 60_000 });
+    expect(stitch([first("2027-03-10", { miles_cost: 90_000 }), second("2027-03-10")], r).journeys)
+      .toEqual([]);
+    expect(stitch([first("2027-03-10"), second("2027-03-10")], r).journeys).toHaveLength(1);
+  });
+
+  it("caps on the journey TOTAL, not only on each leg", () => {
+    // Both legs are under 60k; the journey they make is not, and the total is
+    // what the Cost column prints.
+    const r = route({ point_limit: 60_000 });
+    expect(stitch([first("2027-03-10", { miles_cost: 40_000 }), second("2027-03-10", { miles_cost: 40_000 })], r)
+      .journeys).toEqual([]);
+    expect(stitch([first("2027-03-10", { miles_cost: 30_000 }), second("2027-03-10", { miles_cost: 30_000 })], r)
+      .journeys).toHaveLength(1);
   });
 
   it("keeps a leg the route's currency filter allows", () => {

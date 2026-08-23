@@ -412,8 +412,13 @@ export function RoundTripTable({
       outbound,
       inbound,
       custom
-        ? { mode: "nights", minNights, maxNights }
-        : { mode: "dates", departOn: route.date_start, returnOn: route.date_end },
+        ? { mode: "nights", minNights, maxNights, pointLimit: route.point_limit }
+        : {
+            mode: "dates",
+            departOn: route.date_start,
+            returnOn: route.date_end,
+            pointLimit: route.point_limit,
+          },
     );
   }, [route, finds, custom, minNights, maxNights]);
 

@@ -79,14 +79,15 @@ export function dropPercent(c: ChangeSummary): number {
  * **`gone` bypasses the intersection, and must.** The whole point of `gone` is
  * that the row is no longer there, so it can never appear in a query of current
  * finds; intersecting it would silently drop every disappearance. It is filtered
- * on what the summary itself carries instead, which means a route's currency and
- * nonstop filters do not apply to it — one more reason it is opt-in.
+ * on what the summary itself carries instead — cabin, seats and the points
+ * ceiling — which means a route's currency and nonstop filters do not apply to
+ * it — one more reason it is opt-in.
  */
 export function selectAlertable(
   changes: ChangeSummary[],
   findKeys: ReadonlySet<string>,
   rule: AlertRule,
-  routeFilters: { cabins?: string[] | null; minSeats: number },
+  routeFilters: { cabins?: string[] | null; minSeats: number; pointLimit?: number | null },
 ): ChangeSummary[] {
   const wanted = new Set(rule.types);
   const out: ChangeSummary[] = [];
@@ -100,6 +101,17 @@ export function selectAlertable(
       // Filtered on the summary, because there is nothing left to join to.
       if (routeFilters.cabins?.length && !routeFilters.cabins.includes(c.cabin)) continue;
       if ((c.previousSeats ?? 0) < routeFilters.minSeats) continue;
+      // What it cost while it existed, against the route's ceiling. A seat the
+      // pane never showed because it was too dear should not announce itself on
+      // the way out. Unknown price passes: `gone` is the one type filtered on the
+      // summary alone, and refusing what we cannot price would silently drop
+      // real disappearances.
+      if (
+        routeFilters.pointLimit != null &&
+        c.previousMilesCost != null &&
+        c.previousMilesCost > routeFilters.pointLimit
+      )
+        continue;
     } else if (!findKeys.has(c.key)) {
       continue;
     }

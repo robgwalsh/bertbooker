@@ -2,6 +2,8 @@
 
 Guidance for Claude Code (claude.ai/code) working in this repository.
 
+CRITICAL: Write zero comments unless explaining non-obvious 'why' logic". Use an active voice, no stage performances, and pick the most common word when choosing among alternatives. When changing existing code, NEVER leave comments explaining how it used to be. When writing comments, the audience is someone reading this code in the future for the first time. NEVER document any invariants that you haven't cleared with the user first. Assuming invariants incorrectly poisons future sessions and snowballs.
+
 **What belongs in this file:** what you need *before* you know which file to
 open. Once you are in a file, its header comment is the authority and it is kept
 fuller than this — `apply.ts`, `finds.ts`, `themes.ts`, `router.tsx` and their

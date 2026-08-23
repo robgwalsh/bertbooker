@@ -10,11 +10,15 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Divider,
   Stack,
   TextField,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import GitHubIcon from "@mui/icons-material/GitHub";
+import RocketLaunchRoundedIcon from "@mui/icons-material/RocketLaunchRounded";
 import { ApiError, api, type LoginResult } from "../api";
 import {
   clearSessionHint,
@@ -238,7 +242,66 @@ function LoginDialog({ onSuccess }: { onSuccess: (result: LoginResult) => void }
           </Button>
         </DialogActions>
       </Box>
+      <SelfHostNote />
     </Dialog>
+  );
+}
+
+/** Where the source lives. Also the README anchor, so the link lands on the
+ *  intro rather than halfway down a long file. */
+const REPO_URL = "https://github.com/robgwalsh/bertbooker#bertbooker";
+
+/**
+ * The way out for someone who doesn't have the password.
+ *
+ * The gate has exactly one key and it isn't handed out, so a stranger who
+ * reaches this dialog has no move — except that the whole thing is open source
+ * and a seats.aero key is theirs to buy. Saying so here is the only place it can
+ * be said: this dialog is the entire app to anyone locked out.
+ *
+ * Drawn as a footer BELOW the actions, in a tinted ground rather than an
+ * `Alert`, so it reads as an invitation and cannot be mistaken for the error
+ * slot above it.
+ */
+function SelfHostNote() {
+  return (
+    <Box
+      sx={{
+        px: 3,
+        pt: 2.25,
+        pb: 2.5,
+        // A ground, not ink — the tint carries the emphasis so the text can stay
+        // ordinary body colour and remain readable in every theme.
+        bgcolor: (t) => alpha(t.palette.primary.main, 0.07),
+        backgroundImage: (t) =>
+          `linear-gradient(180deg, ${alpha(t.palette.primary.main, 0.06)}, transparent 70%)`,
+      }}
+    >
+      <Divider sx={{ mb: 2, mt: -2.25, mx: -3 }} />
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
+        <RocketLaunchRoundedIcon fontSize="small" color="primary" sx={{ mt: 0.25 }} />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            No password? Run your own.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            BertBooker is open source. Bring your own seats.aero API key.
+          </Typography>
+          <Button
+            component="a"
+            href={REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            size="small"
+            variant="outlined"
+            startIcon={<GitHubIcon fontSize="small" />}
+            sx={{ mt: 1.5 }}
+          >
+            Get it on GitHub
+          </Button>
+        </Box>
+      </Stack>
+    </Box>
   );
 }
 

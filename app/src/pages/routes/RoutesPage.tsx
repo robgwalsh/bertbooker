@@ -26,7 +26,6 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AltRouteRoundedIcon from "@mui/icons-material/AltRouteRounded";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
-import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import { api, ENRICH_MAX_PER_RUN, type Find, type SearchCall, type TrackedRoute } from "../../api";
@@ -52,6 +51,7 @@ import { SearchProgress } from "./SearchProgress";
 import { SectionHeading } from "./SectionHeading";
 import { RouteHeader } from "./RouteHeader";
 import { RouteNav, type RouteCount } from "./RouteNav";
+import { RemoveRouteDialog } from "./RemoveRouteDialog";
 import { RAIL_MAX_WIDTH } from "./constants";
 import { estimateCalls } from "./estimate";
 import { directionArrow, sideLabel } from "./labels";
@@ -621,38 +621,18 @@ export function Routes() {
         onSaved={searchAfterSave}
       />
 
-      <Dialog
-        open={!!confirmDel}
-        onClose={() => setConfirmDel(null)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Remove route?</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            Remove the saved search{" "}
-            <Box component="span" sx={{ fontWeight: 600, color: "text.primary" }}>
-              {confirmDel?.origin}&nbsp;{confirmDel && directionArrow(confirmDel)}&nbsp;{confirmDel?.destination}
-            </Box>{" "}
-            ({confirmDel?.date_start} … {confirmDel?.date_end})? Its stored finds stay in the
-            database.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setConfirmDel(null)} color="inherit">
-            Cancel
-          </Button>
-          <Button
-            color="error"
-            variant="contained"
-            startIcon={<DeleteOutlineRoundedIcon />}
-            disabled={del.isPending}
-            onClick={() => confirmDel && del.mutate(confirmDel.id)}
-          >
-            {del.isPending ? "Removing…" : "Remove"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Its own component, and page-private: it draws the route the way the
+          header and the rail do — same diagram, same chips — so the row you
+          pressed the bin on is unambiguous, and it states what removal does and
+          does not take with it. See RemoveRouteDialog. */}
+      <RemoveRouteDialog
+        route={confirmDel}
+        names={names}
+        count={confirmDel ? counts.get(confirmDel.id) : undefined}
+        busy={del.isPending}
+        onCancel={() => setConfirmDel(null)}
+        onConfirm={(id) => del.mutate(id)}
+      />
 
       {/* Search fires on click; this asks first, because it spends a metered
           call PER ROW and the number is not obvious from the button. Stating the

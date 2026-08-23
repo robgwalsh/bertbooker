@@ -115,8 +115,12 @@ enabled = true
 # WHY */15 AND NOT HOURLY, because it is a real trade and it was chosen: a Cron
 # Trigger with an interval UNDER ONE HOUR gets 30 SECONDS of CPU, where an hourly
 # one gets 15 minutes. Waiting on seats.aero is I/O and free; parsing a page of
-# 500 trips-bearing rows is not. So the tick is small on purpose — one route,
-# capped at ALERT_MAX_CALLS_PER_TICK — and a route needing more resumes on the
+# 500 trips-bearing rows is not. So the tick is small on purpose — capped at
+# ALERT_MAX_CALLS_PER_TICK, which is the whole bound: it sweeps due routes, most
+# overdue first, until that many calls are spent. It used to sweep at most ONE
+# route, which is only the same bound when a route costs a whole tick's worth;
+# four one-call routes spent 1 of 25 and were swept four times slower than the
+# cadence the Alerts tab quoted. A route needing more than the cap resumes on the
 # next tick through the same `run_continue` mechanism the HTTP search uses. The
 # cron is a heartbeat; how often any ONE route is actually swept is derived from
 # the day's call budget divided by what the alert routes measurably cost.

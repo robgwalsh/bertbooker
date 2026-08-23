@@ -17,10 +17,11 @@ whether an `onEvent` callback is passed, i.e. whether anyone is listening.
                         │   1. read alert routes + their clocks    │
                         │   2. sweepPacing   → how often (pace.ts) │
                         │   3. dueRoutes     → who, most overdue   │
-                        │   4. decideSweep   → can it be paid for  │
-                        │   5. sweepRoute    → searchRun.ts        │
-                        │   6. selectAlertable → alert_outbox      │
-                        │   7. cycle complete? → flushOutbox       │
+                        │   4. per route, while calls remain:      │
+                        │        decideSweep → can it be paid for  │
+                        │        sweepRoute  → search/run.ts       │
+                        │        selectAlertable → alert_outbox    │
+                        │   5. cycle complete? → flushOutbox       │
                         └──────────────────────────────────────────┘
                                         │                    │
                              ingest (applyTask)      Resend → digest
@@ -109,7 +110,7 @@ protects, which is not the quota — it is the reserve.
 
 ---
 
-## 2. One tick, one route
+## 2. One tick, 25 calls
 
 **A Cron Trigger with an interval under one hour gets 30 SECONDS of CPU. An
 hourly one gets 15 minutes.**
@@ -122,8 +123,9 @@ constraint (10,000 per invocation, though D1 calls count against it) — CPU is.
 So:
 
 - the cron is `*/15 * * * *`, a **heartbeat**, not a cadence;
-- a tick sweeps **at most one route**;
-- the tick is capped at `ALERT_MAX_CALLS_PER_TICK` (25) outbound calls;
+- the tick is capped at `ALERT_MAX_CALLS_PER_TICK` (25) outbound calls, and
+  **that cap is the whole bound** — a tick sweeps due routes, most overdue
+  first, until the cap is spent;
 - a route that needs more resumes on the next tick through the **same
   `run_continue` mechanism** the HTTP search uses — `runSearchPass` returns
   `paused: true`, and the next tick finds the still-`running` run row and
@@ -134,7 +136,45 @@ How often any *one* route is actually swept is derived (§4), not configured.
 
 **Raising a tick's workload without raising the cron interval is how you get
 silent CPU-limit kills.** If you ever want a bigger tick, the interval has to go
-hourly first.
+hourly first. `ALERT_MAX_CALLS_PER_TICK` is that number; nothing else is.
+
+### Why the bound is CALLS and not ROUTES
+
+This used to sweep **at most one route** per tick, which reads as the same rule
+and is not. Calls are what cost CPU. A route count is a proxy that is only
+honest when a route costs a whole tick's worth, and a narrow route costs **one
+call**.
+
+Measured on the author's own four routes — each a two-or-three-day window, one
+chunk, no hubs, so one call apiece:
+
+- `sweepPacing` returned `every 15m` (the floor), because a 4-call cycle divides
+  into a 600-call budget 150 times;
+- a tick spent **1 of its 25 calls** and moved on, so the four round-robined at
+  **60m** — four times slower than the cadence the Alerts tab was quoting, which
+  is exactly the "a page quoting a cadence the scheduler does not keep" failure
+  §4 exists to prevent;
+- the day's alert spend was **96 calls against a 600 budget**, every day;
+- and no digest had **ever** flushed — see §8.
+
+Sweeping to the call cap fixes all three at once, and **it does not raise the
+tick's ceiling**: one route could already spend all 25 calls in a tick, so four
+routes spending four calls is strictly less work than the shape already
+permitted. What changed is that the budget stops going unused.
+
+Two details in the loop are load-bearing:
+
+- **The budget guard is re-read per route**, not once per tick. `finishRun` has
+  written the previous route's `calls` by the time the next one asks, so
+  self-accounting (§7) stays honest *as* the tick spends and the reserve is
+  measured against what is actually left.
+- **`exhausted` breaks the loop; `reserve` only skips that route.** `exhausted`
+  is `remaining <= 0`, which no cheaper route can pass; `reserve` compares
+  against `estimatedCost`, so a cheaper route later legitimately can.
+
+`POST /api/alerts/run`'s `force` still sweeps exactly one route, because its
+argument is a route id and "sweep this one and tell me what happened" is the
+question it exists to answer.
 
 One smaller consequence of the same budget: the sweep passes
 `captureBudgetBytes: 0` — nobody is watching, so holding megabytes of captured
@@ -171,12 +211,16 @@ its own `search_runs` row.
 3. **Price and pace** — `planSeatsAeroChunks` per route for the chunk count, then
    `sweepPacing` (§4). An unaffordable set **returns**; it does not clamp and does
    not sweep.
-4. **Pick one route** — `dueRoutes(...)[0]`, most overdue first.
-5. **Ask the guard** — `readBudgetState` + `decideSweep` (§7). A refusal is
+4. **Pick the due routes** — `dueRoutes(...)`, most overdue first. The tick
+   walks that list until `ALERT_MAX_CALLS_PER_TICK` is spent (§2).
+5. **Ask the guard, per route** — `readBudgetState` + `decideSweep` (§7). A refusal is
    recorded as `skipped: [{ routeId, reason }]` and **no run row is written**:
    `search_runs.status` has no `'skipped'`, and a row that spent nothing would
    pollute the `observed_calls` measurement that feeds step 3.
-6. **Sweep it** — `sweepRoute` (below).
+6. **Sweep it** — `sweepRoute` (below), which returns the calls it spent so the
+   tick can decrement its remaining budget. A route that never reached
+   `runSearchPass` spent nothing and reports nothing, so a tick is not shortened
+   by a route that failed for free.
 7. **Flush, if the cycle is complete** — §8.
 
 ### `sweepRoute`
@@ -456,8 +500,9 @@ self-accounting exactly as it would on a day with no row.
 ## 8. The outbox, and when a digest goes out
 
 The product rule is **one digest per sweep cycle, grouped by route.** The
-platform rule is **one route per tick** (§2). Those only coexist if a change
-outlives the tick that found it — hence `alert_outbox`.
+platform rule is **25 calls per tick** (§2), which a wide enough set will not
+fit in. Those only coexist if a change outlives the tick that found it — hence
+`alert_outbox`.
 
 - `fileOutbox` inserts with `UNIQUE (route_id, change_key)` and
   **newest-wins** on conflict: a route swept twice before a flush must not report
@@ -467,6 +512,14 @@ outlives the tick that found it — hence `alert_outbox`.
   watch the same city pair with different filters and different recipients.
 - **A tick that dies loses nothing.** The flush is a separate step from the sweep,
   and anything already filed is still there next time.
+
+A route set narrow enough to fit inside one tick now completes its cycle in that
+tick and flushes there. It could not before: with one route per tick, four
+routes on a 15-minute interval left three of them permanently older than one
+interval, so `cycleComplete` never once returned true and **no digest was ever
+sent** — three changes sat in `alert_outbox` for four days and `alert_deliveries`
+was empty. The outbox is still required for a set that spans ticks; what it is
+not is a place changes go to stay.
 
 `cycleComplete(email, intervalMinutes, now)` is one query and asks two things:
 **no route is due** (`alert_last_attempt_at` older than one interval, or NULL) and

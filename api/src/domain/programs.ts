@@ -44,6 +44,21 @@ export function currenciesForProgram(code: string): Currency[] {
   return PROGRAM_SEEDS.find((s) => s.code === code)?.transferPartners.map((t) => t.currency) ?? [];
 }
 
+/**
+ * Every program the app knows how to name, and what can transfer into it.
+ *
+ * **`seed/programs.sql` mirrors this array — keep the two in sync** when adding
+ * or editing a program. The seed is what actually fills the `programs` table
+ * (idempotent `INSERT OR REPLACE`, re-runnable, and deliberately outside
+ * `migrations/` for that reason); this array is what the providers read, because
+ * they have no DB access. Adding a program here and not there gives you a code
+ * that filters correctly in the Worker and renders as unknown in the app.
+ *
+ * A third reader makes the drift loud rather than silent in one direction:
+ * `registerSource` validates every program a source declares against this array
+ * at module scope, so a typo here fails the worker's boot instead of a write
+ * mid-search. Nothing checks it against the seed.
+ */
 export const PROGRAM_SEEDS: ProgramSeed[] = [
   // ---- Star Alliance ----
   {

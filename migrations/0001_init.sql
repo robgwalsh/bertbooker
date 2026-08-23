@@ -15,7 +15,7 @@
 -- ===========================================================================
 
 -- Loyalty programs and how the couple's currencies feed them.
--- Mirrors shared/src/data/programs.ts — keep the two in sync.
+-- Mirrors api/src/domain/programs.ts — keep the two in sync.
 CREATE TABLE IF NOT EXISTS programs (
   code              TEXT PRIMARY KEY,
   name              TEXT NOT NULL,

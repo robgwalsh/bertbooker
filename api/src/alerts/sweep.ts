@@ -23,21 +23,43 @@ import { decideSweep, readBudgetState } from "./budget.js";
  * `search_runs` row visible in the Alerts tab, because no email is ever sent
  * about a failure.
  *
- * ## Why one route per tick
+ * ## Why a tick is bounded in CALLS, not in routes
  *
  * A Cron Trigger with an interval under one hour gets **30 seconds of CPU**
  * (an hourly one would get 15 minutes). Waiting on seats.aero is I/O and costs
  * no CPU, but parsing does — a page is up to 500 rows carrying trips, measured
- * at ~9.9 KB each. So a tick sweeps one route, capped at
- * `ALERT_MAX_CALLS_PER_TICK`, and a route needing more resumes on the next tick
- * through the same `run_continue` mechanism the HTTP search uses.
+ * at ~9.9 KB each. So the tick's ceiling is `ALERT_MAX_CALLS_PER_TICK`, and a
+ * route needing more resumes on the next tick through the same `run_continue`
+ * mechanism the HTTP search uses.
+ *
+ * This used to sweep **one route** per tick, which read as the same bound and
+ * was not. Calls are what cost CPU; routes are a proxy that is only right when a
+ * route costs a whole tick's worth. Four narrow routes cost one call each, so
+ * the tick spent 1 of its 25 and the set round-robined at four times the cadence
+ * `sweepPacing` claimed — measured at 96 calls a day against a 600 budget, with
+ * the Alerts tab quoting `every 15m` for a set actually swept hourly. Worse, the
+ * digest never flushed: `cycleComplete` wants every route attempted inside one
+ * interval, and one-route-per-tick cannot deliver that for more than one route.
+ *
+ * **The ceiling did not move.** A single route could already spend all 25 calls
+ * in one tick, so sweeping four routes for four calls is strictly less work than
+ * the shape already permitted. What changed is that the budget stops going
+ * unused. Raising `ALERT_MAX_CALLS_PER_TICK` itself is still the thing that
+ * needs the cron interval raised first.
  *
  * ## Why there is an outbox
  *
- * "One digest per sweep cycle" and "one route per tick" only coexist if a change
- * outlives the tick that found it. Changes land in `alert_outbox` and the digest
- * flushes when the cycle is complete — no route due, none mid-run. A tick that
- * dies therefore loses nothing.
+ * "One digest per sweep cycle" and a tick that may not get through the whole
+ * cycle only coexist if a change outlives the tick that found it. Changes land
+ * in `alert_outbox` and the digest flushes when the cycle is complete — no route
+ * due, none mid-run. A tick that dies therefore loses nothing.
+ *
+ * The outbox is still required now that a tick sweeps several routes: a set
+ * wider than `ALERT_MAX_CALLS_PER_TICK`, or one route that pauses, still spans
+ * ticks. What changed is that a set narrow enough to fit finishes its cycle
+ * inside one tick and therefore flushes at all — with one route per tick, four
+ * routes on a 15-minute interval left three of them permanently "due" and
+ * `cycleComplete` never once returned true.
  */
 
 const DEFAULT_DAILY_BUDGET = 600;
@@ -235,26 +257,34 @@ export async function runAlertTick(
 
   const byId = new Map(routes.map((r) => [r.id, r] as const));
 
-  // ---- sweep at most one route ------------------------------------------
-  // See the docblock: 30 seconds of CPU is the constraint, and one route's worth
-  // of JSON parsing is what spends it.
-  let target: AlertRouteRow | undefined;
+  // ---- sweep the due routes, until the tick's CALL budget is spent -------
+  // See the docblock: 30 seconds of CPU is the constraint and parsing pages is
+  // what spends it, so the bound is `maxCallsPerTick` rather than a route count.
+  // A route that alone costs the whole tick still gets the whole tick, exactly
+  // as before; a set of narrow ones no longer leaves 24 of 25 calls unspent.
+  let targets: AlertRouteRow[] = [];
   if (opts.force !== undefined) {
-    target = byId.get(opts.force);
-    if (!target) {
+    // Forcing is deliberately still ONE route: the endpoint's argument is a
+    // route id, and "sweep this and tell me what happens" is the whole question
+    // it exists to answer.
+    const forced = byId.get(opts.force);
+    if (!forced) {
       // Not an alert route (or not this account's). Reported rather than thrown,
       // so the caller reads one channel for every reason a tick did nothing.
       result.skipped.push({ routeId: opts.force, reason: "not_alert_route" });
-    } else if (chunksOf(target.id) <= 0) {
+    } else if (chunksOf(forced.id) <= 0) {
       // `dueRoutes` would have filtered this; forcing must not route around the
       // reason. `planSearchPass` refuses an expired window, and letting it get
       // that far would bump `alert_consecutive_failures` and back the route off
       // for a fault that is not the sweeper's.
-      result.skipped.push({ routeId: target.id, reason: "window_expired" });
-      target = undefined;
+      result.skipped.push({ routeId: forced.id, reason: "window_expired" });
+    } else {
+      targets = [forced];
     }
   } else if (pacing.affordable) {
-    const due = dueRoutes(
+    // Most overdue first, so a tick that runs out of calls part-way through
+    // starves the route that has waited least rather than an arbitrary one.
+    targets = dueRoutes(
       routes.map((r) => ({
         routeId: r.id,
         chunks: chunksOf(r.id),
@@ -264,17 +294,26 @@ export async function runAlertTick(
       })),
       pacing.intervalMinutes,
       now,
-    );
-    target = due[0] ? byId.get(due[0].routeId) : undefined;
+    ).flatMap((d) => byId.get(d.routeId) ?? []);
   }
 
-  if (target) {
+  let callsLeft = maxCallsPerTick;
+  for (const target of targets) {
+    if (callsLeft <= 0) break;
+    // Honour a deadline the caller set between routes as well as between tasks.
+    // `scheduled()` passes none today — `maxCalls` is what bounds a real tick —
+    // but a loop that ignored one it was handed would be its own bug.
+    if (opts.deadlineAt != null && Date.now() >= opts.deadlineAt) break;
+
     const cost = routeSweepCost({
       routeId: target.id,
       chunks: chunksOf(target.id),
       groups: costFor.get(target.id)?.groups,
       observedCalls: target.observed_calls == null ? undefined : Number(target.observed_calls),
     });
+    // Re-read per route rather than once per tick: `finishRun` has written the
+    // previous route's `calls` by now, so self-accounting stays honest as the
+    // tick spends, and the reserve is measured against what is actually left.
     const budget = await readBudgetState(env.DB, now);
     const decision = decideSweep({ ...budget, estimatedCost: cost, reserve, dailyBudget });
 
@@ -282,10 +321,21 @@ export async function runAlertTick(
       // No run row: `search_runs.status` has no 'skipped', and a row that never
       // spent anything would pollute the pacing measurements it feeds.
       result.skipped.push({ routeId: target.id, reason: decision.reason });
-    } else {
-      await sweepRoute(env, target, { now, maxCalls: maxCallsPerTick, deadlineAt: opts.deadlineAt });
-      result.sweptRouteIds.push(target.id);
+      // The guard's answer is about the day, not this route, so nothing later in
+      // the tick can pass a test this one just failed for less.
+      if (decision.reason === "exhausted") break;
+      continue;
     }
+
+    // A paused route consumed everything left and the loop ends on the next
+    // iteration's `callsLeft` check — no special case needed.
+    const spent = await sweepRoute(env, target, {
+      now,
+      maxCalls: callsLeft,
+      deadlineAt: opts.deadlineAt,
+    });
+    callsLeft -= spent;
+    result.sweptRouteIds.push(target.id);
   }
 
   // ---- flush, if the cycle is complete -----------------------------------
@@ -310,12 +360,17 @@ export async function runAlertTick(
  * with no `alert_last_digest_at` therefore ingests normally, files nothing, and
  * just stamps the clock. The same rule covers a route whose alerts were switched
  * back on after going dark.
+ *
+ * Returns the calls it actually spent, which is what the tick decrements its
+ * budget by. A route that never reached `runSearchPass` — a refused plan, a run
+ * that would not open — spent nothing and is reported as nothing, so a tick is
+ * not shortened by a route that failed for free.
  */
 async function sweepRoute(
   env: Env,
   route: AlertRouteRow,
   opts: { now: number; maxCalls: number; deadlineAt?: number },
-): Promise<void> {
+): Promise<number> {
   const email = env.APP_USER_EMAIL!;
 
   // The pacing clock is stamped on every ATTEMPT, before anything can fail.
@@ -343,7 +398,7 @@ async function sweepRoute(
   });
   if (!planned.ok) {
     await noteFailure(env, route.id);
-    return;
+    return 0;
   }
 
   const opened = await openSearchRun(env.DB, planned.plan, {
@@ -353,7 +408,7 @@ async function sweepRoute(
   });
   if (!opened.ok) {
     await noteFailure(env, route.id);
-    return;
+    return 0;
   }
 
   const pass = await runSearchPass(env.DB, planned.plan, opened.runId, {
@@ -366,7 +421,7 @@ async function sweepRoute(
 
   if (pass.totals.ok === 0) {
     await noteFailure(env, route.id);
-    return;
+    return pass.totals.calls;
   }
   await env.DB.prepare("UPDATE tracked_routes SET alert_consecutive_failures = 0 WHERE id = ?")
     .bind(route.id)
@@ -374,14 +429,14 @@ async function sweepRoute(
 
   // A paused route is only half-searched. Filing its changes now would let the
   // flush describe half a route as though it were the whole answer.
-  if (pass.paused) return;
+  if (pass.paused) return pass.totals.calls;
 
   if (route.alert_last_digest_at == null) {
     // Baseline. Ingest kept, nothing filed, clock stamped.
     await env.DB.prepare("UPDATE tracked_routes SET alert_last_digest_at = ? WHERE id = ?")
       .bind(opts.now, route.id)
       .run();
-    return;
+    return pass.totals.calls;
   }
 
   const alertable = selectAlertable(
@@ -398,6 +453,7 @@ async function sweepRoute(
     },
   );
   if (alertable.length) await fileOutbox(env, route.id, opened.runId, alertable, opts.now);
+  return pass.totals.calls;
 }
 
 async function noteFailure(env: Env, routeId: number): Promise<void> {

@@ -11,7 +11,7 @@ import { parseCodeList } from "../../lib/routeShape";
 import { RouteDiagram } from "./RouteDiagram";
 import { ALERTS_OFF_HELP, alertHelp, alertOnLabel } from "./alertCopy";
 import { miles } from "../../lib/format";
-import { dayCount } from "./labels";
+import { dayCount, searchedHelp, searchedLabel } from "./labels";
 import { usDate } from "./dates";
 import type { RouteField } from "./form";
 import type { AirportName, AlertScheduleRoute, TrackedRoute } from "../../api";
@@ -110,9 +110,13 @@ function SpecValue({
  * still all here, but as bare values with their labels moved into tooltips, and
  * the two cells that were neither identity nor filter are gone. Search cost
  * belongs to the button that spends it (and to the Edit dialog, which still
- * quotes it); "last searched" is per-find in the table below and per-route in
- * the rail. The find count is gone for the same reason — the rail already
+ * quotes it). The find count is gone for the same reason — the rail already
  * counts every route, including this one.
+ *
+ * The one status it keeps is FRESHNESS, and it sits with the actions rather
+ * than in the spec: everything in that strip is a setting you can change, while
+ * "Searched 2h ago" is a fact about what has already happened to this route —
+ * and the button that changes it is the next thing to its right.
  *
  * `position: sticky` resolves against the editor pane's own scroller from `md`
  * up and against the stacked page below it, so the same `top: 0` is right on
@@ -342,6 +346,20 @@ export function RouteHeader({
             spec runs — and on a wrap they lead the second line rather than
             trailing whatever fell there. */}
         <Box sx={{ flex: "1 1 0", minWidth: 0 }} />
+
+        {/* How stale the pane under this header is, answered by ONE clock for
+            both of the things that can search it — see `searchedLabel`.
+            Warning ink when nothing ever has, which is the rail's word for that
+            state ("unsearched") said at the route you actually have open. */}
+        <SpecValue help={searchedHelp(route)}>
+          <Typography
+            variant="caption"
+            color={route.last_checked_at ? "text.secondary" : "warning.main"}
+            sx={{ whiteSpace: "nowrap" }}
+          >
+            {searchedLabel(route)}
+          </Typography>
+        </SpecValue>
 
         {/* Four labelled buttons. On a phone they take a full-width line of
             their own rather than being dealt out one per line by the parent's

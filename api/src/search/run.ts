@@ -3,7 +3,12 @@ import { planRoute, type RouteLegGroup, type RoutePair } from "../domain/routing
 import { applyTask } from "../ingest/apply.js";
 import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../ingest/types.js";
 import { callMetadata, datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk, seatsAeroTaskKey } from "../providers/seatsaero.js";
-import { classifyError, type FetchLike, makeTransport } from "../providers/transport.js";
+import {
+  classifyError,
+  clientMessage,
+  type FetchLike,
+  makeTransport,
+} from "../providers/transport.js";
 import { todayISO } from "../providers/window.js";
 import { finishRun, recordQuota, recordTask, type SearchTotals } from "../db/runs.js";
 
@@ -638,6 +643,10 @@ export async function runSearchPass(
     // A stream that ends with neither `run_done` nor `error` died mid-flight,
     // and the client is required to read that as failure rather than as an
     // empty result. This is the branch that keeps that promise honest.
+    // The raw message is RECORDED; a sanitised one is EMITTED. The row is read
+    // by whoever is debugging and by `GET /api/alerts/runs`, and it should say
+    // exactly what happened. The stream is read by a browser, where a raw D1
+    // error is internal schema disclosure wearing a status message's clothes.
     const message = err instanceof Error ? err.message : String(err);
     await db
       .prepare(
@@ -646,7 +655,7 @@ export async function runSearchPass(
       .bind(Date.now(), Date.now(), message, runId)
       .run()
       .catch(() => {});
-    await emit({ type: "error", message }).catch(() => {});
+    await emit({ type: "error", message: clientMessage(err) }).catch(() => {});
     return {
       runId,
       paused: false,

@@ -14,7 +14,12 @@ import "./sources/index.js";
 import type { Env, Vars } from "./bindings.js";
 import { identity } from "./middleware/identity.js";
 import { authRoutes, gate } from "./middleware/gate.js";
-import { applySecurityHeaders, corsOrigin, csrfOrigin } from "./middleware/security.js";
+import {
+  applySecurityHeaders,
+  corsOrigin,
+  csrfOrigin,
+  isEdgeRequest,
+} from "./middleware/security.js";
 import { runAlertTick } from "./alerts/sweep.js";
 // The endpoint modules, each a `Hono` sub-app mounted below. THE ORDER OF THESE
 // MOUNTS IS THE ROUTING TABLE — see the block comment above them.
@@ -172,21 +177,37 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
 
-    // Canonical host. Both `bertbooker.com` and `www.bertbooker.com` are routed
-    // to this worker (wrangler.toml) so that either spelling resolves, but only
-    // the apex is ever SERVED: the session is an HttpOnly SameSite=Strict cookie
-    // scoped to the host that set it, so answering on both would mean two
-    // independent logins depending on which one you typed.
+    // Canonical ORIGIN — the apex host, over https. Two corrections behind one
+    // redirect, because they are the same correction: a session is an HttpOnly
+    // SameSite=Strict cookie scoped to the scheme AND host that set it, so every
+    // spelling this worker answers on is an independent login.
+    //
+    // Both `bertbooker.com` and `www.bertbooker.com` are routed here
+    // (wrangler.toml) so that either resolves, but only the apex is ever SERVED.
+    //
+    // The https half closes a window HSTS structurally cannot: `Strict-Transport-
+    // Security` is only sent on an https response (security.ts), so it does
+    // nothing for a browser's FIRST plaintext request — and on this app that is
+    // the request carrying the shared password. Without this, a plaintext hit on
+    // the apex reached the worker, the password arrived in the clear, and the
+    // session cookie went back without `Secure` (see `writeSessionCookie`).
+    // Dev is exempt: `wrangler dev` serves plain http and there is nothing to
+    // upgrade to. The exemption is keyed on `isEdgeRequest` rather than on the
+    // URL because wrangler dev presents the PRODUCTION host over http — a
+    // URL-based test makes local dev an infinite redirect to itself.
     //
     // 308 rather than 301 — permanent either way, but 308 forbids the
-    // method-rewrite-to-GET that 301 historically permits, so a POST that lands
-    // on the wrong host replays as a POST instead of silently becoming a GET.
-    // Matched on the `www.` prefix rather than a literal, so it needs no edit if
-    // the domain moves again.
+    // method-rewrite-to-GET that 301 historically permits, so the POST that lands
+    // here replays as a POST instead of silently becoming a GET and losing the
+    // body.
     let canonical: URL | null = null;
-    if (url.hostname.startsWith("www.")) {
+    const upgradeScheme = url.protocol !== "https:" && isEdgeRequest(request);
+    if (url.hostname.startsWith("www.") || upgradeScheme) {
       canonical = new URL(url);
-      canonical.hostname = url.hostname.slice(4);
+      if (canonical.hostname.startsWith("www.")) {
+        canonical.hostname = canonical.hostname.slice(4);
+      }
+      if (upgradeScheme) canonical.protocol = "https:";
     }
 
     // Security headers are applied HERE rather than as Hono middleware, and the
@@ -194,11 +215,11 @@ export default {
     // JSON and miss the HTML document — the one response a CSP is actually
     // about. Every branch below goes through the same helper.
     const respond = async (): Promise<Response> => {
-      // Before anything else, including the API: nothing should be answered on
-      // the non-canonical host. It goes through `respond` rather than returning
+      // Before anything else, including the API: nothing is answered on a
+      // non-canonical origin. It goes through `respond` rather than returning
       // early so the redirect carries the same headers as everything else —
       // notably HSTS, which is the one header that has to reach a browser on
-      // its FIRST visit to `www.` to be worth anything.
+      // its FIRST visit to `www.` (or to `http://`) to be worth anything.
       if (canonical) return Response.redirect(canonical.toString(), 308);
 
       if (pathname.startsWith("/api/")) return app.fetch(request, env, ctx);

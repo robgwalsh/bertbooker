@@ -4,6 +4,8 @@ import {
   chunkDateRange,
   daysBetween,
   effectiveSearchWindow,
+  InvalidDateError,
+  isIsoDate,
   planStrideDates,
   todayISO,
 } from "./window.js";
@@ -156,5 +158,54 @@ describe("planStrideDates", () => {
       expect(d >= "2026-08-05" && d <= "2026-08-20").toBe(true);
     }
     expect(planStrideDates("2026-09-01", "2026-08-01", today, 7, 10, 5)).toEqual([]);
+  });
+});
+
+/**
+ * The guard on the parse, which is the whole of a bug that could brick the app.
+ *
+ * `date_start`/`date_end` reach here straight off `tracked_routes`, and until
+ * `POST /api/tracked-routes` validated them, anything at all could be stored.
+ * `"garbage".split("-").map(Number)` is `[NaN]`, `Date.UTC(NaN, …)` is `NaN`,
+ * and `new Date(NaN).toISOString()` throws `RangeError: Invalid time value` —
+ * a message naming neither this function nor the value. Reached through
+ * `routeFindsScope`, that was an opaque 500 on `GET /api/routes`, on every
+ * search, and on every cron tick, permanently, for one bad POST.
+ *
+ * So these pin two things: that a non-date is refused rather than turned into
+ * an `Invalid Date`, and that the refusal SAYS SO.
+ */
+describe("isIsoDate", () => {
+  it("accepts the stored format and nothing else", () => {
+    expect(isIsoDate("2026-08-22")).toBe(true);
+    // Dates are compared as strings in SQL, so width is correctness, not style.
+    expect(isIsoDate("2026-8-22")).toBe(false);
+    expect(isIsoDate("2026-08-22T00:00:00Z")).toBe(false);
+    expect(isIsoDate("garbage")).toBe(false);
+    expect(isIsoDate("")).toBe(false);
+    expect(isIsoDate(undefined)).toBe(false);
+    expect(isIsoDate(null)).toBe(false);
+    expect(isIsoDate(20260822)).toBe(false);
+  });
+});
+
+describe("addDaysISO / daysBetween reject a non-date", () => {
+  it("throws a NAMED error rather than an opaque RangeError", () => {
+    expect(() => addDaysISO("garbage", 1)).toThrow(InvalidDateError);
+    // The message has to carry the value, or this is the same debugging dead
+    // end wearing a different name.
+    expect(() => addDaysISO("garbage", 1)).toThrow(/addDaysISO.*garbage/);
+    expect(() => daysBetween("2026-08-22", "nope")).toThrow(InvalidDateError);
+  });
+
+  it("still does the arithmetic it always did", () => {
+    expect(addDaysISO("2026-08-22", 1)).toBe("2026-08-23");
+    expect(daysBetween("2026-08-22", "2026-08-25")).toBe(3);
+  });
+
+  it("refuses NaN quietly becoming a number", () => {
+    // The quieter half: `daysBetween` returned NaN rather than throwing, and a
+    // NaN day count propagates into pacing and chunking without complaint.
+    expect(() => daysBetween("", "")).toThrow(InvalidDateError);
   });
 });

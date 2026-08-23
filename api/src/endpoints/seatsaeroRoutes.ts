@@ -19,7 +19,7 @@ import {
   runSeatsAeroRoutes,
 } from "../providers/seatsaero.js";
 import { searchPairs } from "../domain/routing.js";
-import { classifyError, makeTransport } from "../providers/transport.js";
+import { classifyError, clientMessage, makeTransport } from "../providers/transport.js";
 import { PROGRAM_SEEDS, currenciesForProgram } from "../domain/programs.js";
 import { assessGraphReach, type ReachRouteInput } from "../domain/graphReach.js";
 import {
@@ -126,7 +126,13 @@ seatsaeroRoutes.post("/api/seatsaero/sources/:source/fetch", async (c) => {
       httpStatus: (err as { httpStatus?: number }).httpStatus ?? null,
       error: `${status}: ${message}`,
     });
-    return c.json({ error: "routes_fetch_failed", message: `${status}: ${message}` }, 502);
+    // Recorded above with the raw message, returned here without it — the same
+    // split the search stream makes. The recorded row is the fetch's own history
+    // and is worth keeping precise; this is the immediate reply to a button press.
+    return c.json(
+      { error: "routes_fetch_failed", message: `${status}: ${clientMessage(err)}` },
+      502,
+    );
   }
 
   if (result.quota) await recordQuota(c.env.DB, [result.quota]);
@@ -234,9 +240,15 @@ export function routeFilter(query: (k: string) => string | undefined): {
       where.push("(r.origin = ? OR r.destination = ?)");
       binds.push(code, code);
     } else {
-      const contains = `%${q}%`;
+      // `%` and `_` are LIKE metacharacters and `q` is whatever was typed. The
+      // value is BOUND, so this was never injectable — but an unescaped pattern
+      // is still a pattern the caller gets to write, and `%a%b%c%d%e%…` against
+      // the joined seatsaero_routes × airports set makes both the COUNT(*) and
+      // the row read below scan repeatedly. D1 bills rows read.
+      const contains = `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
       where.push(
-        `(ao.name LIKE ? OR ad.name LIKE ? OR ao.city LIKE ? OR ad.city LIKE ?)`,
+        `(ao.name LIKE ? ESCAPE '\\' OR ad.name LIKE ? ESCAPE '\\'
+          OR ao.city LIKE ? ESCAPE '\\' OR ad.city LIKE ? ESCAPE '\\')`,
       );
       binds.push(contains, contains, contains, contains);
     }

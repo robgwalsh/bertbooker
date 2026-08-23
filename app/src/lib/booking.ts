@@ -41,14 +41,30 @@ export function flightSearchUrl(f: {
 // page, when the source gave us one, else a Google Flights
 // search. Returns the target URL plus a short label for the destination host.
 export function bookingTarget(f: Find): { url: string; label: string; isAirline: boolean } {
+  // The URL is parsed for the label anyway, so checking its scheme with the same
+  // parse is free — and it is the difference between "this app validated the
+  // link" and "React happens to refuse javascript: hrefs". The provider now
+  // declines to STORE a non-https link (api/src/providers/seatsaero.ts), which is
+  // where the check belongs; this is the belt, because rows written before that
+  // check existed are still in the database, and this is the last point before
+  // the value becomes an `href`.
+  //
+  // Anything not https falls through to the search link rather than rendering a
+  // dead Book button: the row is still a real find, and the fallback is exactly
+  // what a find with no link at all already gets.
   if (f.booking_url) {
-    let host = "airline site";
     try {
-      host = new URL(f.booking_url).hostname.replace(/^www\./, "");
+      const parsed = new URL(f.booking_url);
+      if (parsed.protocol === "https:") {
+        return {
+          url: f.booking_url,
+          label: `Book on ${parsed.hostname.replace(/^www\./, "")}`,
+          isAirline: true,
+        };
+      }
     } catch {
-      /* keep fallback label */
+      /* fall through to the search link */
     }
-    return { url: f.booking_url, label: `Book on ${host}`, isAirline: true };
   }
   return { url: flightSearchUrl(f), label: "Search on Google Flights", isAirline: false };
 }

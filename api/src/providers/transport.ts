@@ -68,6 +68,36 @@ export function classifyError(err: unknown): { status: SourceTaskStatus; message
 }
 
 /**
+ * The version of an error a BROWSER may be shown.
+ *
+ * Error text here comes from two places that deserve opposite treatment.
+ *
+ * A `BlockedError` is this app's OWN sentence about a vendor refusal — "blocked:
+ * rate limited (429)" — which is safe, and is genuinely the most useful thing
+ * the UI can say. It is kept, minus the URL it embeds: that URL is the full
+ * seats.aero request including its query string, which is nobody's business on
+ * the wire and is exactly the sort of thing that ends up in a screenshot.
+ *
+ * Everything else is unbounded. A D1 failure arrives as `D1_ERROR: NOT NULL
+ * constraint failed: availability_snapshots.<column>`, a bind overflow as "too
+ * many SQL variables", a parser bug as whatever the runtime said. That is
+ * internal schema and internal structure, and it was being streamed to the
+ * client AND persisted into `search_runs.error`, which the Alerts tab renders
+ * straight back. Those become one fixed sentence.
+ *
+ * Nothing is lost for debugging: callers still record `classifyError`'s raw
+ * message on the run, and Workers Logs still has the throw. This decides only
+ * what crosses the wire.
+ */
+export function clientMessage(err: unknown): string {
+  if (err instanceof BlockedError) return `blocked: ${err.reason} (${err.status})`;
+  if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+    return "the source timed out";
+  }
+  return "unexpected error — the cause is recorded on the run";
+}
+
+/**
  * Classify a response status as a refusal from the keyed API. Pure.
  *
  * `401`/`403` mean the key is wrong or revoked, `429` means the day's

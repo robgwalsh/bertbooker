@@ -158,6 +158,24 @@ function Centered({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * What each refusal means to the person typing.
+ *
+ * A map rather than a ternary chain because the list grew: only `bad_password`
+ * and `too_many_attempts` are things the typist can do anything about, and the
+ * rest are facts about the server. The fallback is deliberately the LEAST
+ * specific message, so a code nobody has mapped yet reads as "something is
+ * wrong" instead of borrowing the wrong explanation.
+ */
+const LOGIN_ERRORS: Record<string, string> = {
+  bad_password: "That password isn't right.",
+  // A 429 is not a wrong password and must not read as one — telling someone
+  // their correct password is wrong is how a throttle turns into a support call.
+  too_many_attempts: "Too many attempts from here. Wait a minute and try again.",
+  no_app_password: "The API has no APP_PASSWORD configured.",
+  no_session_secret: "The API has no SESSION_SECRET configured.",
+};
+
 function LoginDialog({ onSuccess }: { onSuccess: (result: LoginResult) => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -173,13 +191,8 @@ function LoginDialog({ onSuccess }: { onSuccess: (result: LoginResult) => void }
     } catch (err) {
       setPassword("");
       setError(
-        err instanceof ApiError && err.code === "bad_password"
-          ? "That password isn't right."
-          : err instanceof ApiError && err.code === "no_app_password"
-            ? "The API has no APP_PASSWORD configured."
-            : err instanceof ApiError && err.code === "no_session_secret"
-              ? "The API has no SESSION_SECRET configured."
-              : "Couldn't reach the API. Check that it's running and try again.",
+        (err instanceof ApiError && err.code ? LOGIN_ERRORS[err.code] : undefined) ??
+          "Couldn't reach the API. Check that it's running and try again.",
       );
     } finally {
       setBusy(false);

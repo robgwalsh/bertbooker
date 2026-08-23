@@ -3,6 +3,7 @@ import type { Context, Next } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
 import type { Env, Vars } from "../bindings.js";
+import { isEdgeRequest } from "./security.js";
 import type { LoginResult, SessionState } from "../../../shared/src/wire/index.js";
 
 /**
@@ -54,9 +55,20 @@ const COOKIE_NAME = "bertbooker_session";
  *  reuse a retired value. */
 const KEY_CONTEXT = "bertbooker-session-v1";
 
-/** Deliberate cost on a wrong password. The gate is a single shared secret with
- *  no lockout, so the only thing blunting online guessing is that each attempt
- *  costs a fixed quarter-second of the attacker's wall clock. */
+/** Deliberate cost on a wrong password.
+ *
+ *  This comment used to claim the delay was "the only thing blunting online
+ *  guessing," on the reasoning that each attempt costs the attacker a fixed
+ *  quarter-second of wall clock. **That is not what it does, and the claim is
+ *  what let the gap survive review.** A Worker serves requests concurrently, so
+ *  this sleep is per-connection latency, not a serialization point — and it is
+ *  I/O wait, so it costs the attacker no CPU either. A few hundred parallel
+ *  connections turn it into no throttle at all.
+ *
+ *  It is kept because it is still worth something against a naive sequential
+ *  script, and it costs a legitimate typo a quarter second. The actual throttle
+ *  is `LOGIN_LIMITER` below, and the actual bound on a distributed attack is a
+ *  WAF rule outside this repo — see the binding's docblock in bindings.ts. */
 const BAD_PASSWORD_DELAY_MS = 250;
 
 const encoder = new TextEncoder();
@@ -147,6 +159,30 @@ async function passwordMatches(supplied: string, secret: string): Promise<boolea
   return secretsMatch(supplied, secret);
 }
 
+/**
+ * May this caller attempt a login at all?
+ *
+ * Counted per client IP, and counted on EVERY attempt rather than only failed
+ * ones — a limiter that forgives correct guesses is a limiter an attacker stops
+ * paying the moment they succeed, and the thing being protected here is a single
+ * shared secret that many people may legitimately be typing.
+ *
+ * Returns `true` when the binding is absent: see `LOGIN_LIMITER` in bindings.ts
+ * for why this one alone does not fail closed.
+ */
+async function loginAllowed(c: Context<{ Bindings: Env; Variables: Vars }>): Promise<boolean> {
+  const limiter = c.env.LOGIN_LIMITER;
+  if (!limiter) return true;
+  // `CF-Connecting-IP` is stamped by Cloudflare's edge and cannot be spoofed by
+  // the client — a forged header of the same name is overwritten before the
+  // worker runs. Its ABSENCE means the request was not proxied (i.e. `wrangler
+  // dev`), and those all share one bucket rather than skipping the check: an
+  // unkeyed caller is not a case to be generous about.
+  const ip = c.req.header("CF-Connecting-IP") ?? "unproxied";
+  const { success } = await limiter.limit({ key: `login:${ip}` });
+  return success;
+}
+
 /** Mint the session JWT. `jti` makes two logins in the same second distinct;
  *  `sub` records the identity for a reader, though `auth.ts` deliberately still
  *  takes identity from `APP_USER_EMAIL` rather than from a claim. */
@@ -204,8 +240,22 @@ function presentedToken(c: Context<{ Bindings: Env; Variables: Vars }>): string 
  *
  * `Secure` is conditional because `wrangler dev` serves plain http on
  * 127.0.0.1, and a `Secure` cookie there is dropped without comment — the
- * symptom being a login that succeeds and changes nothing. Production is always
- * https, so it is always set there.
+ * symptom being a login that succeeds and changes nothing.
+ *
+ * The discriminator is whether the EDGE served this request, not the request's
+ * scheme, and that distinction is the whole point. Keying off
+ * `protocol === "https:"` looked equivalent — "production is always https" —
+ * but production is only always https if something makes it so, and nothing in
+ * this repo did: a plaintext request to the apex reached the worker, so the
+ * password arrived in the clear and the cookie went back WITHOUT `Secure`, free
+ * for any network attacker on the path to read and replay. `index.ts` now 308s
+ * any edge-served plaintext request to https before a handler sees it, and this
+ * line states the same rule rather than restating a hope about it: in
+ * production the cookie is always `Secure`, whatever scheme it arrived on.
+ *
+ * Not `isLocalRequest`: `wrangler dev` presents the production host over http,
+ * so a URL-based test would set `Secure` in local dev and the browser would
+ * silently drop the cookie. See `isEdgeRequest`.
  *
  * `SameSite=Strict` is what makes CSRF a non-question for the whole API: the
  * browser will not attach this cookie to anything another site initiated. The
@@ -219,7 +269,7 @@ function writeSessionCookie(
   c: Context<{ Bindings: Env; Variables: Vars }>,
   token: string | null,
 ): void {
-  const secure = new URL(c.req.url).protocol === "https:";
+  const secure = isEdgeRequest(c.req.raw);
   const options = { path: "/", httpOnly: true, sameSite: "Strict", secure } as const;
   if (token === null) {
     deleteCookie(c, COOKIE_NAME, options);
@@ -304,6 +354,10 @@ authRoutes.get("/api/auth/session", async (c) => {
 authRoutes.post("/api/auth/login", async (c) => {
   const missing = missingSecret(c.env);
   if (missing) return c.json({ error: missing }, 503);
+
+  // BEFORE the body is read and before anything is compared, so a refused
+  // attempt costs this worker nothing and tells the caller nothing.
+  if (!(await loginAllowed(c))) return c.json({ error: "too_many_attempts" }, 429);
 
   const body = (await c.req.json().catch(() => null)) as { password?: unknown } | null;
   const supplied = typeof body?.password === "string" ? body.password : "";

@@ -148,6 +148,46 @@ function codeList(json: string | null, fallback?: string): string[] {
  * nine a side worst case, twenty binds, forty doubled.
  */
 export function routeFindsScope(routes: readonly ScopedRoute[]): FindsScope {
+  const sets = scopeSets(routes);
+  if (!sets) return UNSCOPED;
+
+  const o = [...sets.origins];
+  const d = [...sets.destinations];
+  if (o.length + d.length + 2 > MAX_SCOPE_BINDS) return UNSCOPED;
+
+  return {
+    where: [
+      `origin IN (${o.map(() => "?").join(", ")})`,
+      `destination IN (${d.map(() => "?").join(", ")})`,
+      `flight_date BETWEEN ? AND ?`,
+    ],
+    binds: [...o, ...d, sets.lo, sets.hi],
+  };
+}
+
+/**
+ * The origin set, destination set and date range a set of routes can produce
+ * finds across — the whole of what the docblock above works through, with the
+ * SQL peeled off.
+ *
+ * Extracted so `routeFindsScope` and `withinRouteScope` below cannot drift.
+ * Those two ask the same question in opposite directions — "which finds might
+ * these routes have?" and "might these routes have this find?" — and the second
+ * is an AUTHORIZATION check. Built on its own hand-copied idea of what a route
+ * covers, it would start refusing legitimate hub legs the first time either the
+ * `via` handling or the `round_trip` handling moved, and it would do it as a
+ * 404 on a button that used to work.
+ *
+ * `null` rather than a pair of empty sets, because the two callers must answer a
+ * degenerate input differently: no usable routes means "read everything" to one
+ * and "permit nothing" to the other.
+ */
+function scopeSets(routes: readonly ScopedRoute[]): {
+  origins: Set<string>;
+  destinations: Set<string>;
+  lo: string;
+  hi: string;
+} | null {
   const origins = new Set<string>();
   const destinations = new Set<string>();
   let lo: string | undefined;
@@ -159,7 +199,7 @@ export function routeFindsScope(routes: readonly ScopedRoute[]): FindsScope {
     const via = codeList(r.via);
     // Can't happen — the scalars are NOT NULL — but an empty side would make
     // `origin IN ()` a syntax error, and unscoped is the safe direction.
-    if (!o.length || !d.length) return UNSCOPED;
+    if (!o.length || !d.length) return null;
 
     for (const x of o) origins.add(x);
     for (const x of d) destinations.add(x);
@@ -178,20 +218,41 @@ export function routeFindsScope(routes: readonly ScopedRoute[]): FindsScope {
     const end = addDaysISO(r.date_end, 1);
     if (hi === undefined || end > hi) hi = end;
   }
-  if (lo === undefined || hi === undefined) return UNSCOPED;
+  if (lo === undefined || hi === undefined) return null;
 
-  const o = [...origins];
-  const d = [...destinations];
-  if (o.length + d.length + 2 > MAX_SCOPE_BINDS) return UNSCOPED;
+  return { origins, destinations, lo, hi };
+}
 
-  return {
-    where: [
-      `origin IN (${o.map(() => "?").join(", ")})`,
-      `destination IN (${d.map(() => "?").join(", ")})`,
-      `flight_date BETWEEN ? AND ?`,
-    ],
-    binds: [...o, ...d, lo, hi],
-  };
+/**
+ * Could this (origin, destination, flight_date) be a find of one of these
+ * routes?
+ *
+ * The authorization question behind `POST /api/finds/enrich`, which is the one
+ * endpoint that names an availability row by its COORDINATES rather than by a
+ * route id — and then spends a metered seats.aero call on it and writes back to
+ * the row. Without this it would enrich anything in the database, including
+ * rows no route of the caller's has ever asked about, which made it the
+ * cheapest way to burn the day's Partner-API quota.
+ *
+ * Uses the same superset the read path uses, so it errs GENEROUS: a find this
+ * accepts is one the Routes page might legitimately be showing, hub legs and
+ * round-trip reversals included. That is the right direction for a check whose
+ * false negative is a working button that starts returning 404.
+ */
+export function withinRouteScope(
+  routes: readonly ScopedRoute[],
+  origin: string,
+  destination: string,
+  flightDate: string,
+): boolean {
+  const sets = scopeSets(routes);
+  if (!sets) return false;
+  return (
+    sets.origins.has(origin) &&
+    sets.destinations.has(destination) &&
+    flightDate >= sets.lo &&
+    flightDate <= sets.hi
+  );
 }
 
 /**

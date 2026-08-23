@@ -5,6 +5,10 @@ import { MAX_VIA, normalizeSpec, searchPairs } from "../domain/routing.js";
 import { fetchedSources, graphRowsForPairs, readFetchRecords } from "../db/routeGraph.js";
 import { searchGraphPaths } from "../search/graphPaths.js";
 import { isRecipientAllowed } from "../alerts/email.js";
+import { isIsoDate } from "../providers/window.js";
+import { CABIN_ORDER } from "../domain/types.js";
+import { CURRENCIES } from "../domain/programs.js";
+import { rowIdParam } from "./params.js";
 import type { Env, Vars } from "../bindings.js";
 import type { RouteInput, TrackedRoute } from "../../../shared/src/wire/index.js";
 
@@ -192,6 +196,18 @@ function validateAlerts(
   env: Env,
 ): { ok: true } | { ok: false; error: string; message: string } {
   if (b.alertOn !== undefined && b.alertOn !== null) {
+    // Bounded as well as checked. The membership test below rejects unknown
+    // VALUES but said nothing about how many, so `["new"]` repeated a hundred
+    // thousand times passed and was stringified into the column — and
+    // `alert_on` is re-parsed by every sweep. There are only so many distinct
+    // kinds of change, so the list of them is its own cap.
+    if (Array.isArray(b.alertOn) && b.alertOn.length > ALL_ALERT_TYPES.length) {
+      return {
+        ok: false,
+        error: "bad_alert_types",
+        message: "Too many alert kinds.",
+      };
+    }
     if (!Array.isArray(b.alertOn) || b.alertOn.length === 0) {
       return {
         ok: false,
@@ -216,10 +232,68 @@ function validateAlerts(
   return { ok: true };
 }
 
+/**
+ * The JSON list columns, bounded and — where the vocabulary is closed — checked
+ * against it.
+ *
+ * `cabins`, `currencies` and `programs` were stringified straight out of the
+ * request body with no cap on length and no check on content at all. They are
+ * re-parsed by `json_each` in every `ROUTE_FINDS_MATCH` scan and by every
+ * sweep, so a multi-megabyte array is not merely an odd-looking row: it is a
+ * cost paid on every read of the Routes page, for as long as the route exists,
+ * by a route that looks entirely normal in the UI.
+ *
+ * VALIDATION ONLY — nothing is normalised or rewritten here, so PATCH's
+ * three-valued merge downstream (`undefined` keeps what is stored, `[]` clears
+ * the filter to "any") is untouched.
+ *
+ * `programs` is bounded but deliberately NOT allowlisted: the `programs` table
+ * is editable reference data, so a fixed list here would fight it, and an
+ * unknown code only ever narrows a filter to nothing.
+ */
+function validateLists(b: RouteBody): { ok: true } | { ok: false; message: string } {
+  const checks: [string, unknown, readonly string[] | null, number][] = [
+    ["cabins", b.cabins, CABIN_ORDER, CABIN_ORDER.length],
+    ["currencies", b.currencies, CURRENCY_CODES, CURRENCY_CODES.length],
+    ["programs", b.programs, null, 64],
+  ];
+  for (const [label, value, allowed, cap] of checks) {
+    if (value === undefined || value === null) continue;
+    if (!Array.isArray(value)) return { ok: false, message: `${label} must be a list.` };
+    if (value.length > cap) {
+      return { ok: false, message: `Too many ${label} (at most ${cap}).` };
+    }
+    if (allowed) {
+      const unknown = [...new Set(value.map(String))].filter((v) => !allowed.includes(v));
+      if (unknown.length) {
+        return { ok: false, message: `Unknown ${label}: ${unknown.join(", ")}` };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+/** The currency codes a route may filter on — derived from the one catalogue in
+ *  `domain/programs.ts` rather than restated, so adding a currency there is the
+ *  whole of adding it. */
+const CURRENCY_CODES: readonly string[] = CURRENCIES.map((c) => c.code);
+
 /** 0–100, and a whole number: a fractional percentage threshold is a decision
- *  nobody makes and a column nobody can read back. */
-const clampDropPct = (v: number | undefined, fallback: number): number =>
-  v === undefined ? fallback : Math.min(Math.max(Math.round(v), 0), 100);
+ *  nobody makes and a column nobody can read back.
+ *
+ *  `Number.isFinite` first, for the reason `clampPointLimit` below spells out:
+ *  `Math.round(NaN)` is `NaN`, and `NaN` passes straight through `Math.min` and
+ *  `Math.max` untouched. Written as a bare clamp chain over an untrusted body
+ *  field — which is how this was written — a non-numeric value reached a NOT
+ *  NULL INTEGER column. */
+const clampDropPct = (v: unknown, fallback: number): number =>
+  Number.isFinite(v) ? Math.min(Math.max(Math.round(v as number), 0), 100) : fallback;
+
+/** Seats per booking as it will be stored: a whole number, 1–9. Same
+ *  `Number.isFinite` guard and the same reason as `clampDropPct` above — this
+ *  was the second bare clamp chain, written out twice (POST and PATCH). */
+const clampMinSeats = (v: unknown, fallback: number): number =>
+  Number.isFinite(v) ? Math.min(Math.max(Math.round(v as number), 1), 9) : fallback;
 
 /**
  * A points ceiling as it will be stored: a positive whole number, or NULL for
@@ -253,11 +327,36 @@ function storedList(v: unknown): string[] {
 
 trackedRoutes.post("/api/tracked-routes", async (c) => {
   const email = c.get("userEmail");
-  const b = await c.req.json<RouteBody & { dateStart: string; dateEnd: string }>();
+  const b = await c.req
+    .json<RouteBody & { dateStart: string; dateEnd: string }>()
+    .catch(() => null);
+  if (!b) return c.json({ error: "bad_body" }, 400);
   const cabins = b.cabins?.length ? b.cabins : null;
 
   const alerts = validateAlerts(b, c.env);
   if (!alerts.ok) return c.json({ error: alerts.error, message: alerts.message }, 400);
+
+  const lists = validateLists(b);
+  if (!lists.ok) return c.json({ error: "bad_list", message: lists.message }, 400);
+
+  // THE DATE WINDOW, checked here and not only on PATCH.
+  //
+  // This endpoint used to bind `b.dateStart` / `b.dateEnd` verbatim. `c.req
+  // .json<T>()` does no runtime checking — `T` is an assertion about the parsed
+  // value, not a validation of it — so any string at all was stored. It was then
+  // read back by `addDaysISO` through `routeFindsScope` (db/finds.ts), where it
+  // threw. One malformed POST therefore 500'd `GET /api/routes` — the main page —
+  // along with every search and every cron tick, permanently, and the only
+  // repair was deleting the row by hand. Cheap to store, expensive to survive.
+  if (!isIsoDate(b.dateStart) || !isIsoDate(b.dateEnd)) {
+    return c.json(
+      { error: "bad_window", message: "Give a start and end date as YYYY-MM-DD." },
+      400,
+    );
+  }
+  if (b.dateEnd < b.dateStart) {
+    return c.json({ error: "bad_window", message: "The window ends before it starts." }, 400);
+  }
 
   // Validate through the same pure function the search planner uses, so a route
   // that cannot be planned cannot be stored. It throws rather than truncating —
@@ -308,7 +407,7 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
       // Store NULL (not "[]") when no filter, so downstream "no filter" checks
       // and the Routes page join treat an empty selection as "any cabin".
       cabins ? JSON.stringify(cabins) : null,
-      Math.min(Math.max(Math.round(b.minSeats ?? 2), 1), 9),
+      clampMinSeats(b.minSeats, 2),
       b.programs?.length ? JSON.stringify(b.programs) : null,
       // Same NULL-when-empty rule for the currency filter ("any currency").
       b.currencies?.length ? JSON.stringify(b.currencies) : null,
@@ -349,11 +448,19 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
  */
 trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
   const email = c.get("userEmail");
-  const id = Number(c.req.param("id"));
-  const b = await c.req.json<RouteBody>();
+  const id = rowIdParam(c.req.param("id"));
+  if (id === null) return c.json({ error: "bad_id" }, 400);
+  // A body that is not JSON is a bad request, not a crash: `c.req.json()` throws,
+  // and an unhandled throw here is a bare 500. Same shape the login handler and
+  // `POST /api/alerts/run` already use.
+  const b = await c.req.json<RouteBody>().catch(() => null);
+  if (!b) return c.json({ error: "bad_body" }, 400);
 
   const alerts = validateAlerts(b, c.env);
   if (!alerts.ok) return c.json({ error: alerts.error, message: alerts.message }, 400);
+
+  const lists = validateLists(b);
+  if (!lists.ok) return c.json({ error: "bad_list", message: lists.message }, 400);
 
   const row = await c.env.DB.prepare(
     "SELECT * FROM tracked_routes WHERE id = ? AND user_email = ?",
@@ -389,6 +496,17 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
 
   const dateStart = b.dateStart ?? String(row.date_start);
   const dateEnd = b.dateEnd ?? String(row.date_end);
+  // Format as well as ordering. The ordering check was already here; the format
+  // check was in neither handler, and ordering is meaningless on something that
+  // is not a date — "zzz" and "yyy" compare perfectly well and store perfectly
+  // well. Checked against the MERGED pair, so this also refuses to write a row
+  // back whose stored half is already bad.
+  if (!isIsoDate(dateStart) || !isIsoDate(dateEnd)) {
+    return c.json(
+      { error: "bad_window", message: "Give a start and end date as YYYY-MM-DD." },
+      400,
+    );
+  }
   if (dateEnd < dateStart) {
     return c.json({ error: "bad_window", message: "The window ends before it starts." }, 400);
   }
@@ -460,7 +578,7 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
       cabins ? (storedList(cabins).length === 1 ? storedList(cabins)[0] : "any") : "any",
       cabins,
       currencies,
-      Math.min(Math.max(Math.round(b.minSeats ?? Number(row.min_seats ?? 1)), 1), 9),
+      clampMinSeats(b.minSeats, clampMinSeats(row.min_seats, 1)),
       b.directOnly === undefined ? Number(row.direct_only ?? 0) : b.directOnly ? 1 : 0,
       // Absent keeps the stored ceiling; `null` (what the edit form sends for an
       // empty field) clears it.
@@ -507,7 +625,8 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
  */
 trackedRoutes.get("/api/tracked-routes/:id/paths", async (c) => {
   const email = c.get("userEmail");
-  const id = Number(c.req.param("id"));
+  const id = rowIdParam(c.req.param("id"));
+  if (id === null) return c.json({ error: "bad_id" }, 400);
   const row = await c.env.DB.prepare(
     `SELECT origin, destination, origins, destinations, round_trip
        FROM tracked_routes WHERE id = ? AND user_email = ?`,
@@ -535,7 +654,11 @@ trackedRoutes.get("/api/tracked-routes/:id/paths", async (c) => {
 
 trackedRoutes.delete("/api/tracked-routes/:id", async (c) => {
   const email = c.get("userEmail");
-  const id = Number(c.req.param("id"));
+  // The one place the old `Number(...)` did real damage: `NaN` matched no row, so
+  // this answered `{ ok: true }` for a route that never existed — a lie told with
+  // a 200. See `rowIdParam`.
+  const id = rowIdParam(c.req.param("id"));
+  if (id === null) return c.json({ error: "bad_id" }, 400);
   await c.env.DB.prepare("DELETE FROM tracked_routes WHERE id = ? AND user_email = ?")
     .bind(id, email)
     .run();

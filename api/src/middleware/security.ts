@@ -28,7 +28,25 @@ const DEV_ORIGIN = "http://localhost:5173";
  * app rather than a policy.
  */
 const originAllowed = (origin: string, c: Context): boolean =>
-  origin === new URL(c.req.url).origin || origin === DEV_ORIGIN;
+  origin === new URL(c.req.url).origin ||
+  // The dev server, and ONLY while this worker is itself answering on loopback.
+  //
+  // Unconditionally — which is how this read first — it was a standing
+  // cross-origin credential grant in production. `cors` is mounted with
+  // `credentials: true` (index.ts), so bertbooker.com echoed
+  // `Access-Control-Allow-Origin: http://localhost:5173` together with
+  // `Allow-Credentials: true` to any page a victim happened to be serving on
+  // Vite's default port, and `csrfOrigin` — the same predicate — accepted that
+  // origin for form-shaped writes. `SameSite=Strict` meant the session cookie
+  // never actually rode along, so nothing was exploitable; but that is one
+  // cookie attribute standing between a grant and a session, and the grant buys
+  // production nothing at all. Gating it costs dev nothing, because dev is
+  // exactly where the request URL IS loopback.
+  //
+  // Keyed on `isEdgeRequest`, not on the URL: under `wrangler dev` the URL
+  // claims to be production (see that function), so a URL-based test would
+  // refuse the Vite origin in the one place it is meant to work.
+  (!isEdgeRequest(c.req.raw) && origin === DEV_ORIGIN);
 
 /**
  * The same rule in the two shapes Hono's middlewares want — `cors` echoes back
@@ -42,8 +60,45 @@ export const corsOrigin = (origin: string, c: Context): string | null =>
 export const csrfOrigin = originAllowed;
 
 /**
- * True when this worker is answering on a loopback host — i.e. `wrangler dev`,
- * reached directly or through the Vite proxy.
+ * Is this request being served through Cloudflare's edge — i.e. is this
+ * production?
+ *
+ * **NOT the same question as `isLocalRequest` below, and the difference is not
+ * academic.** Under `wrangler dev`, an uncommented `[[routes]] custom_domain`
+ * entry in wrangler.toml makes the worker see `request.url` as
+ * `http://bertbooker.com/…`: the PRODUCTION host, over http. So every
+ * URL-derived "am I local?" test answers no in local dev, and every "am I
+ * deployed?" test answers yes. Anything that gates real behaviour on the URL is
+ * therefore wrong in dev in whichever direction hurts most — a plaintext-to-https
+ * redirect built on `isLocalRequest` turns local dev into an infinite redirect
+ * loop, and a `Secure` cookie built on it is dropped by the browser, which reads
+ * as a login that succeeds and changes nothing.
+ *
+ * `CF-Connecting-IP` is stamped by the edge on every proxied request and cannot
+ * be forged — a client header of that name is overwritten before the worker
+ * runs, which is also why the login throttle keys on it. Its absence means
+ * nothing proxied this request, and off a real deployment that means
+ * `wrangler dev`.
+ *
+ * Fails toward PRODUCTION: anything genuinely edge-served gets the strict
+ * behaviour, and the worst a missing header can do is relax dev.
+ */
+export function isEdgeRequest(req: Request): boolean {
+  return req.headers.get("CF-Connecting-IP") !== null;
+}
+
+/**
+ * True when this worker is answering on a loopback host.
+ *
+ * **Read `isEdgeRequest` above before reaching for this.** It does what it says
+ * — it tests the URL — but the URL is not a reliable dev/production
+ * discriminator under `wrangler dev`, so this answers `false` in local dev
+ * whenever a `custom_domain` route is configured. That is why the endpoints
+ * gated on it below (`/api/airports/countries`, `/api/airports/geo`,
+ * `POST /api/alerts/run`) answer 404 in local dev while a route block is
+ * uncommented. Those are dev-only conveniences and this errs toward refusing,
+ * so it is a wrinkle rather than a hole — but it is why nothing that must be
+ * CORRECT in both environments should be built on it.
  *
  * The codebase's one dev-vs-production discriminator, and it lives here because
  * "where did this request come from" is what the rest of this file answers.

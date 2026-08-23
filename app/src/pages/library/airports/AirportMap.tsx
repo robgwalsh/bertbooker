@@ -65,6 +65,12 @@ function clusterIcon(
   return L.divIcon({
     className: "",
     iconSize: [size, size],
+    // NOTHING FROM THE DATABASE MAY BE INTERPOLATED HERE. `label` is a
+    // supercluster-generated numeral and the colours are theme values; both
+    // are ours. Leaflet assigns `divIcon.html` to `innerHTML`, so an airport
+    // `name` or `city` threaded through here would be stored XSS — and those
+    // columns are filled by parsing a third party CSV. The popup below shows
+    // how to render one: through React, which escapes.
     html: `<div style="display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${alpha(accent, 0.85)};border:1px solid ${alpha(accent, 0.95)};color:${labelColor};font-size:12px;font-weight:700">${label}</div>`,
   });
 }

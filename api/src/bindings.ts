@@ -32,6 +32,25 @@ export interface Env {
    *  back to a password-derived key would restore exactly the weakness this
    *  exists to remove, and would do it silently. */
   SESSION_SECRET?: string;
+  /** Per-IP throttle on `POST /api/auth/login`, declared as `[[ratelimits]]` in
+   *  wrangler.toml.
+   *
+   *  The one optional binding here whose absence is deliberately NOT
+   *  fail-closed. Every other unset value above refuses requests, because a
+   *  missing gate is worse than a broken app; this one is the gate's own
+   *  throttle, and refusing every login when it is missing would lock the
+   *  account out of its own app over a config detail. Absent => no throttle,
+   *  which is exactly where this code started.
+   *
+   *  Know what it is and is not. It counts per Cloudflare LOCATION rather than
+   *  globally, so it raises the cost of guessing the shared password without
+   *  bounding it: an attacker spread across enough colos still gets a multiple
+   *  of the limit. The control that actually bounds a distributed attack is a
+   *  WAF Rate Limiting rule on this path, which lives in the dashboard and
+   *  cannot be expressed in this repo at all. This binding is the half that
+   *  ships with the code, and it is worth having for that reason — but it is a
+   *  speed bump, not the lock. */
+  LOGIN_LIMITER?: RateLimit;
   /** seats.aero Partner API key (`wrangler secret put SEATS_AERO_API_KEY`;
    *  locally, a line in `api/.dev.vars`). Unset => the search endpoint
    *  refuses with 503 rather than returning an empty result — "no key" and "no

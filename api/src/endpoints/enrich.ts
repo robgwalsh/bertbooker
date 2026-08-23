@@ -1,8 +1,15 @@
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
 import { SEATSAERO_SOURCE_ID } from "../providers/seatsaero.js";
-import { classifyError, type FetchLike, makeTransport } from "../providers/transport.js";
+import {
+  classifyError,
+  clientMessage,
+  type FetchLike,
+  makeTransport,
+} from "../providers/transport.js";
 import type { Env, Vars } from "../bindings.js";
+import { rowIdParam } from "./params.js";
+import { type ScopedRoute, withinRouteScope } from "../db/finds.js";
 import { currentRows, enrichAvailability } from "../search/enrich.js";
 import { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";
 
@@ -27,12 +34,16 @@ export type { EnrichEvent } from "../../../shared/src/wire/enrich.js";
 import type { EnrichEvent } from "../../../shared/src/wire/enrich.js";
 
 enrich.post("/api/finds/enrich", async (c) => {
-  const body = await c.req.json<{
-    origin?: string;
-    destination?: string;
-    flightDate?: string;
-    program?: string;
-  }>();
+  const email = c.get("userEmail");
+  const body = await c.req
+    .json<{
+      origin?: string;
+      destination?: string;
+      flightDate?: string;
+      program?: string;
+    }>()
+    .catch(() => null);
+  if (!body) return c.json({ error: "bad_request" }, 400);
 
   const origin = String(body.origin ?? "").toUpperCase();
   const destination = String(body.destination ?? "").toUpperCase();
@@ -44,6 +55,34 @@ enrich.post("/api/finds/enrich", async (c) => {
 
   const apiKey = c.env.SEATS_AERO_API_KEY;
   if (!apiKey) return c.json({ error: "no_seats_aero_key" }, 503);
+
+  // THE ROW MUST BE ONE OF THE CALLER'S TO ASK ABOUT.
+  //
+  // This is the only endpoint that names an availability row by its coordinates
+  // instead of by a route id, and `currentRows` selects on those coordinates
+  // alone — it never joins `tracked_routes`. So any (origin, destination, date,
+  // program) in the database could be enriched: one metered seats.aero call and
+  // a write to `availability_snapshots`, repeatable without limit because the
+  // per-row retry here is deliberately not gated on `enriched_at`. That made it
+  // the cheapest way to drain the day's Partner-API quota, which in turn
+  // silently disables the alert sweep for the rest of the UTC day.
+  //
+  // Checked against the same superset the Routes page reads through, so hub legs
+  // and round-trip reversals still enrich — see `withinRouteScope`.
+  //
+  // Note what this is NOT: `search`'s deliberate no-budget rule is untouched.
+  // Spending is still first-come; this only says whose rows you may spend it on.
+  const { results: scopeRows } = await c.env.DB.prepare(
+    `SELECT origin, destination, origins, destinations, via, date_start, date_end, round_trip
+       FROM tracked_routes WHERE user_email = ?`,
+  )
+    .bind(email)
+    .all<ScopedRoute>();
+  if (!withinRouteScope(scopeRows ?? [], origin, destination, flightDate)) {
+    // The same 404 an unknown row gets, deliberately: whether a row exists that
+    // this account may not touch is not something the answer should reveal.
+    return c.json({ error: "not_found" }, 404);
+  }
 
   const rows = await currentRows(c.env.DB, origin, destination, flightDate, program);
   if (rows.length === 0) return c.json({ error: "not_found" }, 404);
@@ -61,8 +100,12 @@ enrich.post("/api/finds/enrich", async (c) => {
     // `blocked` at 401 is a wrong key, at 429 a spent day, and `failed` is
     // seats.aero having a bad time. Nothing is stamped, so the row stays
     // offering to try again.
-    const { status, message } = classifyError(err);
-    return c.json({ error: "enrich_failed", status, message }, 502);
+    // `status` is this app's own vocabulary (blocked / failed / timeout) and the
+    // UI keys off it, so it stays. `message` does not: `classifyError` hands back
+    // the raw `err.message`, which for a refusal is `BlockedError`'s — and that
+    // embeds the full seats.aero URL, query string included.
+    const { status } = classifyError(err);
+    return c.json({ error: "enrich_failed", status, message: clientMessage(err) }, 502);
   }
 });
 
@@ -83,7 +126,8 @@ interface TargetRow {
 
 enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
   const email = c.get("userEmail");
-  const id = Number(c.req.param("id"));
+  const id = rowIdParam(c.req.param("id"));
+  if (id === null) return c.json({ error: "bad_id" }, 400);
 
   // Same rule as search: everything that can fail with a status code fails
   // BEFORE the stream opens, because after the first byte the response is
@@ -250,8 +294,10 @@ enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
     } catch (err) {
       // A stream ending with neither `run_done` nor `error` died mid-flight, and
       // the client must read that as failure rather than as an empty result.
-      const message = err instanceof Error ? err.message : String(err);
-      await write({ type: "error", message }).catch(() => {});
+      // Sanitised, for the same reason as the search stream — see
+      // `clientMessage`. Nothing is recorded here because the per-row failures
+      // already are.
+      await write({ type: "error", message: clientMessage(err) }).catch(() => {});
     }
   });
 });

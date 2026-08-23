@@ -11,9 +11,45 @@
 // every provider module, and the same name exported by two modules silently
 // disappears from the barrel.
 
+/**
+ * Is this the fixed-width `YYYY-MM-DD` every helper here and the schema assume?
+ *
+ * Load-bearing well beyond formatting. Dates are compared as STRINGS in SQL
+ * (`flight_date BETWEEN ? AND ?`, `date_end < date_start`), and string
+ * comparison only orders dates correctly at a fixed width; every helper below
+ * parses by splitting on `-`. A value that is not this shape is not a date that
+ * is slightly wrong — it is not a date, and it will compare and store without
+ * complaint right up until something tries to do arithmetic on it.
+ *
+ * Character class rather than a shorthand escape on purpose: this must not match
+ * the Unicode digits a shorthand would let through in some engines.
+ */
+export function isIsoDate(v: unknown): v is string {
+  return typeof v === "string" && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v);
+}
+
+/**
+ * Thrown when a value that has to be an ISO date is not one.
+ *
+ * Named, rather than the bare `RangeError: Invalid time value` that
+ * `toISOString` used to raise from the middle of `addDaysISO`. That message
+ * named neither the function nor the offending value, so a single malformed
+ * `date_end` in `tracked_routes` surfaced as an opaque 500 on the Routes page —
+ * and on every search, and on every cron tick — with nothing pointing here at
+ * all. Extends `RangeError` so anything catching the old one still catches this.
+ */
+export class InvalidDateError extends RangeError {
+  constructor(fn: string, value: unknown) {
+    super(`${fn}: expected an ISO YYYY-MM-DD date, got ${JSON.stringify(value)}`);
+    this.name = "InvalidDateError";
+  }
+}
+
 /** Add `days` to an ISO (YYYY-MM-DD) date, returning ISO. UTC math keeps it
- *  DST/timezone-agnostic. */
+ *  DST/timezone-agnostic. Throws `InvalidDateError` rather than building an
+ *  `Invalid Date` that only fails one line later, somewhere else. */
 export function addDaysISO(iso: string, days: number): string {
+  if (!isIsoDate(iso)) throw new InvalidDateError("addDaysISO", iso);
   const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
@@ -23,9 +59,12 @@ export function todayISO(now: number = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
-/** Whole days from `a` to `b` (both ISO). Negative when b precedes a. */
+/** Whole days from `a` to `b` (both ISO). Negative when b precedes a. Same guard
+ *  as `addDaysISO`, because it parses identically: without it this returns `NaN`
+ *  for a caller to compare or bind, which is the quieter half of the same bug. */
 export function daysBetween(a: string, b: string): number {
   const toUtc = (iso: string) => {
+    if (!isIsoDate(iso)) throw new InvalidDateError("daysBetween", iso);
     const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
     return Date.UTC(y, m - 1, d);
   };

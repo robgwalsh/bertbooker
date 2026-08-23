@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mintToken, secretsMatch, sessionKey, verifyToken } from "./gate.js";
+import { authRoutes, mintToken, secretsMatch, sessionKey, verifyToken } from "./gate.js";
+import type { Env } from "../bindings.js";
 
 /**
  * The session token, at the layer where it can be tested without a worker.
@@ -89,5 +90,171 @@ describe("secretsMatch", () => {
     // A prefix must not pass. The comparison is over two same-width digests
     // precisely so the length of the real secret never leaks.
     expect(await secretsMatch(PASSWORD.slice(0, -1), PASSWORD)).toBe(false);
+  });
+});
+
+/**
+ * The login route itself, driven through Hono rather than through its parts.
+ *
+ * The two properties below are both about things that happen AROUND the
+ * comparison, which is why testing `secretsMatch` alone never covered them: a
+ * cookie missing `Secure` verifies exactly like one that has it, and a missing
+ * throttle looks identical to a working one until someone is actually guessing.
+ */
+
+/** The bindings a login needs, plus whatever the test is varying. */
+const loginEnv = (over: Partial<Env> = {}): Env =>
+  ({
+    APP_PASSWORD: PASSWORD,
+    SESSION_SECRET: SECRET,
+    APP_USER_EMAIL: SUBJECT,
+    ...over,
+  }) as Env;
+
+/**
+ * A login request. `edgeIp` is what makes it PRODUCTION: `CF-Connecting-IP` is
+ * stamped by Cloudflare's edge on every proxied request and is absent under
+ * `wrangler dev`, which is the only reliable way to tell the two apart — the
+ * URL is not, because wrangler dev presents the production host over http (see
+ * `isEdgeRequest`).
+ */
+const postLogin = (url: string, password: string, env: Env, edgeIp?: string) =>
+  authRoutes.request(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(edgeIp ? { "CF-Connecting-IP": edgeIp } : {}),
+      },
+      body: JSON.stringify({ password }),
+    },
+    env,
+  );
+
+describe("POST /api/auth/login — the session cookie", () => {
+  it("marks the cookie Secure in production", async () => {
+    const res = await postLogin(
+      "https://bertbooker.com/api/auth/login",
+      PASSWORD,
+      loginEnv(),
+      "203.0.113.7",
+    );
+    expect(res.status).toBe(200);
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toMatch(/Secure/);
+    expect(cookie).toMatch(/HttpOnly/);
+    expect(cookie).toMatch(/SameSite=Strict/);
+  });
+
+  /**
+   * The regression this is really about.
+   *
+   * `Secure` used to be derived from the request's SCHEME, on the reasoning
+   * that production is always https. Nothing enforced that, so a plaintext
+   * request to the apex got a session cookie with no `Secure` at all — readable
+   * and replayable by anyone on the path, having just watched the password go by
+   * in the clear on the very same request. It is keyed on whether the edge
+   * served the request now, so a plaintext production request cannot produce a
+   * naked cookie however it arrives.
+   */
+  it("still marks it Secure on a PLAINTEXT production request", async () => {
+    const res = await postLogin(
+      "http://bertbooker.com/api/auth/login",
+      PASSWORD,
+      loginEnv(),
+      "203.0.113.7",
+    );
+    expect(res.headers.get("set-cookie") ?? "").toMatch(/Secure/);
+  });
+
+  /**
+   * The reason the flag is conditional at all: `wrangler dev` serves plain http
+   * and a browser drops a `Secure` cookie there without comment, which reads as
+   * a login that succeeds and changes nothing.
+   *
+   * Note the URL: `wrangler dev` really does present the production host, so
+   * this case is NOT distinguishable from the one above by URL. That is the
+   * whole reason `isEdgeRequest` exists.
+   */
+  it("omits Secure under wrangler dev, so local login still works", async () => {
+    const res = await postLogin("http://bertbooker.com/api/auth/login", PASSWORD, loginEnv());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie") ?? "").not.toMatch(/Secure/);
+  });
+});
+
+describe("POST /api/auth/login — the throttle", () => {
+  /** A limiter that refuses everything, and counts what it was asked. */
+  const refusing = () => {
+    const keys: string[] = [];
+    return {
+      keys,
+      limiter: {
+        limit: async ({ key }: { key: string }) => {
+          keys.push(key);
+          return { success: false };
+        },
+      } as RateLimit,
+    };
+  };
+
+  it("refuses with 429 before comparing anything", async () => {
+    const { keys, limiter } = refusing();
+    const res = await postLogin(
+      "https://bertbooker.com/api/auth/login",
+      // The CORRECT password: a throttled request must be refused on the
+      // throttle, not quietly let through because it happened to be right.
+      PASSWORD,
+      loginEnv({ LOGIN_LIMITER: limiter }),
+    );
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "too_many_attempts" });
+    // ...and no session was issued.
+    expect(res.headers.get("set-cookie")).toBeNull();
+    // No edge header on this one, so every unproxied caller shares one bucket
+    // rather than skipping the check.
+    expect(keys).toEqual(["login:unproxied"]);
+  });
+
+  it("keys on the edge-supplied client IP", async () => {
+    const { keys, limiter } = refusing();
+    await authRoutes.request(
+      "https://bertbooker.com/api/auth/login",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+        body: JSON.stringify({ password: "wrong" }),
+      },
+      loginEnv({ LOGIN_LIMITER: limiter }),
+    );
+    expect(keys).toEqual(["login:203.0.113.7"]);
+  });
+
+  /**
+   * The one binding here that deliberately does NOT fail closed. Every other
+   * unset value refuses requests, because a missing gate is worse than a broken
+   * app; this one is the gate's own throttle, and refusing every login when it
+   * is absent would lock the account out of its own app over a config detail.
+   */
+  it("lets a login through when no limiter is bound", async () => {
+    const res = await postLogin(
+      "https://bertbooker.com/api/auth/login",
+      PASSWORD,
+      loginEnv(),
+      "203.0.113.7",
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("still fails closed on the secrets, which are a different question", async () => {
+    const res = await postLogin(
+      "https://bertbooker.com/api/auth/login",
+      PASSWORD,
+      loginEnv({ APP_PASSWORD: undefined }),
+      "203.0.113.7",
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "no_app_password" });
   });
 });

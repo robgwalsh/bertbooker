@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FindsScope, ScopedRoute } from "./finds.js";
-import { routeFindsScope } from "./finds.js";
+import { routeFindsScope, withinRouteScope } from "./finds.js";
 
 /**
  * The scope is the one part of the read path that can lose data silently.
@@ -213,5 +213,76 @@ describe("routeFindsScope — the bind budget", () => {
     // No routes means the Routes page has nothing to join against anyway, and
     // `origin IN ()` is a syntax error.
     expect(routeFindsScope([])).toEqual({ where: [], binds: [] });
+  });
+});
+
+
+/**
+ * The authorization question behind `POST /api/finds/enrich`.
+ *
+ * That endpoint is the only one that names an availability row by its
+ * COORDINATES rather than by a route id, and then spends a metered seats.aero
+ * call on it and writes back. It used to accept any (origin, destination, date,
+ * program) in the database — the cheapest way to drain the day's Partner-API
+ * quota, which in turn silently disables the alert sweep for the rest of the
+ * UTC day.
+ *
+ * `withinRouteScope` shares `scopeSets` with `routeFindsScope` on purpose, so
+ * the check and the read path cannot drift. These pin BOTH directions: that it
+ * refuses what no route asked about, and — the failure mode that would actually
+ * get noticed — that it still permits the hub legs and round-trip reversals the
+ * Routes page legitimately shows.
+ */
+describe("withinRouteScope", () => {
+  const route = (over: Partial<ScopedRoute> = {}): ScopedRoute => ({
+    origin: "SFO",
+    destination: "NRT",
+    origins: null,
+    destinations: null,
+    via: null,
+    date_start: "2026-09-01",
+    date_end: "2026-09-30",
+    round_trip: 0,
+    ...over,
+  });
+
+  it("permits a find the route plainly covers", () => {
+    expect(withinRouteScope([route()], "SFO", "NRT", "2026-09-15")).toBe(true);
+  });
+
+  it("refuses a pair no route asked about", () => {
+    expect(withinRouteScope([route()], "JFK", "LHR", "2026-09-15")).toBe(false);
+    expect(withinRouteScope([route()], "SFO", "LHR", "2026-09-15")).toBe(false);
+  });
+
+  it("refuses a date outside every route's window", () => {
+    expect(withinRouteScope([route()], "SFO", "NRT", "2026-08-31")).toBe(false);
+    // The read path widens `hi` by a day for the overnight-in-hub case, so this
+    // must agree rather than being a day stricter.
+    expect(withinRouteScope([route()], "SFO", "NRT", "2026-10-01")).toBe(true);
+    expect(withinRouteScope([route()], "SFO", "NRT", "2026-10-02")).toBe(false);
+  });
+
+  it("permits both legs of a hub route", () => {
+    const hub = [route({ via: JSON.stringify(["HND"]) })];
+    expect(withinRouteScope(hub, "SFO", "HND", "2026-09-15")).toBe(true);
+    expect(withinRouteScope(hub, "HND", "NRT", "2026-09-15")).toBe(true);
+  });
+
+  it("permits the reversal on a round trip, and not otherwise", () => {
+    expect(withinRouteScope([route({ round_trip: 1 })], "NRT", "SFO", "2026-09-15")).toBe(true);
+    expect(withinRouteScope([route()], "NRT", "SFO", "2026-09-15")).toBe(false);
+  });
+
+  it("reads the multi-airport lists, not just the scalars", () => {
+    const wide = [route({ origins: JSON.stringify(["SFO", "OAK"]) })];
+    expect(withinRouteScope(wide, "OAK", "NRT", "2026-09-15")).toBe(true);
+  });
+
+  it("permits NOTHING when there are no routes", () => {
+    // The direction that matters: `routeFindsScope` answers the same degenerate
+    // input with UNSCOPED — "read everything" — and an authorization check that
+    // borrowed that answer would permit everything.
+    expect(withinRouteScope([], "SFO", "NRT", "2026-09-15")).toBe(false);
   });
 });

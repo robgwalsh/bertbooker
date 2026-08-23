@@ -10,9 +10,20 @@ compatibility_flags = ["nodejs_compat"]
 # domain below. Both sit behind the same password gate, so this is a debugging
 # convenience rather than a hole; set false if you want exactly one hostname.
 workers_dev = true
-# <version>-bertbooker.<subdomain>.workers.dev, one per deployed version. Same
-# posture as workers_dev above — behind the same gate, so left on.
-preview_urls = true
+# <version>-bertbooker.<subdomain>.workers.dev, one per deployed version.
+#
+# OFF, and this is a change from the "same posture as workers_dev, so left on"
+# it used to say. The gate argument is sound as far as it goes — every preview
+# URL sits behind the same password — but it answers the wrong question. These
+# URLs are per VERSION, and they do not retire: ship a fix to something in the
+# SPA and the version before it stays live and reachable at its own hostname,
+# indefinitely. "One artifact" is the property this whole repo is arranged
+# around (one worker, one origin, one deploy), and this was the one line quietly
+# keeping every superseded copy on the internet.
+#
+# Set it back to `true` for a specific debugging session if you want it; just
+# know that is what you are turning on.
+preview_urls = false
 
 # D1: create with `wrangler d1 create bertbooker_db`, then paste the id below,
 # REPLACING the one that is there. The committed id is the author's own — it is
@@ -89,6 +100,29 @@ pattern = "www.bertbooker.com"
 custom_domain = true
 enabled = true
 previews_enabled = false
+
+# THE LOGIN THROTTLE. Bound as `LOGIN_LIMITER` (see bindings.ts, which carries
+# the full reasoning) and used by `POST /api/auth/login` in src/middleware/gate.ts.
+#
+# `namespace_id` is an identifier you choose, unique within the Cloudflare
+# account and shared by every deployment that should count into the same
+# buckets. It is not a secret and it grants nothing.
+#
+# `period` accepts only 10 or 60 (seconds). Ten attempts a minute is far above
+# anything a person typing one shared password does, and far below what makes
+# guessing worthwhile.
+#
+# READ THIS BEFORE TRUSTING IT: the binding counts per Cloudflare LOCATION, not
+# globally. It raises the cost of online guessing; it does not bound it. The
+# control that does is a WAF Rate Limiting rule on
+#   http.request.uri.path eq "/api/auth/login" and http.request.method eq "POST"
+# which is dashboard configuration and cannot live in this file. With one shared
+# password guarding everything, on a public repo and a public URL, that rule is
+# not optional — this block is the part that ships with the code.
+[[ratelimits]]
+name = "LOGIN_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
 
 # Workers Logs. `wrangler tail bertbooker`.
 #

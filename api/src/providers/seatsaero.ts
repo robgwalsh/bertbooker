@@ -930,6 +930,30 @@ const TRIP_CABIN: Record<string, Cabin> = {
 };
 
 /** Build a Get Trips URL. Pure. */
+/**
+ * A deep link this app is willing to store, or `undefined`.
+ *
+ * `booking_url` is the one upstream string that ends up in an `href`: the Book
+ * button on the Routes page renders it directly (`pages/routes/Itinerary.tsx`).
+ * It used to arrive unvalidated — whatever seats.aero put in
+ * `booking_links[].link` was `String()`-ed at ingest and served to the browser —
+ * so the only thing between a `javascript:` URL and an anchor was React
+ * declining to render one. That is a framework behaviour, not a decision this
+ * codebase made, and it would evaporate on a downgrade or a different renderer.
+ *
+ * Checked HERE, where the value enters, rather than where it renders, so the
+ * database never holds one. A value that is only safe because of who reads it is
+ * a value waiting for its second reader.
+ */
+function httpsLink(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    return new URL(raw).protocol === "https:" ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildTripsUrl(availabilityId: string): string {
   return `${SEATSAERO_BASE}/trips/${encodeURIComponent(availabilityId)}`;
 }
@@ -1004,8 +1028,9 @@ export function parseSeatsAeroTrips(
   // the program that owns the row (the capture's primary was Alaska for an
   // `alaska` row); the rest are other programs that could also ticket it and are
   // not what `booking_url` means.
-  const bookingUrl =
-    (resp.booking_links ?? []).find((l) => l?.primary && l.link)?.link || undefined;
+  const bookingUrl = httpsLink(
+    (resp.booking_links ?? []).find((l) => l?.primary && l.link)?.link,
+  );
 
   const wanted = new Map<Cabin, number>(
     Object.entries(expected.milesByCabin).filter(([, m]) => typeof m === "number") as [

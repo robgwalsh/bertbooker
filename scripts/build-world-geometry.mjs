@@ -25,7 +25,25 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const BASE = "https://raw.githubusercontent.com/martynafford/natural-earth-geojson/master";
+// PINNED TO A COMMIT, not to `master`.
+//
+// This script writes EXECUTABLE TypeScript into the app bundle
+// (app/src/data/worldGeometry.ts), and it does it from a third party's personal
+// repository over plain HTTPS with no checksum. `master` is a branch — whatever
+// it points at on the day someone regenerates. A SHA is the artefact itself, so
+// re-running this on any machine, on any day, either produces the same bytes or
+// fails loudly.
+//
+// The encoder below is not injectable as written — every emitted coordinate is
+// an arithmetic difference of quantised numbers, and `feature.properties` is
+// never read — so this is defence in depth rather than a live hole. It is also
+// the cheap half: the expensive half would be verifying a digest, and the
+// generated file being committed and diffable is what stands in for that.
+//
+// To take an upstream update: change this SHA deliberately, re-run, and READ the
+// diff of the generated file.
+const BASE =
+  "https://raw.githubusercontent.com/martynafford/natural-earth-geojson/0b9a6ceb0a7032713abd9460ac1e995a9c60cd1e";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, "app/src/data/worldGeometry.ts");
 

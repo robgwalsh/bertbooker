@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
 import type { Env, Vars } from "../bindings.js";
+import { rowIdParam } from "./params.js";
 import {
   openSearchRun,
   planSearchPass,
@@ -58,7 +59,8 @@ function failureResponse(failure: PlanFailure): { body: Record<string, unknown>;
 
 search.post("/api/tracked-routes/:id/search", async (c) => {
   const email = c.get("userEmail");
-  const id = Number(c.req.param("id"));
+  const id = rowIdParam(c.req.param("id"));
+  if (id === null) return c.json({ error: "bad_id" }, 400);
   const startedAt = Date.now();
 
   const planned = await planSearchPass(c.env.DB, {

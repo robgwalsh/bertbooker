@@ -141,12 +141,30 @@ alerts.get("/api/alerts/schedule", async (c) => {
   return c.json(body);
 });
 
+/**
+ * A `?limit=` from the query string, as a row count this app will actually run.
+ *
+ * Clamped at BOTH ends, which the two call sites below were not: they wrote
+ * `Math.min(Number(q) || 25, 100)`, and `-1` is a perfectly truthy number that
+ * survives `Math.min` — so `?limit=-1` reached SQLite as `LIMIT -1`, which
+ * SQLite defines as NO LIMIT. Both endpoints are `SELECT *` over tables that
+ * grow with every sweep, and D1 bills rows read, so the low end is the end that
+ * mattered.
+ *
+ * `Math.trunc` as well, so `?limit=1e9` and `?limit=2.5` cannot become anything
+ * but an integer inside the range.
+ */
+function pageLimit(raw: string | undefined): number {
+  const n = Math.trunc(Number(raw ?? 25));
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), 100) : 25;
+}
+
 /** Recent sweeps. `search_runs` already answers this; the filter is the only
  *  new part: a sweep is a `search_runs` row like any other, told apart only
  *  by its trigger. */
 alerts.get("/api/alerts/runs", async (c) => {
   const email = c.get("userEmail");
-  const limit = Math.min(Number(c.req.query("limit") ?? 25) || 25, 100);
+  const limit = pageLimit(c.req.query("limit"));
   const { results } = await c.env.DB.prepare(
     `SELECT * FROM search_runs
       WHERE user_email = ? AND trigger = 'alert'
@@ -195,7 +213,7 @@ alerts.post("/api/alerts/run", async (c) => {
 /** Every digest we tried to send, including the ones that never went out. With
  *  no failure email, this table is the only trace a dropped digest leaves. */
 alerts.get("/api/alerts/deliveries", async (c) => {
-  const limit = Math.min(Number(c.req.query("limit") ?? 25) || 25, 100);
+  const limit = pageLimit(c.req.query("limit"));
   const { results } = await c.env.DB.prepare(
     "SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT ?",
   )

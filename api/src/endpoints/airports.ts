@@ -25,6 +25,11 @@ import { isLocalRequest } from "../middleware/security.js";
  */
 export const airports = new Hono<{ Bindings: Env; Variables: Vars }>();
 
+/** Codes per statement in `/api/airports/lookup`. D1 allows 100 bound
+ *  parameters per query and this binds one per code; two below the ceiling for
+ *  headroom. See the chunking note at the call site. */
+const LOOKUP_BIND_CHUNK = 98;
+
 // ---- Airports: distinct countries (powers the country filter) ----
 airports.get("/api/airports/countries", async (c) => {
   if (!isLocalRequest(c.req.url)) return c.json({ error: "not_found" }, 404);
@@ -93,10 +98,16 @@ function airportFilter(
   const scheduledOnly = query("scheduled") === "1";
   const continent = (query("continent") ?? "").trim().toUpperCase();
   const country = (query("country") ?? "").trim().toUpperCase();
+  // Capped, because each surviving entry becomes one bound parameter and D1
+  // allows 100 per query (see `db/finds.ts` for the arithmetic). Uncapped,
+  // `?type=a,a,a,…` past the ceiling was a D1 error and so a 500. There are only
+  // a handful of real OurAirports type values, so anything past this is noise
+  // rather than a caller losing a filter.
   const types = (query("type") ?? "")
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .slice(0, 20);
 
   const where: string[] = [];
   const binds: unknown[] = [];
@@ -214,18 +225,35 @@ airports.get("/api/airports/lookup", async (c) => {
   ].slice(0, 400);
   if (!codes.length) return c.json([]);
 
-  const { results } = await c.env.DB.prepare(
+  const sql = (n: number) =>
     `SELECT iata, name, city, country, latitude, longitude FROM airports
-      WHERE iata IN (${codes.map(() => "?").join(", ")})
+      WHERE iata IN (${Array.from({ length: n }, () => "?").join(", ")})
       -- An IATA code can appear on more than one row in OurAirports (a heliport
       -- or closed field sharing it). Prefer the one that actually flies.
       ORDER BY scheduled DESC,
                CASE type WHEN 'large_airport' THEN 0 WHEN 'medium_airport' THEN 1
-                         WHEN 'small_airport' THEN 2 ELSE 3 END`,
-  )
-    .bind(...codes)
-    .all<AirportName>();
-  return c.json(results);
+                         WHEN 'small_airport' THEN 2 ELSE 3 END`;
+
+  // CHUNKED, not truncated, and the distinction is why the cap above could stay
+  // at 400. This binds one parameter per code, and D1 allows 100 per query
+  // (`db/finds.ts` works through the arithmetic) — so the 400 the cap permits
+  // was four times the ceiling, and a caller naming more than 100 distinct
+  // airports got a D1 error, i.e. a 500 for asking about a big page. Lowering
+  // the cap instead would have traded a loud failure for a silent one: exactly
+  // the "map that lost a stop" the comment above is written against.
+  //
+  // `batch` so this is still ONE round trip, which is the property
+  // `useAirportNames` exists for. Each code falls in exactly one chunk, so
+  // concatenating preserves the per-code ordering the tie-break above sets up,
+  // and the caller's first-row-wins-per-code still selects the same row.
+  const chunks: string[][] = [];
+  for (let i = 0; i < codes.length; i += LOOKUP_BIND_CHUNK) {
+    chunks.push(codes.slice(i, i + LOOKUP_BIND_CHUNK));
+  }
+  const batched = await c.env.DB.batch<AirportName>(
+    chunks.map((chunk) => c.env.DB.prepare(sql(chunk.length)).bind(...chunk)),
+  );
+  return c.json(batched.flatMap((r) => r.results ?? []));
 });
 
 // ---- Airports: server-side ranked, multi-token search + filters ----

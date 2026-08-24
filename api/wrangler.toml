@@ -190,8 +190,8 @@ crons = ["*/15 * * * *"]
 # See .dev.vars.example for the full list in one place.
 #
 # Secrets override [vars] of the same name, so if you would rather keep the
-# non-sensitive four (APP_USER_EMAIL, ALERT_FROM, ALERT_ALLOWED_RECIPIENTS,
-# APP_URL) in this file for your own fork, uncommenting a [vars] block here works
+# non-sensitive three (APP_USER_EMAIL, ALERT_FROM, APP_URL) in this file for
+# your own fork, uncommenting a [vars] block here works
 # and is not a downgrade — they are not secrets, merely personal.
 #
 # ---- Identity ----
@@ -246,12 +246,12 @@ crons = ["*/15 * * * *"]
 # requirement that they match, and keeping a long-verified sending domain after
 # moving the app is the normal case rather than an oversight.
 #
-# ALERT_ALLOWED_RECIPIENTS is a CSV of addresses the worker may send to.
-# APP_USER_EMAIL is always included, so unset means "only the account's own
-# address". That is the safe default rather than the permissive one: with one
-# shared password as the only auth, an unchecked per-route alert_email would make
-# this an arbitrary-recipient sender on a verified domain, and the domain's
-# reputation is not something a typo should be able to spend.
+# THE RECIPIENT ALLOWLIST IS NOT CONFIGURED HERE. It is the alert_recipients
+# table (migration 0008), edited in the app under Settings -> System. It used to
+# be ALERT_ALLOWED_RECIPIENTS, a CSV binding, which meant a deploy per edit.
+# APP_USER_EMAIL is always allowed and is never a row there, so an empty table
+# still means "only the account's own address" — the safe default rather than
+# the permissive one. See docs/ALERTS.md §9.
 #
 # ALERT_DAILY_BUDGET (600) is what AUTOMATION may spend of the key's 1000/day.
 # ALERT_MANUAL_RESERVE (300) is what must stay unspent so pressing Search by

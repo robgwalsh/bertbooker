@@ -140,6 +140,8 @@ CREATE TABLE IF NOT EXISTS tracked_routes (
   -- an unchecked value here would make the Worker an arbitrary-recipient sender
   -- on a verified domain, and the domain's sending reputation is not something a
   -- typo should be able to spend.
+  -- ALLOWLIST MOVED TO alert_recipients BY 0008 — the check is the same, the
+  -- list is a table rather than the ALERT_ALLOWED_RECIPIENTS binding.
   alert_email     TEXT,
 
   -- JSON array of ChangeType (shared/src/diff.ts): new | more_seats |

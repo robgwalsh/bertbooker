@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Box,
   Button,
@@ -19,11 +20,12 @@ import {
   Typography,
 } from "@mui/material";
 import { AirportMultiAutocomplete } from "../../components/AirportAutocomplete";
+import { SettingsDialog } from "../../components/SettingsDialog";
 import { BookableCurrencies, CabinChip, CurrencyIcon } from "../../components/brand";
 import { CURRENCY_LABEL } from "../../lib/currencies";
 import { miles } from "../../lib/format";
 import { SWITCH_ROW_ML } from "../../lib/layout";
-import { MAX_DESTINATIONS, MAX_ORIGINS, MAX_VIA } from "../../api";
+import { MAX_DESTINATIONS, MAX_ORIGINS, MAX_VIA, api } from "../../api";
 import { CABIN_OPTIONS, FILTER_CURRENCIES } from "./constants";
 import { estimateCalls } from "./estimate";
 import { ALERT_TYPES, ALERT_TYPE_HELP, ALERT_TYPE_LABEL } from "./alertCopy";
@@ -484,22 +486,105 @@ export function RouteFormFields({
             </TextField>
 
             <Box sx={{ gridColumn: "1 / -1" }}>
-              <TextField
-                label="Send to"
-                size="small"
-                fullWidth
-                type="email"
-                ref={focusOn("alertEmail")}
+              <RecipientField
                 value={form.alertEmail}
-                onChange={(e) => setForm({ ...form, alertEmail: e.target.value })}
-                placeholder="the account address"
-                helperText="Leave empty to use the account address. Must be an allowed recipient."
-                slotProps={{ inputLabel: { shrink: true } }}
+                onChange={(alertEmail) => setForm({ ...form, alertEmail })}
+                fieldRef={focusOn("alertEmail")}
               />
             </Box>
           </>
         )}
       </Box>
+    </>
+  );
+}
+
+/**
+ * Where this route's digest goes — a Select over the allowlist, not a text box.
+ *
+ * The allowlist (`alert_recipients`, `docs/ALERTS.md` §9) is what stops one
+ * shared password turning this app into an arbitrary-recipient sender on a
+ * verified domain. It used to be an env binding nothing in the UI could show,
+ * so the only way to discover an address was not on it was a 400 on save. Now
+ * the field can only offer addresses the Worker will actually accept, and the
+ * server's check is a backstop rather than the first time anyone finds out.
+ *
+ * `""` still means "the account address", which is the column's own convention
+ * (`alert_email` NULL) and what `EditRouteDialog` writes back.
+ */
+function RecipientField({
+  value,
+  onChange,
+  fieldRef,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  fieldRef: React.Ref<HTMLDivElement> | undefined;
+}) {
+  const [manageOpen, setManageOpen] = useState(false);
+  const q = useQuery({ queryKey: ["alert-recipients"], queryFn: api.alertRecipients });
+
+  const allowed = q.data?.recipients.map((r) => r.email) ?? [];
+  // A stored address can outlive its place on the list, and the list is not
+  // there at all on the first render. Either way a Select whose value is not
+  // among its options renders BLANK and warns — which `e2e/fixtures.ts` fails a
+  // run on — so the value always gets an option, named for why it is odd.
+  const orphaned = value !== "" && !allowed.includes(value);
+
+  return (
+    <>
+      <TextField
+        label="Send to"
+        select
+        size="small"
+        fullWidth
+        ref={fieldRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        slotProps={{ inputLabel: { shrink: true } }}
+        helperText={
+          <Box component="span">
+            Only allowed recipients can be chosen.{" "}
+            <Box
+              component="span"
+              role="button"
+              tabIndex={0}
+              onClick={() => setManageOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") setManageOpen(true);
+              }}
+              sx={{ cursor: "pointer", textDecoration: "underline", color: "secondary.main" }}
+            >
+              Manage recipients
+            </Box>
+          </Box>
+        }
+      >
+        <MenuItem value="">
+          The account address
+          {q.data?.accountAddress ? ` (${q.data.accountAddress})` : ""}
+        </MenuItem>
+        {allowed.map((email) => (
+          <MenuItem key={email} value={email}>
+            {email}
+          </MenuItem>
+        ))}
+        {orphaned && (
+          <MenuItem value={value}>
+            {value} {q.isPending ? "" : "— no longer allowed"}
+          </MenuItem>
+        )}
+      </TextField>
+
+      {/* Stacked over the route form rather than navigating away from it: adding
+          a recipient must not cost a half-filled route. Closing returns here,
+          and the mutation has already invalidated `alert-recipients`, so the
+          new address is in the list above. */}
+      <SettingsDialog
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+        initialTab="system"
+      />
     </>
   );
 }

@@ -68,12 +68,6 @@ export interface Env {
   /** The digest's From address, on a Resend-verified domain (e.g.
    *  `alerts@example.com`). Unset behaves exactly like a missing key. */
   ALERT_FROM?: string;
-  /** CSV of addresses the Worker may send to. `APP_USER_EMAIL` is always
-   *  included. Unset therefore means "only the account's own address", which is
-   *  the safe default rather than the permissive one — with one shared password
-   *  as the only auth, an unchecked per-route `alert_email` would make this an
-   *  arbitrary-recipient sender on a verified domain. */
-  ALERT_ALLOWED_RECIPIENTS?: string;
   /** Calls a day the SCHEDULER may spend, against the key's 1000. Default 600.
    *  Not the same thing as the reserve below: this bounds automation's share,
    *  the reserve bounds how close anything may get to the ceiling. */

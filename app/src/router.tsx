@@ -15,11 +15,7 @@ import { DEFAULT_LIBRARY_TAB, Library, LibraryPanel } from "./pages/library/Libr
 import { DEFAULT_TOOLS_TAB, Tools, ToolsPanel } from "./pages/tools/ToolsPage";
 import { Alerts } from "./pages/alerts/AlertsPage";
 import { QuotaIndicator } from "./components/QuotaIndicator";
-// `PreferencesButton.tsx`, not `Preferences.tsx`: the store beside it is
-// `preferences.ts`, and two files differing only in case are ONE file to
-// TypeScript on a case-insensitive filesystem. Named for its export, as
-// `QuotaIndicator.tsx` is.
-import { PreferencesButton } from "./components/PreferencesButton";
+import { SettingsButton } from "./components/SettingsDialog";
 import { api } from "./api";
 import { notifyLocked } from "./lib/auth";
 import { validateRoutesSearch } from "./pages/routes/searchParams";
@@ -240,7 +236,7 @@ function Layout() {
                 renders nothing until a metered source has reported, which is
                 why the gear has to look right sitting straight beside Sign
                 out too. */}
-            <PreferencesButton />
+            <SettingsButton />
             <SignOut />
           </Stack>
         </Toolbar>

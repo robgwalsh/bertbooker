@@ -31,25 +31,37 @@ export type SendResult =
   | { status: "skipped"; error: string }
   | { status: "failed"; error: string };
 
-/** Recipients this Worker is allowed to send to.
+/** Recipients this Worker is allowed to send to, account address first.
  *
  *  With one shared password as the only auth, an unchecked `alert_email` would
  *  make this an arbitrary-recipient sender on a verified domain — and the
  *  domain's sending reputation is not something a typo should be able to spend.
- *  Unset means "only the account's own address", which is the safe default
- *  rather than the permissive one. */
-export function allowedRecipients(env: Env): string[] {
-  const csv = (env.ALERT_ALLOWED_RECIPIENTS ?? "").trim();
-  const listed = csv
-    ? csv.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
-    : [];
+ *
+ *  The list is the `alert_recipients` table (migration 0008), edited from the
+ *  settings dialog's System tab. `APP_USER_EMAIL` is always included and is
+ *  never a row there, so an EMPTY TABLE still means "only the account's own
+ *  address" — the safe default rather than the permissive one, and never "this
+ *  deployment can email nobody".
+ *
+ *  Account address first because it is the answer to "who gets this by default":
+ *  a route with a NULL `alert_email` resolves to it, and both the System tab and
+ *  the route form render this order. */
+export async function allowedRecipients(env: Env): Promise<string[]> {
+  const { results } = await env.DB.prepare(
+    "SELECT email FROM alert_recipients ORDER BY email",
+  ).all<{ email: string }>();
+
   const self = env.APP_USER_EMAIL?.trim().toLowerCase();
-  if (self && !listed.includes(self)) listed.push(self);
-  return listed;
+  const list = self ? [self] : [];
+  for (const row of results) {
+    const email = row.email.trim().toLowerCase();
+    if (email && !list.includes(email)) list.push(email);
+  }
+  return list;
 }
 
-export function isRecipientAllowed(env: Env, email: string): boolean {
-  return allowedRecipients(env).includes(email.trim().toLowerCase());
+export async function isRecipientAllowed(env: Env, email: string): Promise<boolean> {
+  return (await allowedRecipients(env)).includes(email.trim().toLowerCase());
 }
 
 /**
@@ -70,7 +82,10 @@ export async function sendEmail(env: Env, msg: OutboundEmail): Promise<SendResul
   }
   const from = env.ALERT_FROM;
   if (!from) return { status: "skipped", error: "no_alert_from" };
-  if (!isRecipientAllowed(env, msg.to)) {
+  // Checked again here, not only at write time in `validateAlerts`. Two
+  // independent enforcements: one stops a bad address being stored, this one
+  // stops a stored address that has since been removed from the list going out.
+  if (!(await isRecipientAllowed(env, msg.to))) {
     return { status: "skipped", error: `recipient_not_allowed: ${msg.to}` };
   }
 

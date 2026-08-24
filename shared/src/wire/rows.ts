@@ -292,8 +292,8 @@ export interface RouteInput {
   /** Enroll this route in the cron sweep. The other setting here that spends
    *  metered calls. */
   alertsEnabled?: boolean;
-  /** Empty/null = the account's own address. Checked server-side against
-   *  ALERT_ALLOWED_RECIPIENTS. */
+  /** Empty/null = the account's own address. Checked server-side against the
+   *  `alert_recipients` allowlist. */
   alertEmail?: string | null;
   /** Which transitions fire. `undefined` keeps what is stored, `null` resets to
    *  the default set, and an EMPTY ARRAY is a 400 — it would mean "armed and

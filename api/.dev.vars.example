@@ -67,11 +67,10 @@ RESEND_API_KEY=
 # match the domain the app is served from.
 ALERT_FROM=alerts@example.com
 
-# CSV of addresses the worker may send to. APP_USER_EMAIL is always included, so
-# unset means "only your own address" — the safe default, since with one shared
-# password an unchecked per-route alert_email would make this an
-# arbitrary-recipient sender on your verified domain.
-ALERT_ALLOWED_RECIPIENTS=
+# NOTE there is no allowlist setting here. Which addresses the worker may send
+# to is the alert_recipients table (migration 0008), edited in the app under
+# Settings -> System. APP_USER_EMAIL above is always allowed, so a fresh
+# database can already email you and nothing else.
 
 # Absolute base URL for the link back into the app from a digest email.
 # Unset omits the link.

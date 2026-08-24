@@ -94,7 +94,7 @@ interface RouteBody {
    *  See docs/ALERTS.md. */
   alertsEnabled?: boolean;
   /** Where the digest goes. Empty/null = the account's own address. Checked
-   *  against ALERT_ALLOWED_RECIPIENTS. */
+   *  against the `alert_recipients` allowlist. */
   alertEmail?: string | null;
   /** Which transitions fire. `undefined` keeps what is stored; `null` resets to
    *  the default set. An EMPTY ARRAY is refused — see below. */
@@ -191,10 +191,10 @@ const viaColumn = (hubs: string[]): string | null =>
  * configured. So it is a 400 rather than a stored value, and `null` is the only
  * way to ask for the default set.
  */
-function validateAlerts(
+async function validateAlerts(
   b: RouteBody,
   env: Env,
-): { ok: true } | { ok: false; error: string; message: string } {
+): Promise<{ ok: true } | { ok: false; error: string; message: string }> {
   if (b.alertOn !== undefined && b.alertOn !== null) {
     // Bounded as well as checked. The membership test below rejects unknown
     // VALUES but said nothing about how many, so `["new"]` repeated a hundred
@@ -221,11 +221,11 @@ function validateAlerts(
     }
   }
   if (b.alertEmail) {
-    if (!isRecipientAllowed(env, b.alertEmail)) {
+    if (!(await isRecipientAllowed(env, b.alertEmail))) {
       return {
         ok: false,
         error: "recipient_not_allowed",
-        message: `${b.alertEmail} is not in ALERT_ALLOWED_RECIPIENTS.`,
+        message: `${b.alertEmail} is not an allowed recipient. Add it under Settings → System.`,
       };
     }
   }
@@ -333,7 +333,7 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
   if (!b) return c.json({ error: "bad_body" }, 400);
   const cabins = b.cabins?.length ? b.cabins : null;
 
-  const alerts = validateAlerts(b, c.env);
+  const alerts = await validateAlerts(b, c.env);
   if (!alerts.ok) return c.json({ error: alerts.error, message: alerts.message }, 400);
 
   const lists = validateLists(b);
@@ -456,7 +456,7 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
   const b = await c.req.json<RouteBody>().catch(() => null);
   if (!b) return c.json({ error: "bad_body" }, 400);
 
-  const alerts = validateAlerts(b, c.env);
+  const alerts = await validateAlerts(b, c.env);
   if (!alerts.ok) return c.json({ error: alerts.error, message: alerts.message }, 400);
 
   const lists = validateLists(b);

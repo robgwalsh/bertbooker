@@ -36,13 +36,15 @@ Where things live:
 | `api/src/alerts/sweep.ts` | the tick, the sweep, the outbox, the flush |
 | `api/src/alerts/budget.ts` | **the only budget guard in the repo** |
 | `api/src/endpoints/alerts.ts` | the four `/api/alerts/*` endpoints |
-| `api/src/alerts/email.ts` | Resend, the recipient allowlist |
+| `api/src/alerts/email.ts` | Resend, and the read of the recipient allowlist |
+| `api/src/endpoints/settings.ts` | editing that allowlist — `alert_recipients` |
 | `api/src/alerts/pace.ts` | cost, cadence, due-ness, back-off, baseline — all pure |
 | `api/src/alerts/select.ts` | which changes are worth an email — pure |
 | `api/src/alerts/digest.ts` | grouping and rendering — pure |
 | `app/src/pages/alerts/AlertsPage.tsx`, `app/src/lib/alerts.ts` | the safety surface |
 | `api/wrangler.toml` `[triggers]` | `crons = ["*/15 * * * *"]` |
 | `migrations/0001_init.sql` | `alert_*` columns, `alert_outbox`, `alert_deliveries` |
+| `migrations/0008_alert_recipients.sql` | `alert_recipients`, the allowlist |
 
 ---
 
@@ -590,13 +592,33 @@ different places. An unset key means sweeps still run and still ingest, and ever
 digest is recorded as skipped with the reason. **Never a silent drop:** with no
 failure mail, `alert_deliveries` is the only trace an undelivered digest leaves.
 
-**Recipients are allowlisted** (`ALERT_ALLOWED_RECIPIENTS`, CSV;
-`APP_USER_EMAIL` is always included, so unset means "only the account's own
-address"). With one shared password as the only auth, an unchecked per-route
-`alert_email` would make this an arbitrary-recipient sender on a verified domain,
-and the domain's sending reputation is not something a typo should be able to
-spend. It is enforced twice — at write time in `validateAlerts` (400
-`recipient_not_allowed`) and again at send time.
+**Recipients are allowlisted**, and the list is the `alert_recipients` table
+(migration `0008`), edited in the app under **Settings → System**. With one
+shared password as the only auth, an unchecked per-route `alert_email` would
+make this an arbitrary-recipient sender on a verified domain, and the domain's
+sending reputation is not something a typo should be able to spend.
+
+It is enforced twice, and the two are not redundant: at write time in
+`validateAlerts` (400 `recipient_not_allowed`) so a bad address is never stored,
+and again at send time in `sendEmail` so a stored address that has since been
+REMOVED from the list does not go out. The route form's "Send to" is a Select
+over this list rather than a text box, so the write-time refusal is a backstop
+rather than how anyone finds out.
+
+`APP_USER_EMAIL` is always allowed and is **never a row** in the table, so an
+empty table still means "only the account's own address" — the safe default
+rather than the permissive one — and never "this deployment can email nobody".
+It is also what a NULL `alert_email` resolves to, so it cannot be removable.
+
+**Deleting a recipient a route still points at is refused** (400
+`recipient_in_use`, naming the count). Not tidiness: such a route's digest is
+recorded `skipped`, and because only a successful send clears `alert_outbox`,
+the rows stay and every following cycle retries the same refusal forever, with
+no failure mail to announce it. Point the route elsewhere first.
+
+This used to be `ALERT_ALLOWED_RECIPIENTS`, a CSV env binding — which meant a
+`wrangler secret put` and a redeploy to add one address, and a list nothing in
+the app could show you.
 
 **Double-send is guarded on both sides**: `UNIQUE (sweep_id, to_email)` in
 `alert_deliveries`, and a matching `Idempotency-Key` header
@@ -680,7 +702,6 @@ Production: `wrangler secret put NAME`. Locally: a line in `api/.dev.vars`
 | `APP_USER_EMAIL` | — | **the cron fails closed** — no account to attribute a run to |
 | `RESEND_API_KEY` | — | sweeps run and ingest; every digest recorded `skipped` |
 | `ALERT_FROM` | — | same as a missing key. Must be on a Resend-**verified** domain |
-| `ALERT_ALLOWED_RECIPIENTS` | — | only `APP_USER_EMAIL` |
 | `ALERT_DAILY_BUDGET` | 600 | automation's share of the key's 1000/day |
 | `ALERT_MANUAL_RESERVE` | 300 | calls held back for a person |
 | `ALERT_MAX_CALLS_PER_TICK` | 25 | one tick's cap before pausing the route |
@@ -700,7 +721,7 @@ independent facts; there is no requirement that they match.
 | column | notes |
 |---|---|
 | `alerts_enabled` | 0 by default, so a new route schedules nothing |
-| `alert_email` | NULL = the account's address. Allowlisted on write |
+| `alert_email` | NULL = the account's address. Checked against `alert_recipients` on write |
 | `alert_on` | JSON `ChangeType[]`. NULL = default set; `[]` refused |
 | `alert_min_drop_pct` | default 5 |
 | `alert_last_attempt_at` | **the pacing clock** — every attempt, pass or fail |
@@ -715,7 +736,7 @@ prevent.**
 scheduler's one hot query is "which alert-enabled route is most overdue" and
 alert routes are a handful out of the table.
 
-`alert_outbox` — §8. `alert_deliveries` — §9. Neither `type` nor
+`alert_outbox` — §8. `alert_deliveries` and `alert_recipients` — §9. Neither `type` nor
 `search_runs.trigger` carries a CHECK constraint: a new transition type should
 not need a migration to become storable.
 
@@ -731,7 +752,7 @@ All `alert_*` columns and the outbox/delivery tables are defined in
 | no mail, ever, on a new route | baseline sweep — working as designed | Alerts tab: *baseline pending* |
 | no mail, and the tab says *not running* | `cycle_exceeds_budget` — the routes cost more than a day | red banner naming the fix |
 | no mail, banner says sweeps paused | budget guard: `reserve` or `exhausted`. Clears at 00:00 UTC | warning banner |
-| sweeps run, nothing arrives | `RESEND_API_KEY`/`ALERT_FROM` unset, or recipient off the allowlist | `alert_deliveries.status = 'skipped'` |
+| sweeps run, nothing arrives | `RESEND_API_KEY`/`ALERT_FROM` unset, or the recipient is off the allowlist — add it under **Settings → System** | `alert_deliveries.status = 'skipped'` |
 | sweeps run, sends refused | unverified sending domain, bad key | `status = 'failed'`, provider body in `error` |
 | a route stops being swept | window fell into the past; every sweep would refuse before the first call | *window expired*, and it is excluded from the cost model |
 | **every** route goes quiet, but sweeps look fine | an expired-window route blocks `cycleComplete`, so nothing flushes — see the note in §8 | *window expired* on the offending route |

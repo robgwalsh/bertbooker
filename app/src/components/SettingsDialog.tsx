@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Box,
   Button,
@@ -12,6 +12,8 @@ import {
   IconButton,
   Stack,
   Switch,
+  Tab,
+  Tabs,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -19,46 +21,80 @@ import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import { normalizeAirportCode, setPreference, usePreferences } from "../lib/preferences";
 import { AirportAutocomplete } from "./AirportAutocomplete";
+import { SystemSettings } from "./SystemSettings";
 import { THEMES, THEME_GROUPS, themeGroup, type ThemeSpec } from "../theme/themes";
 import { SWITCH_ROW_ML } from "../lib/layout";
 import { useIsPhone } from "../hooks/useBreakpoints";
 
+/** Which half of the dialog is showing. */
+export type SettingsTab = "preferences" | "system";
+
 /**
- * The app bar's preferences control — the gear and the dialog behind it.
- *
- * One component for both halves because the dialog has exactly one opener and
- * nothing else can reach it; splitting them would mean lifting an `open` boolean
- * into `Layout`, which has no other reason to know about preferences.
+ * The app bar's settings control — the gear, and the dialog behind it.
  *
  * It sits beside `QuotaIndicator` and `SignOut` for the same reason those do:
- * these are properties of the APP, not of a page. A preference reached from the
- * Routes page would be a preference you couldn't change while looking at what it
+ * these are properties of the APP, not of a page. A setting reached from the
+ * Routes page would be a setting you couldn't change while looking at what it
  * affects from anywhere else.
  *
- * Why the toggles write immediately and there is no Save: a preference is not a
- * form. There is nothing to validate, nothing to fail, and nothing that reads
- * consistently only once several fields agree — so a commit step would be pure
- * ceremony, and the one thing in this app that has it. `Close` dismisses; it
- * does not confirm.
+ * **TWO TABS, AND THEY OBEY DIFFERENT RULES.** Do not make one match the other.
+ *
+ * *Preferences* is `lib/preferences.ts`: browser-local, one `localStorage` blob,
+ * and every control writes on change. There is no Save because a preference is
+ * not a form — nothing to validate, nothing to fail, and nothing that reads
+ * consistently only once several fields agree. `Close` dismisses; it does not
+ * confirm.
+ *
+ * *System* is the alert-recipient allowlist, which is a D1 table behind an API.
+ * It CAN fail — a malformed address, a duplicate, an address a route still
+ * uses — so it has an explicit Add action, a pending state and an error
+ * surface. That is not an inconsistency to be tidied away; it is the difference
+ * between a preference and a write.
+ *
+ * The tab is component state rather than a URL segment, and that is not a
+ * violation of CLAUDE.md's "sections are ROUTES, not state". That rule is about
+ * multi-tab PAGES — `/library/airports`, `/tools/coverage` — which have a URL to
+ * be linkable in. A dialog has none, and this one never did.
  */
-export function PreferencesButton() {
+export function SettingsButton() {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <Tooltip title="Preferences">
-        <IconButton size="small" aria-label="Preferences" onClick={() => setOpen(true)}>
+      <Tooltip title="Settings">
+        <IconButton size="small" aria-label="Settings" onClick={() => setOpen(true)}>
           <SettingsRoundedIcon fontSize="small" />
         </IconButton>
       </Tooltip>
-      <PreferencesDialog open={open} onClose={() => setOpen(false)} />
+      <SettingsDialog open={open} onClose={() => setOpen(false)} />
     </>
   );
 }
 
-function PreferencesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * Exported, and with an `initialTab`, because the gear is no longer the only
+ * opener: the route form's "Send to" dropdown links straight to the System tab
+ * so you can add a recipient without abandoning a half-filled route.
+ */
+export function SettingsDialog({
+  open,
+  onClose,
+  initialTab = "preferences",
+}: {
+  open: boolean;
+  onClose: () => void;
+  initialTab?: SettingsTab;
+}) {
   const prefs = usePreferences();
   const phone = useIsPhone();
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
+
+  // Re-aimed on each opening rather than only on mount: the dialog stays mounted
+  // between openings so its close transition can play, which would otherwise
+  // leave the gear showing whichever tab the last opener asked for.
+  useEffect(() => {
+    if (open) setTab(initialTab);
+  }, [open, initialTab]);
 
   return (
     // `sm`, not `xs`: the theme picker is a grid of previews, and at `xs` it is
@@ -69,47 +105,17 @@ function PreferencesDialog({ open, onClose }: { open: boolean; onClose: () => vo
     // columns and a real scroller instead of a 326px box holding twenty-one
     // previews.
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={phone}>
-      <DialogTitle>Preferences</DialogTitle>
+      <DialogTitle sx={{ pb: 0 }}>Settings</DialogTitle>
+      <Tabs
+        value={tab}
+        onChange={(_, v: SettingsTab) => setTab(v)}
+        sx={{ px: 3, minHeight: 40 }}
+      >
+        <Tab label="Preferences" value="preferences" sx={{ minHeight: 40 }} />
+        <Tab label="System" value="system" sx={{ minHeight: 40 }} />
+      </Tabs>
       <DialogContent dividers>
-        {/* Grouped from the first preference rather than once there are enough to
-            need it: a flat list would have to be re-grouped later, and the
-            heading is what tells you what KIND of thing this dialog holds. */}
-        <Section title="Display">
-          <FormControlLabel
-            sx={{ ml: SWITCH_ROW_ML }}
-            control={
-              <Switch
-                size="small"
-                checked={prefs.showMapColumn}
-                onChange={(e) => setPreference("showMapColumn", e.target.checked)}
-              />
-            }
-            label="Show Map column"
-          />
-          {/* The scope is still spelled out even though the Routes page is
-              the only table that draws finds — a "Show X" switch reads as
-              app-wide, and naming where it applies costs one line. */}
-          <Typography variant="caption" color="text.secondary">
-            The route map drawn beside each itinerary on the Routes page.
-          </Typography>
-        </Section>
-
-        <Divider sx={{ my: 2.5 }} />
-
-        <Section title="Travel">
-          <DefaultAirportField value={prefs.defaultAirport} />
-        </Section>
-
-        <Divider sx={{ my: 2.5 }} />
-
-        <Section title="Theme">
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>
-            Applies immediately and is remembered per browser. Each swatch is the
-            theme's own chrome, page and accent, in the arrangement the app uses
-            them.
-          </Typography>
-          <ThemePicker selected={prefs.themeId} />
-        </Section>
+        {tab === "preferences" ? <PreferencesTab prefs={prefs} /> : <SystemSettings />}
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 1.5 }}>
         <Button onClick={onClose} color="inherit">
@@ -117,6 +123,52 @@ function PreferencesDialog({ open, onClose }: { open: boolean; onClose: () => vo
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+function PreferencesTab({ prefs }: { prefs: ReturnType<typeof usePreferences> }) {
+  return (
+    <>
+      {/* Grouped from the first preference rather than once there are enough to
+          need it: a flat list would have to be re-grouped later, and the
+          heading is what tells you what KIND of thing this dialog holds. */}
+      <Section title="Display">
+        <FormControlLabel
+          sx={{ ml: SWITCH_ROW_ML }}
+          control={
+            <Switch
+              size="small"
+              checked={prefs.showMapColumn}
+              onChange={(e) => setPreference("showMapColumn", e.target.checked)}
+            />
+          }
+          label="Show Map column"
+        />
+        {/* The scope is still spelled out even though the Routes page is
+            the only table that draws finds — a "Show X" switch reads as
+            app-wide, and naming where it applies costs one line. */}
+        <Typography variant="caption" color="text.secondary">
+          The route map drawn beside each itinerary on the Routes page.
+        </Typography>
+      </Section>
+
+      <Divider sx={{ my: 2.5 }} />
+
+      <Section title="Travel">
+        <DefaultAirportField value={prefs.defaultAirport} />
+      </Section>
+
+      <Divider sx={{ my: 2.5 }} />
+
+      <Section title="Theme">
+        <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>
+          Applies immediately and is remembered per browser. Each swatch is the
+          theme's own chrome, page and accent, in the arrangement the app uses
+          them.
+        </Typography>
+        <ThemePicker selected={prefs.themeId} />
+      </Section>
+    </>
   );
 }
 
@@ -148,7 +200,7 @@ function DefaultAirportField({ value }: { value: string }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <>
       <Typography variant="overline" color="text.secondary" sx={{ display: "block" }}>

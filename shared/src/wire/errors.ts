@@ -47,6 +47,10 @@ export type ApiErrorCode =
   | "recipient_not_allowed"
   | "no_alert_from"
   | "no_resend_api_key"
+  // The recipient allowlist (`alert_recipients`)
+  | "bad_email"
+  | "duplicate_recipient"
+  | "recipient_in_use"
   // Route graph
   | "unknown_source"
   | "routes_fetch_failed"

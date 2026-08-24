@@ -40,6 +40,10 @@ export type {
   AlertSchedulePacing,
   AlertScheduleBudget,
   AlertScheduleRoute,
+  // The alert-recipient allowlist
+  AlertRecipient,
+  AlertRecipients,
+  AlertRecipientInput,
   // Reference data
   ProgramInfo,
   CurrencyInfo,
@@ -126,6 +130,7 @@ import {
 import { searchRoute } from "./search";
 import { enrichFind, enrichRoute } from "./enrich";
 import { alertDeliveries, alertRunTick, alertRuns, alertSchedule } from "./alerts";
+import { addAlertRecipient, alertRecipients, deleteAlertRecipient } from "./settings";
 import {
   fetchRouteGraph,
   routeGraph,
@@ -195,4 +200,9 @@ export const api = {
   alertRuns,
   alertDeliveries,
   alertRunTick,
+
+  // ---- Settings: the addresses a digest may be sent to ----
+  alertRecipients,
+  addAlertRecipient,
+  deleteAlertRecipient,
 };

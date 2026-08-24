@@ -94,11 +94,18 @@ const IGNORED_CONSOLE_ERRORS: RegExp[] = [];
  * `/favicon.ico` — the SPA ships none, so Chrome asks and gets the SPA fallback.
  * Cosmetic, and nothing to do with the page under test.
  *
+ * `/api/settings/recipients` — the Settings dialog's System tab. Refusing a
+ * malformed or duplicate address is a 400 the tab RENDERS, not a fault: the
+ * Worker's own sentence is the whole explanation the user gets. Chrome logs
+ * every failed fetch as `console.error` regardless of who asked for it, so
+ * without this a spec that types a bad address would fail guard 2 for behaving
+ * exactly as designed.
+ *
  * There was a second entry, `/daemon/*`, for the local runner's health poll.
  * Both the daemon and the tab that polled it are gone; the SPA now talks to
  * exactly one origin.
  */
-const EXPECTED_FAILURES: RegExp[] = [/^\/favicon\.ico$/];
+const EXPECTED_FAILURES: RegExp[] = [/^\/favicon\.ico$/, /^\/api\/settings\/recipients$/];
 
 /** Does this URL belong to something we already know answers badly? */
 function isExpectedFailure(rawUrl: string): boolean {

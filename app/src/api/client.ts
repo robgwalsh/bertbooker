@@ -18,6 +18,13 @@ export class ApiError extends Error {
     /** The Worker's machine-readable `{"error":...}` code, when it sent one. */
     readonly code: string | null,
     message: string,
+    /** The Worker's human-readable `{"message":...}`, when it sent one.
+     *
+     *  Separate from `message`, which keeps its `POST /path -> 400 code` shape
+     *  because existing error UI already renders that. Where the Worker wrote a
+     *  sentence for a person — the settings writes do — this is it, and it beats
+     *  anything the SPA could reconstruct from the code alone. */
+    readonly detail?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -51,6 +58,7 @@ export async function req<T>(path: string, init?: RequestInit): Promise<T> {
       res.status,
       code,
       `${init?.method ?? "GET"} ${path} -> ${res.status}${code ? ` ${code}` : ""}`,
+      detail?.message,
     );
   }
   return res.json() as Promise<T>;

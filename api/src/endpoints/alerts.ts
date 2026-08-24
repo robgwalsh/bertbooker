@@ -106,7 +106,7 @@ alerts.get("/api/alerts/schedule", async (c) => {
     email: {
       configured: Boolean(c.env.RESEND_API_KEY && c.env.ALERT_FROM),
       from: c.env.ALERT_FROM ?? null,
-      allowedRecipients: allowedRecipients(c.env),
+      allowedRecipients: await allowedRecipients(c.env),
     },
     routes: rows.map((r) => {
       const cost = costFor.get(r.id);

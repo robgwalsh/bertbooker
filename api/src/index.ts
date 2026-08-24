@@ -32,6 +32,7 @@ import { airports } from "./endpoints/airports.js";
 import { seatsaeroRoutes } from "./endpoints/seatsaeroRoutes.js";
 import { routes } from "./endpoints/routes.js";
 import { trackedRoutes } from "./endpoints/trackedRoutes.js";
+import { settings } from "./endpoints/settings.js";
 
 // THIS WORKER NEVER CALLS AN AIRLINE'S OWN SITE. The rule is about who is being
 // scored: this Worker may call a service that authenticates the CREDENTIAL, and
@@ -141,6 +142,10 @@ app.route("/", routes);
 // The saved searches themselves. Mounted last of the `/api/tracked-routes`
 // owners, deliberately; see the order note above.
 app.route("/", trackedRoutes);
+
+// The deployment's own settings — today, the alert-recipient allowlist. Owns
+// `/api/settings/*` alone, so its position here is free.
+app.route("/", settings);
 
 /*
  * `POST /api/tracked-routes/:id/search` lives in `endpoints/search.ts`.

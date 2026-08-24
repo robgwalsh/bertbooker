@@ -17,4 +17,5 @@ export * from "./enrich.js";
 export * from "./alerts.js";
 export * from "./quota.js";
 export * from "./session.js";
+export * from "./settings.js";
 export * from "./errors.js";

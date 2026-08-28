@@ -26,8 +26,8 @@ import { THEMES, THEME_GROUPS, themeGroup, type ThemeSpec } from "../theme/theme
 import { SWITCH_ROW_ML } from "../lib/layout";
 import { useIsPhone } from "../hooks/useBreakpoints";
 
-/** Which half of the dialog is showing. */
-export type SettingsTab = "preferences" | "system";
+/** Which section of the dialog is showing. */
+export type SettingsTab = "preferences" | "theme" | "system";
 
 /**
  * The app bar's settings control — the gear, and the dialog behind it.
@@ -37,13 +37,18 @@ export type SettingsTab = "preferences" | "system";
  * Routes page would be a setting you couldn't change while looking at what it
  * affects from anywhere else.
  *
- * **TWO TABS, AND THEY OBEY DIFFERENT RULES.** Do not make one match the other.
+ * **THREE TABS, AND THEY OBEY DIFFERENT RULES.** Do not make one match another.
  *
  * *Preferences* is `lib/preferences.ts`: browser-local, one `localStorage` blob,
  * and every control writes on change. There is no Save because a preference is
  * not a form — nothing to validate, nothing to fail, and nothing that reads
  * consistently only once several fields agree. `Close` dismisses; it does not
  * confirm.
+ *
+ * *Theme* writes that same blob under the same rule. It is its own tab rather
+ * than a third section under Preferences because it is a grid of twenty-odd
+ * previews: as a section it was the whole scroll, and the two settings above it
+ * were what you scrolled past to reach it.
  *
  * *System* is the alert-recipient allowlist, which is a D1 table behind an API.
  * It CAN fail — a malformed address, a duplicate, an address a route still
@@ -112,10 +117,13 @@ export function SettingsDialog({
         sx={{ px: 3, minHeight: 40 }}
       >
         <Tab label="Preferences" value="preferences" sx={{ minHeight: 40 }} />
+        <Tab label="Theme" value="theme" sx={{ minHeight: 40 }} />
         <Tab label="System" value="system" sx={{ minHeight: 40 }} />
       </Tabs>
       <DialogContent dividers>
-        {tab === "preferences" ? <PreferencesTab prefs={prefs} /> : <SystemSettings />}
+        {tab === "preferences" && <PreferencesTab prefs={prefs} />}
+        {tab === "theme" && <ThemeTab selected={prefs.themeId} />}
+        {tab === "system" && <SystemSettings />}
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 1.5 }}>
         <Button onClick={onClose} color="inherit">
@@ -157,17 +165,18 @@ function PreferencesTab({ prefs }: { prefs: ReturnType<typeof usePreferences> })
       <Section title="Travel">
         <DefaultAirportField value={prefs.defaultAirport} />
       </Section>
+    </>
+  );
+}
 
-      <Divider sx={{ my: 2.5 }} />
-
-      <Section title="Theme">
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>
-          Applies immediately and is remembered per browser. Each swatch is the
-          theme's own chrome, page and accent, in the arrangement the app uses
-          them.
-        </Typography>
-        <ThemePicker selected={prefs.themeId} />
-      </Section>
+function ThemeTab({ selected }: { selected: string }) {
+  return (
+    <>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+        Applies immediately and is remembered per browser. Each swatch is the theme&rsquo;s own
+        chrome, page and accent, in the arrangement the app uses them.
+      </Typography>
+      <ThemePicker selected={selected} />
     </>
   );
 }

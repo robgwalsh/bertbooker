@@ -23,6 +23,14 @@ import {
 import type { AirportName, Find, TrackedRoute } from "../../api";
 import { FindProgram, TripTotalCost } from "./findCells";
 import { pairKey } from "./findKey";
+import {
+  DEFAULT_SORT,
+  sortPairs,
+  toggleSort,
+  type SortState,
+  type TripSortKey,
+} from "./findSort";
+import { SortHeadCell } from "./SortHeadCell";
 import { findStops, ItineraryCard } from "./Itinerary";
 import { RouteMapFill, ROUTE_MAP_CELL_WIDTH, toRouteStops } from "./RouteMap";
 import { isSamePath, ROUTE_ALT_COLOR, ROUTE_COLOR } from "../../lib/routeMapGeometry";
@@ -396,6 +404,7 @@ export function RoundTripTable({
   const showMap = !narrow && showMapProp !== false;
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sort, setSort] = useState<SortState<TripSortKey>>(DEFAULT_SORT);
   // Local while dragging; committed to the URL on release, so one drag is one
   // history entry rather than fifty.
   const [draft, setDraft] = useState<[number, number] | null>(null);
@@ -428,10 +437,20 @@ export function RoundTripTable({
 
   const searched = route.last_checked_at != null;
 
+  // Sorted BEFORE paging, so a column orders every trip rather than the ten on
+  // screen. `pairRoundTrips` has already picked WHICH trips are here —
+  // cheapest-first, then truncated — and that selection is unaffected by how
+  // they are then arranged; the caption below still says how many of how many.
+  const sorted = useMemo(() => sortPairs(result.pairs, sort), [result.pairs, sort]);
+  const onSort = (key: TripSortKey) => {
+    setSort(toggleSort(sort, key));
+    setPage(0);
+  };
+
   const pageCount = Math.max(1, Math.ceil(result.pairs.length / pageSize));
   const current = Math.min(page, pageCount - 1);
   const start = current * pageSize;
-  const rows = result.pairs.slice(start, start + pageSize);
+  const rows = sorted.slice(start, start + pageSize);
 
   // One coordinate lookup for every airport on the page — both legs of every
   // pair. Scoped to the visible page for the same reason the finds table scopes
@@ -648,14 +667,26 @@ export function RoundTripTable({
                   single award's. */}
               <TableHead>
                 <TableRow>
-                  <TableCell sx={DATE_CELL}>Date</TableCell>
+                  <SortHeadCell column="date" sort={sort} onSort={onSort} sx={DATE_CELL}>
+                    Date
+                  </SortHeadCell>
                   <TableCell>Itinerary</TableCell>
                   {showMap && <TableCell>Map</TableCell>}
-                  <TableCell>Cabin</TableCell>
-                  <TableCell>Program</TableCell>
-                  <TableCell align="right">Nights</TableCell>
-                  <TableCell align="right">Seats</TableCell>
-                  <TableCell align="right">Cost</TableCell>
+                  <SortHeadCell column="cabin" sort={sort} onSort={onSort}>
+                    Cabin
+                  </SortHeadCell>
+                  <SortHeadCell column="program" sort={sort} onSort={onSort}>
+                    Program
+                  </SortHeadCell>
+                  <SortHeadCell column="nights" sort={sort} onSort={onSort} align="right">
+                    Nights
+                  </SortHeadCell>
+                  <SortHeadCell column="seats" sort={sort} onSort={onSort} align="right">
+                    Seats
+                  </SortHeadCell>
+                  <SortHeadCell column="cost" sort={sort} onSort={onSort} align="right">
+                    Cost
+                  </SortHeadCell>
                   <TableCell>Book with</TableCell>
                 </TableRow>
               </TableHead>

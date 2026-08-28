@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Box,
   Chip,
@@ -19,6 +19,14 @@ import { alpha, type Theme } from "@mui/material/styles";
 import { type AirportName, type Find } from "../../api";
 import { FindCost, FindProgram } from "./findCells";
 import { findKey } from "./findKey";
+import {
+  DEFAULT_SORT,
+  sortFinds,
+  toggleSort,
+  type FindSortKey,
+  type SortState,
+} from "./findSort";
+import { SortHeadCell } from "./SortHeadCell";
 import { findStops, ItineraryCard } from "./Itinerary";
 import { RouteMapFill, ROUTE_MAP_CELL_WIDTH, toRouteStops } from "./RouteMap";
 import { useAirportNames } from "../../hooks/useAirportNames";
@@ -226,6 +234,16 @@ export function FindsTable({
 }: { finds: Find[] } & FindsTableOptions) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sort, setSort] = useState<SortState<FindSortKey>>(DEFAULT_SORT);
+
+  // Sorted BEFORE paging, so a column orders the whole set rather than the
+  // fifteen rows that happen to be on screen — and back to page one, because
+  // the point of a new sort is what is now at the top of it.
+  const sorted = useMemo(() => sortFinds(finds, sort), [finds, sort]);
+  const onSort = (key: FindSortKey) => {
+    setSort(toggleSort(sort, key));
+    setPage(0);
+  };
 
   // Clamped on read rather than reset in an effect: a search finishing under an
   // open route can shrink the set while you are on the last page, and the honest
@@ -233,7 +251,7 @@ export function FindsTable({
   const pageCount = Math.max(1, Math.ceil(finds.length / pageSize));
   const current = Math.min(page, pageCount - 1);
   const start = current * pageSize;
-  const rows = opts.paginate ? finds.slice(start, start + pageSize) : finds;
+  const rows = opts.paginate ? sorted.slice(start, start + pageSize) : sorted;
 
   // Cards on a phone, the table everywhere else. Different markup rather than
   // restyled cells — see `useIsPhone`.
@@ -277,13 +295,23 @@ export function FindsTable({
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={DATE_CELL}>Date</TableCell>
+              <SortHeadCell column="date" sort={sort} onSort={onSort} sx={DATE_CELL}>
+                Date
+              </SortHeadCell>
               <TableCell>Itinerary</TableCell>
               {showMap && <TableCell>Map</TableCell>}
-              <TableCell>Cabin</TableCell>
-              <TableCell>Program</TableCell>
-              <TableCell align="right">Seats</TableCell>
-              <TableCell align="right">Cost</TableCell>
+              <SortHeadCell column="cabin" sort={sort} onSort={onSort}>
+                Cabin
+              </SortHeadCell>
+              <SortHeadCell column="program" sort={sort} onSort={onSort}>
+                Program
+              </SortHeadCell>
+              <SortHeadCell column="seats" sort={sort} onSort={onSort} align="right">
+                Seats
+              </SortHeadCell>
+              <SortHeadCell column="cost" sort={sort} onSort={onSort} align="right">
+                Cost
+              </SortHeadCell>
               <TableCell>Book with</TableCell>
             </TableRow>
           </TableHead>

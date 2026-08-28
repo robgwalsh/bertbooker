@@ -158,6 +158,12 @@ enabled = true
 # next tick through the same `run_continue` mechanism the HTTP search uses. The
 # cron is a heartbeat; how often any ONE route is actually swept is derived from
 # the day's call budget divided by what the alert routes measurably cost.
+#
+# THIS INTERVAL IS MIRRORED IN CODE as `SWEEP_TICK_MINUTES` (alerts/pace.ts) —
+# change one and change the other. A route can only be swept on a tick, so the
+# due test needs to know how far apart ticks are; without that it waits for the
+# tick AFTER the one it should have run on, which measured as a flat 2x
+# slowdown. See docs/ALERTS.md §4.
 [triggers]
 crons = ["*/15 * * * *"]
 

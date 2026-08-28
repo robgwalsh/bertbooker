@@ -333,6 +333,37 @@ dueAt = max( alertLastAttemptAt + interval × 2^min(failures, 3),
   the old penalty.
 - A route with `chunks <= 0` is **never due** — it would refuse at
   `planSearchPass` and burn a tick to learn what the plan already knows.
+- **`dueRoutes` allows half a tick of grace**, and that is a fix rather than a
+  nicety — see below.
+
+#### Why the due test has grace — a measured 2× slowdown
+
+A route is only ever swept **on a tick**, so the cron's period is the resolution
+of every cadence here. Requiring the interval to be *strictly* elapsed therefore
+rounds each wait up to the next tick, **plus one more whenever the due time lands
+a hair past it** — and it always did:
+
+| what | when | why |
+|---|---|---|
+| `alert_last_attempt_at` | the tick's own clock | stamped first thing in `sweepRoute` |
+| `last_checked_at` | **1.3 – 4.6 s later** | written when the search finishes |
+
+`routeDueAt` takes `lastChecked + interval` as a floor, and the cron is regular
+to the millisecond (900,001 ms between the two ticks that wrote those rows). So
+the floor lands a second or two *after* the next tick, every single time: not
+due, skipped, swept on the one after. Four routes the Alerts tab paced at
+`every 15m` were swept **every 30 minutes, exactly** — 22:45, 23:15, 23:45,
+00:15 — for as long as `search_runs` goes back.
+
+This is not the one-route-per-tick bug in §2. That one was fixed; this survived
+it, because sweeping every *due* route does nothing when the route is not due.
+
+`dueGraceMs` is half a tick (`SWEEP_TICK_MINUTES`, mirrored from
+`api/wrangler.toml`), which makes a route due on the tick **nearest** its due
+time rather than the first tick strictly after it. It cannot sweep anything
+early: there is no tick between one sweep and its successor to be early on. It is
+bounded by half the *interval* as well, so a cadence longer than the cron still
+waits for its own tick — a 30-minute cadence is not pulled forward to 15.
 
 ---
 
@@ -757,6 +788,7 @@ All `alert_*` columns and the outbox/delivery tables are defined in
 | a route stops being swept | window fell into the past; every sweep would refuse before the first call | *window expired*, and it is excluded from the cost model |
 | **every** route goes quiet, but sweeps look fine | an expired-window route blocks `cycleComplete`, so nothing flushes — see the note in §8 | *window expired* on the offending route |
 | a route slows down | `alert_consecutive_failures` back-off, up to ×8 | *failing*, with the count |
+| EVERY route swept at twice the cadence the tab quotes | `SWEEP_TICK_MINUTES` no longer matches the cron in `wrangler.toml`, so the due test has the wrong grace and each route waits for the tick after the one it was due on (§4) | *last swept* consistently one whole interval stale, on every route at once |
 | **no invocations at all** | `APP_USER_EMAIL` unset, or the tick threw | **Workers Logs** — `wrangler tail bertbooker` — and the Cron Triggers tab |
 
 That last row is the one with no in-app surface, which is exactly why

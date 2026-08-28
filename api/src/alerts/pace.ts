@@ -22,6 +22,12 @@ import type { SweepPacing } from "../../../shared/src/wire/alerts.js";
  *  seats.aero serves rows out of its own cache, so re-asking faster mostly
  *  re-reads the same answer and spends a call to learn nothing. */
 export const MIN_SWEEP_MINUTES = 15;
+/** The cron's period, MIRRORED from `[triggers] crons` in `api/wrangler.toml` —
+ *  change one and change the other. A route is only ever swept on a tick, so
+ *  this is the resolution of every cadence below; `dueGraceMs` is why that has
+ *  to be written down rather than inferred from `MIN_SWEEP_MINUTES`, which
+ *  happens to be the same number today and answers a different question. */
+export const SWEEP_TICK_MINUTES = 15;
 /** ...and never claim a cadence slower than daily; past that the honest answer
  *  is "this is unaffordable", which is a different return value. */
 export const MAX_SWEEP_MINUTES = 24 * 60;
@@ -210,6 +216,33 @@ export function routeDueAt(route: AlertRouteClock, intervalMinutes: number): num
 }
 
 /**
+ * How early a tick may take a route as due.
+ *
+ * **A route is only ever swept ON a tick**, so the cron's period is the
+ * resolution of every cadence here, and demanding that the interval be strictly
+ * elapsed rounds each wait up to the next tick *plus one more* whenever the due
+ * time lands a hair past it. That is measured, not hypothetical: four routes the
+ * Alerts tab paced at `every 15m` were swept every 30 minutes, exactly, for as
+ * long as `search_runs` records.
+ *
+ * The hair is the sweeper's own write. `alert_last_attempt_at` is stamped with
+ * the tick's clock, but `last_checked_at` — which `routeDueAt` takes as a floor —
+ * is written when the search FINISHES, measured at 1.3 to 4.6 seconds later. The
+ * cron is regular to the millisecond (900,001 ms between the two ticks that
+ * wrote those rows), so `lastChecked + interval` lands just *after* the next tick
+ * every single time: not due, skipped, swept on the one after.
+ *
+ * Half a tick of grace makes a route due on the tick NEAREST its due time rather
+ * than the first tick strictly after it. It cannot sweep anything early in
+ * practice, because there is no tick between one sweep and its successor to be
+ * early on. Bounded by half the interval as well, so this stays true if the cron
+ * period and `MIN_SWEEP_MINUTES` ever stop being the same number.
+ */
+function dueGraceMs(intervalMinutes: number): number {
+  return (Math.min(SWEEP_TICK_MINUTES, intervalMinutes) / 2) * 60_000;
+}
+
+/**
  * The routes to sweep now, most overdue first.
  *
  * An unsearchable route (no chunks) is never due — it would refuse at
@@ -220,10 +253,11 @@ export function dueRoutes(
   intervalMinutes: number,
   now: number,
 ): AlertRouteClock[] {
+  const grace = dueGraceMs(intervalMinutes);
   return routes
     .filter((r) => r.chunks > 0)
     .map((r) => ({ route: r, dueAt: routeDueAt(r, intervalMinutes) }))
-    .filter(({ dueAt }) => dueAt <= now)
+    .filter(({ dueAt }) => dueAt - grace <= now)
     .sort((a, b) => a.dueAt - b.dueAt)
     .map(({ route }) => route);
 }

@@ -3,6 +3,7 @@ import type { ChangeSummary, ChangeType } from "../domain/diff.js";
 import {
   MAX_SWEEP_MINUTES,
   MIN_SWEEP_MINUTES,
+  SWEEP_TICK_MINUTES,
   baselineOnEnable,
   dueRoutes,
   routeDueAt,
@@ -162,6 +163,44 @@ describe("routeDueAt / dueRoutes", () => {
       { routeId: 2, chunks: 5, alertLastAttemptAt: null, lastCheckedAt: null, consecutiveFailures: 0 },
     ];
     expect(dueRoutes(routes, 60, 9_000_000).map((r) => r.routeId)).toEqual([2]);
+  });
+
+  it("is due on the tick NEAREST its due time, not the one after", () => {
+    // The 2x slowdown, in the shape the live database recorded it. The tick
+    // stamps `alert_last_attempt_at` with its own clock and the search writes
+    // `last_checked_at` when it finishes, a few seconds later; the cron is
+    // regular to the millisecond. So the floor lands just past the next tick and
+    // a route paced at 15 minutes was swept every 30.
+    const attempt = 1_000_000;
+    const checked = attempt + 3_000;
+    const nextTick = attempt + SWEEP_TICK_MINUTES * MIN;
+    const route = {
+      routeId: 1,
+      chunks: 5,
+      alertLastAttemptAt: attempt,
+      lastCheckedAt: checked,
+      consecutiveFailures: 0,
+    };
+
+    // The due time really is past the tick — the grace is what closes it, not a
+    // change to the clocks.
+    expect(routeDueAt(route, SWEEP_TICK_MINUTES)).toBeGreaterThan(nextTick);
+    expect(dueRoutes([route], SWEEP_TICK_MINUTES, nextTick).map((r) => r.routeId)).toEqual([1]);
+  });
+
+  it("does not pull a longer cadence forward by a whole tick", () => {
+    // The grace is half a TICK, so a 30-minute cadence still waits for the
+    // 30-minute tick. Half an INTERVAL here would have swept it at 15.
+    const attempt = 1_000_000;
+    const route = {
+      routeId: 1,
+      chunks: 5,
+      alertLastAttemptAt: attempt,
+      lastCheckedAt: null,
+      consecutiveFailures: 0,
+    };
+    expect(dueRoutes([route], 30, attempt + 15 * MIN)).toEqual([]);
+    expect(dueRoutes([route], 30, attempt + 30 * MIN).map((r) => r.routeId)).toEqual([1]);
   });
 
   it("orders the due set most-overdue first", () => {

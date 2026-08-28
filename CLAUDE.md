@@ -363,15 +363,28 @@ Two cross-file sync rules ride with them:
 - **Addressing differs per server, and both are right.** Wrangler binds IPv4, so
   use `127.0.0.1:8787` (`localhost` → IPv6 `::1` hangs). Vite binds IPv6, so use
   `localhost:5173` (`127.0.0.1` is refused).
-- **"The API hangs" is always a wedged port, never the code.** Ctrl+C doesn't
-  kill `wrangler dev` cleanly on Windows — `workerd` grandchildren survive
-  holding :8787, and Windows lets the *next* wrangler bind it too. Connections
-  split between a live worker and a dead one: the socket accepts, nothing
-  answers, and the SPA shows pending spinners with **nothing in the network tab
-  or console**. Killing `workerd` alone doesn't help; the orphaned wrangler
-  parent respawns it. `scripts/free-port.mjs` kills the whole tree (matched by
-  repo path, so other projects are untouched) and runs as `predev:api`;
-  `npm run dev:api:stop` tears one down by hand.
+- **"The API hangs" is always a wedged port, never the code.** Two `wrangler dev`
+  processes bind :8787 — Windows allows it — so connections split between a live
+  worker and a dead one: the socket accepts, nothing answers, and the SPA shows
+  pending spinners with **nothing in the network tab or console**. Killing
+  `workerd` alone doesn't help; an orphaned wrangler parent respawns it.
+  `npm run dev:api:stop` tears a leftover down by hand, and the same sweep runs
+  as `predev:api` so a wedge can't survive into the next start.
+- **`dev:api` goes through `scripts/dev-api.mjs`, which is what stops leftovers
+  being made.** It launches wrangler's CLI directly rather than through
+  `node_modules/wrangler/bin/wrangler.js`, whose `SIGINT` handler calls
+  `.kill()` on the CLI — a SIGTERM on POSIX, but `TerminateProcess` on Windows,
+  which hard-kills the CLI mid-shutdown and orphans the `workerd` it owned.
+  Ctrl+C now reaches the CLI itself and it closes its own port. If it doesn't,
+  the supervisor escalates to a tree kill and then to the `free-port` sweep, and
+  `scripts/dev-watchdog.mjs` — detached, so it survives what it watches for —
+  releases the port if the supervisor is killed outright with no handler able to
+  run. Measured: hard-killing the shell under the old launcher left two `node`
+  and two `workerd` processes holding :8787; under this one, nothing.
+- **What is still not covered**, deliberately: kill the *shell* and leave the
+  supervisor alive and the dev server keeps running, healthy, holding the port —
+  it answers `200` on `/api/health`. That is a stray server, not a wedge, and
+  `predev:api` clears it on the next start.
 - **`api/.dev.vars` is the only environment file**, and it sits beside the
   `wrangler.toml` that loads it. Putting `APP_PASSWORD` anywhere else sets it for
   nobody — workerd only reads this file — and a definitely-correct password gets

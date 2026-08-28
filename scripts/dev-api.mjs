@@ -67,6 +67,18 @@ const child = spawn(process.execPath, ["--no-warnings", entry, "dev", ...args], 
   stdio: ["inherit", "inherit", "inherit", "ipc"],
 });
 
+// The signal handlers below cover Ctrl+C. They cover nothing at all when this
+// process is killed outright — a closed VS Code terminal tab, Task Manager,
+// `taskkill /F` — and on Windows that leaves workerd running, because killing a
+// parent does not kill its children. `dev-watchdog.mjs` is the answer to that
+// case: detached, so it survives what it is watching for.
+const watchdog = spawn(
+  process.execPath,
+  [path.join(REPO_ROOT, "scripts", "dev-watchdog.mjs"), String(process.pid), String(port)],
+  { detached: true, stdio: "ignore", windowsHide: true },
+);
+watchdog.unref();
+
 let escalation;
 let stopping = false;
 

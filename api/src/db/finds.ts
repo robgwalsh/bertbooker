@@ -29,7 +29,8 @@ export const FIND_COLUMNS = `f.origin, f.destination, f.flight_date, f.route_key
        f.booking_url, f.cash_price_cents, f.cash_price_currency,
        f.search_run_id, f.last_checked_at,
        f.detail_level, f.enriched_at, f.source_record_id,
-       f.stop_count, f.airlines, f.direct_airlines, f.direct_miles_cost`;
+       f.stop_count, f.airlines, f.direct_airlines, f.direct_miles_cost,
+       f.best_miles_ever`;
 
 /**
  * A predicate narrowing which snapshot rows enter the collapse at all. Keeping
@@ -353,6 +354,41 @@ finds AS (
              AND sc.destination = p.destination
              AND sc.flight_date = p.flight_date
              AND sc.program = p.program) AS last_checked_at,
+         -- The cheapest this slot has EVER been seen at, as a second correlated
+         -- seek. Across sources on purpose: "the best anyone ever saw" is not a
+         -- claim about who saw it, unlike detail_level and the carrier lists
+         -- above.
+         --
+         -- Safe against the same bare-column rule, and more directly than the
+         -- seek above it: all three correlated columns ARE the group key, so
+         -- the value is constant within the group by construction rather than
+         -- by way of what route_key is made of.
+         --
+         -- Adds NO BIND, which is what keeps findsCte's binds exactly
+         -- [...scope.binds, ...scope.binds] and every caller's .bind() line
+         -- unchanged.
+         --
+         -- Wants idx_ph_best (migration 0009) to be one row per seek: three
+         -- equality terms and MIN() on the trailing column, with the NULLs of
+         -- gone-points excluded by the index's own WHERE so MIN never scans
+         -- past them.
+         --
+         -- THE IS NOT NULL IS LOAD-BEARING AND IS NOT A NO-OP TO THE PLANNER.
+         -- MIN() already ignores NULLs, so it changes no result — but idx_ph_best
+         -- is PARTIAL, and SQLite will only use a partial index when the query's
+         -- own WHERE implies the index's. Without this line it measured
+         -- "SEARCH ph USING INDEX idx_ph_slot": the wrong index, not covering,
+         -- and a row fetch per seek. Deleting it as redundant silently doubles
+         -- the cost of the app's most expensive query.
+         --
+         -- NULL is a real answer — a snapshot written before 0009's backfill
+         -- has no history row — and reads as "no cheapest known".
+         (SELECT MIN(ph.miles_cost)
+            FROM price_history ph
+           WHERE ph.route_key = p.route_key
+             AND ph.program = p.program
+             AND ph.cabin = p.cabin
+             AND ph.miles_cost IS NOT NULL) AS best_miles_ever,
          MAX(p.source_fetched_at) AS _winner
     FROM per_source p
     LEFT JOIN cash_any ca

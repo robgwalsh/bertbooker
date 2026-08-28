@@ -232,10 +232,22 @@ interface StubbedRow extends Record<string, unknown> {
   raw_hash: string;
 }
 
+/** One row of a `price_history` write, unpacked from the JSON parameter the
+ *  bulk writer binds it as. `m` is the miles cost; null marks a gone point. */
+interface HistoryArg {
+  k: string;
+  d: string;
+  p: string;
+  c: string;
+  s: string;
+  m: number | null;
+}
+
 function stubDb(baseline: StubbedRow[]) {
   const inserts: unknown[][] = [];
   const deletes: unknown[][] = [];
   const coverage: unknown[][] = [];
+  const history: HistoryArg[] = [];
   /** Every `.all()` read, so a test can assert on the baseline query's SHAPE
    *  and not only on what came back from it. */
   const reads: { sql: string; args: unknown[] }[] = [];
@@ -259,13 +271,15 @@ function stubDb(baseline: StubbedRow[]) {
       for (const s of stmts) {
         if (s.sql.includes("INSERT INTO availability_snapshots")) inserts.push(s.args);
         else if (s.sql.includes("DELETE FROM availability_snapshots")) deletes.push(s.args);
+        else if (s.sql.includes("INSERT INTO price_history"))
+          history.push(...(JSON.parse(String(s.args[0])) as HistoryArg[]));
         else if (s.sql.includes("search_coverage")) coverage.push(s.args);
       }
       return stmts.map(() => ({ meta: { changes: 1 } }));
     },
   } as unknown as D1Database;
 
-  return { db, inserts, deletes, coverage, reads };
+  return { db, inserts, deletes, coverage, history, reads };
 }
 
 /** The columns `loadPreviousForSource` selects, for one stored snapshot. */
@@ -310,11 +324,76 @@ describe("applyTask — write-on-change", () => {
     task({ source: "seatsaero", offers: [summary], programs: ["alaska"] });
 
   it("writes nothing when the source's claim is unchanged", async () => {
-    // The cheapest smoke test this pipeline has.
-    const { db, inserts } = stubDb([storedRow(summary, hashResult(summary))]);
+    // The cheapest smoke test this pipeline has. It covers price_history too:
+    // a point per SEARCH rather than per change would turn the series into a
+    // sample of how often the cron ran.
+    const { db, inserts, history } = stubDb([storedRow(summary, hashResult(summary))]);
     const out = await applyTask(db, "run-1", seatsAeroTask());
     expect(inserts).toHaveLength(0);
+    expect(history).toHaveLength(0);
     expect(out.snapshotsWritten).toBe(0);
+  });
+
+  it("records the disappearance as a point, not as the end of the series", async () => {
+    // The whole reason price_history exists. The DELETE below is unscoped in
+    // time — it takes every snapshot the slot ever had — so unless this point is
+    // written, a series ends exactly when it becomes interesting.
+    const { db, deletes, history } = stubDb([storedRow(summary, hashResult(summary))]);
+    const out = await applyTask(
+      db,
+      "run-gone",
+      task({ source: "seatsaero", offers: [], programs: ["alaska"] }),
+    );
+
+    expect(deletes).toHaveLength(1);
+    expect(out.snapshotsPruned).toBe(1);
+    expect(history).toHaveLength(1);
+    // NULL, not zero: the source covered the slot and reported no award. A zero
+    // would read as a free seat.
+    expect(history[0]!.m).toBeNull();
+    expect(history[0]!.k).toBe("SEA-LAX-2027-03-05");
+  });
+
+  it("counts pruned snapshots off the deletes alone", async () => {
+    // The history write rides in the SAME batch as the DELETE, deliberately —
+    // one transaction, so a price cannot be destroyed without the record of its
+    // disappearance landing with it. That puts its inserted-row count in the
+    // same results array, and tallying the whole array would report two
+    // snapshots pruned where one row was deleted.
+    const { db, deletes, history } = stubDb([storedRow(summary, hashResult(summary))]);
+    const out = await applyTask(
+      db,
+      "run-gone",
+      task({ source: "seatsaero", offers: [], programs: ["alaska"] }),
+    );
+    expect(history).toHaveLength(1);
+    expect(out.snapshotsPruned).toBe(deletes.length);
+  });
+
+  it("records nothing for a slice the task never covered", async () => {
+    // No coverage claim, no prune, and so nothing observed to write down.
+    const { db, deletes, history } = stubDb([storedRow(summary, hashResult(summary))]);
+    await applyTask(
+      db,
+      "run-blocked",
+      task({ source: "seatsaero", status: "blocked", offers: [], programs: ["alaska"] }),
+    );
+    expect(deletes).toHaveLength(0);
+    expect(history).toHaveLength(0);
+  });
+
+  it("records a price point for each snapshot it writes", async () => {
+    const { db, inserts, history } = stubDb([]);
+    await applyTask(db, "run-1", seatsAeroTask(), 1_700_000_000_000);
+    expect(inserts).toHaveLength(1);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      k: "SEA-LAX-2027-03-05",
+      p: "alaska",
+      c: "business",
+      s: "seatsaero",
+      m: summary.milesCost,
+    });
   });
 
   it("reads its baseline with the EXACT pair test, not just the airport sets", async () => {

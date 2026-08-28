@@ -26,6 +26,7 @@ import { runAlertTick } from "./alerts/sweep.js";
 import { quota } from "./endpoints/quota.js";
 import { search } from "./endpoints/search.js";
 import { enrich } from "./endpoints/enrich.js";
+import { findHistory } from "./endpoints/findHistory.js";
 import { alerts } from "./endpoints/alerts.js";
 import { reference } from "./endpoints/reference.js";
 import { airports } from "./endpoints/airports.js";
@@ -113,6 +114,12 @@ app.route("/", search);
 // Buying the itinerary behind a summary find, one seats.aero call at a time.
 // Registered here purely so it reads next to `search`.
 app.route("/", enrich);
+
+// What one slot has cost over time. A pure read of `price_history` — it spends
+// nothing — mounted next to `enrich` so the two `/api/finds/*` surfaces read
+// together. It shares no path with anything, so this position is legibility
+// rather than routing.
+app.route("/", findHistory);
 
 // What the Alerts tab reads. In production it is read-only: the cron does the
 // writing, and the only way to change what it does is to edit a route (PATCH

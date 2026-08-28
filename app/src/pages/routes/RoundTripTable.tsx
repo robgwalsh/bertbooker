@@ -21,7 +21,7 @@ import {
   Typography,
 } from "@mui/material";
 import type { AirportName, Find, TrackedRoute } from "../../api";
-import { TripTotalCost } from "./findCells";
+import { FindProgram, TripTotalCost } from "./findCells";
 import { pairKey } from "./findKey";
 import { findStops, ItineraryCard } from "./Itinerary";
 import { RouteMapFill, ROUTE_MAP_CELL_WIDTH, toRouteStops } from "./RouteMap";
@@ -212,7 +212,9 @@ function PairRow({
         <TableCell rowSpan={2} sx={spanCell}>
           <CabinChip cabin={p.cabin} />
         </TableCell>
-        <TableCell sx={LEG_CELL}>{p.outbound.program}</TableCell>
+        <TableCell sx={LEG_CELL}>
+          <FindProgram f={p.outbound} />
+        </TableCell>
         <TableCell rowSpan={2} align="right" sx={spanCell}>
           {p.nights}
         </TableCell>
@@ -241,7 +243,9 @@ function PairRow({
         <TableCell sx={{ minWidth: 340 }}>
           <ItineraryCard f={p.inbound} />
         </TableCell>
-        <TableCell sx={LEG_CELL}>{p.inbound.program}</TableCell>
+        <TableCell sx={LEG_CELL}>
+          <FindProgram f={p.inbound} />
+        </TableCell>
         <TableCell sx={LEG_CELL}>
           <BookableCurrencies json={p.inbound.transfer_currencies} />
         </TableCell>

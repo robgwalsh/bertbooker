@@ -17,7 +17,7 @@ import {
 } from "@mui/material";
 import { alpha, type Theme } from "@mui/material/styles";
 import { type AirportName, type Find } from "../../api";
-import { FindCost } from "./findCells";
+import { FindCost, FindProgram } from "./findCells";
 import { findKey } from "./findKey";
 import { findStops, ItineraryCard } from "./Itinerary";
 import { RouteMapFill, ROUTE_MAP_CELL_WIDTH, toRouteStops } from "./RouteMap";
@@ -133,7 +133,9 @@ function FindRow({
       <TableCell sx={{ verticalAlign: "top", pt: 2 }}>
         <CabinChip cabin={f.cabin} />
       </TableCell>
-      <TableCell sx={{ verticalAlign: "top", pt: 2 }}>{f.program}</TableCell>
+      <TableCell sx={{ verticalAlign: "top", pt: 2 }}>
+        <FindProgram f={f} />
+      </TableCell>
       <TableCell align="right" sx={{ verticalAlign: "top", pt: 2 }}>
         {f.seats_available}
       </TableCell>
@@ -154,6 +156,12 @@ function FindRow({
  * keeping them adjacent is what makes a missing field obvious in review. The
  * bodies they share come from `findCells.tsx`; nothing here formats a number of
  * its own.
+ *
+ * **The carrier marks do not survive either**, and for the Map's reason rather
+ * than a different one. In the table they ride in the Program cell, which is
+ * `verticalAlign: top` beside a cell as tall as a drawn itinerary, so they cost
+ * nothing; on a card there is no tall neighbour to sit against and they would
+ * add a line to every row. The itinerary above still names whoever flies it.
  *
  * **The Map is the one column that does not survive.** It is a fixed 232px
  * picture of the routing the itinerary above it already spells out, it is

@@ -17,7 +17,7 @@ import {
 import { alpha } from "@mui/material/styles";
 import type { AirportName, Find } from "../../api";
 import type { Journey, JourneyResult } from "../../lib/multiLeg";
-import { JourneyTotalCost } from "./findCells";
+import { FindProgram, JourneyTotalCost } from "./findCells";
 import { journeyKey } from "./findKey";
 import { findStops, ItineraryCard } from "./Itinerary";
 import { RouteMapFill, ROUTE_MAP_CELL_WIDTH, toRouteStops } from "./RouteMap";
@@ -272,7 +272,9 @@ function JourneyRows({
             <TableCell sx={LEG_CELL}>
               <CabinChip cabin={f.cabin} />
             </TableCell>
-            <TableCell sx={LEG_CELL}>{f.program}</TableCell>
+            <TableCell sx={LEG_CELL}>
+              <FindProgram f={f} />
+            </TableCell>
 
             {firstRow && (
               <>

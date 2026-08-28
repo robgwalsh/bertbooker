@@ -27,7 +27,7 @@ import {
   resolveColor,
   sortCurrencies,
 } from "../lib/currencies";
-import { airlineLogoUrl } from "../lib/flights";
+import { airlineLogoUrl, carrierMarks } from "../lib/flights";
 
 /**
  * A transfer currency as its issuer's mark — the one shape every "who can book
@@ -214,6 +214,67 @@ export function BookableCurrencies({
       {sortCurrencies(codes).map((c) => (
         <CurrencyIcon key={c} code={c} size={size} note={note} />
       ))}
+    </Stack>
+  );
+}
+
+/**
+ * Which carriers compete for this cabin, as their marks.
+ *
+ * Takes the two raw blobs rather than a parsed list, the same way
+ * `BookableCurrencies` does and for the same reason: every caller has them in
+ * that form, and a malformed one renders nothing rather than throwing.
+ *
+ * The nonstop operators are told apart by a RING, not by order alone —
+ * `carrierMarks` already puts them first, but on a row of five identical tiles
+ * "the first two" is not something anyone can see. The tooltip names the
+ * distinction, since a two-letter code says little on its own.
+ */
+export function CarrierSet({
+  airlines,
+  directAirlines,
+  omit,
+  size = 16,
+  max = 6,
+}: {
+  airlines?: string | null;
+  directAirlines?: string | null;
+  omit?: Iterable<string>;
+  size?: number;
+  max?: number;
+}) {
+  const theme = useTheme();
+  const marks = carrierMarks(airlines, directAirlines, omit);
+  if (marks.length === 0) return null;
+
+  const shown = marks.slice(0, max);
+  const rest = marks.length - shown.length;
+
+  return (
+    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+      {shown.map((m) => (
+        <Tooltip key={m.code} title={m.nonstop ? `${m.code} — flies this nonstop` : m.code}>
+          <Box
+            sx={{
+              display: "inline-flex",
+              borderRadius: 0.75,
+              // Drawn OUTSIDE the tile so the logo keeps its own square: an
+              // inset ring would eat into a 16px mark until it stopped reading
+              // as a logo at all.
+              boxShadow: m.nonstop
+                ? `0 0 0 2px ${alpha(theme.palette.success.main, 0.9)}`
+                : "none",
+            }}
+          >
+            <AirlineLogo code={m.code} size={size} />
+          </Box>
+        </Tooltip>
+      ))}
+      {rest > 0 && (
+        <Typography variant="caption" color="text.secondary">
+          +{rest}
+        </Typography>
+      )}
     </Stack>
   );
 }

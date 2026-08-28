@@ -1,6 +1,7 @@
 import { changeKey, diffAvailability, summarizeChange, type ChangeSummary } from "../domain/diff.js";
 import { collapseBy } from "../domain/collapse.js";
 import { routeKey, type AvailabilityResult } from "../domain/types.js";
+import { goneStatements, priceStatements } from "../db/priceHistory.js";
 import { claimsCoverage, type ApplyTaskResult, type SourceTaskReport } from "./types.js";
 
 // The write side of the pivot. A source reports one completed unit of
@@ -350,9 +351,15 @@ export async function applyTask(
   // would recompute to something else and be rewritten every single search.
   const prevHash = new Map(stored.map((p) => [changeKey(p.result), p.rawHash] as const));
   const inserts: D1PreparedStatement[] = [];
+  // The same rows the snapshot write is about, collected here rather than
+  // recomputed after the loop: write-on-change means "what changed" is decided
+  // by the `continue` below and nowhere else, and a second pass would have to
+  // repeat that decision to stay in step with it.
+  const changed: AvailabilityResult[] = [];
   for (const r of kept) {
     const h = hashResult(r);
     if (prevHash.get(changeKey(r)) === h) continue; // unchanged — skip the write
+    changed.push(r);
     inserts.push(
       db
         .prepare(
@@ -400,7 +407,9 @@ export async function applyTask(
         ),
     );
   }
-  if (inserts.length) await db.batch(inserts);
+  // In the batch rather than after it: `db.batch()` is one transaction, so the
+  // price point and the snapshot it describes land together or not at all.
+  if (inserts.length) await db.batch([...inserts, ...priceStatements(db, changed, now)]);
 
   // --- prune what this source's own coverage licenses deleting ---------------
   const gone = prunable(previous, kept, slices);
@@ -415,7 +424,11 @@ export async function applyTask(
         )
         .bind(r.origin, r.destination, r.flightDate, r.program, r.cabin, r.source),
     );
-    for (const res of await db.batch(deletes)) snapshotsPruned += res.meta.changes ?? 0;
+    // Counted off the DELETES ONLY. The history writes ride in the same
+    // transaction — for the same reason the inserts do — and their inserted-row
+    // counts would otherwise be tallied as snapshots pruned.
+    const results = await db.batch([...deletes, ...goneStatements(db, gone, now)]);
+    for (const res of results.slice(0, deletes.length)) snapshotsPruned += res.meta.changes ?? 0;
   }
 
   // --- record the coverage claim --------------------------------------------

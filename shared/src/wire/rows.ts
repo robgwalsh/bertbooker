@@ -182,6 +182,11 @@ export interface Find {
   /** What the NONSTOP costs when one exists and is dearer than `miles_cost`
    *  (which quotes the cheapest itinerary of any shape). */
   direct_miles_cost?: number | null;
+  /** The cheapest this slot has ever been observed at, across every source and
+   *  every search — from `price_history` (migrations/0009), by a correlated
+   *  seek in `findsCte`. Null when nothing was ever recorded for it, which is
+   *  a different thing from "this is the cheapest". */
+  best_miles_ever?: number | null;
   duration_minutes?: number | null;
   booking_url?: string | null;
   segments_json?: string; // JSON array of Segment (flight numbers, times, aircraft)
@@ -300,4 +305,28 @@ export interface RouteInput {
    *  permanently silent". */
   alertOn?: AlertType[] | null;
   alertMinDropPct?: number;
+}
+
+/**
+ * One observation of what a slot cost, as `readSlotHistory` projects it
+ * (`api/src/db/priceHistory.ts`).
+ *
+ * **A NULL `miles_cost` is a real point, not a missing one:** it records that a
+ * source covered this slot and reported no offer for it. Rendering it as a zero
+ * would claim a free seat, and bridging over it would claim the award never went
+ * away.
+ *
+ * `source_fetched_at` is null on exactly those points — there is no vendor
+ * timestamp for a row the vendor did not send — so `captured_at`, when we
+ * observed the absence, is the only clock a gone point has.
+ */
+export interface PricePoint {
+  miles_cost: number | null;
+  seats_available: number | null;
+  cash_fees_cents: number | null;
+  fees_currency: string | null;
+  cash_price_cents: number | null;
+  source: string;
+  source_fetched_at: number | null;
+  captured_at: number;
 }

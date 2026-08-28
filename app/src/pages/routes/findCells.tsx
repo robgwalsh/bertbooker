@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Box, Tooltip, Typography } from "@mui/material";
 import { api, type Find } from "../../api";
+import { CarrierSet } from "../../components/brand";
+import { itineraryLegs } from "./Itinerary";
 import type { Journey } from "../../lib/multiLeg";
 import type { RoundTripPair } from "../../lib/roundtrip";
 import { bestPortalPrice } from "../../lib/booking";
 import { CURRENCY_LABEL } from "../../lib/currencies";
 import { dollars, miles, money } from "../../lib/format";
+import { vsBest } from "../../lib/priceHistory";
 
 // The cell BODIES that both layouts draw.
 //
@@ -23,10 +26,11 @@ import { dollars, miles, money } from "../../lib/format";
 /**
  * What a find costs, in both currencies it can be paid in.
  *
- * Miles first, then fees, then — only when a cash fare is known — the same seat
- * priced through a card portal. **Shown side by side and never ranked:** "16,802
- * Chase" and "27,500 Alaska miles" are different currencies, and calling either
- * one cheaper needs a points valuation this app deliberately does not model.
+ * Miles first, then fees, then the nonstop's own price when one exists and costs
+ * more, then — only when a cash fare is known — the same seat priced through a
+ * card portal. **Shown side by side and never ranked:** "16,802 Chase" and
+ * "27,500 Alaska miles" are different currencies, and calling either one cheaper
+ * needs a points valuation this app deliberately does not model.
  */
 export function FindCost({ f }: { f: Find }) {
   // Its OWN currency, not assumed dollars: a KRW figure read as USD is off by
@@ -39,6 +43,12 @@ export function FindCost({ f }: { f: Find }) {
   const portal = bestPortalPrice(f.cash_price_cents, currenciesQ.data);
   const portalRate = currenciesQ.data?.find((c) => c.code === portal?.code);
 
+  // Read off the row, which `findsCte` filled from price_history — no fetch, so
+  // a page of two hundred of these costs nothing. Null when the slot has no
+  // recorded history, and "no cheapest known" must not render as "this is the
+  // cheapest".
+  const best = vsBest(f.miles_cost, f.best_miles_ever);
+
   return (
     <>
       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
@@ -48,6 +58,40 @@ export function FindCost({ f }: { f: Find }) {
         <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
           {fees}
         </Typography>
+      )}
+      {/* `miles_cost` quotes the cheapest itinerary of ANY shape, so a
+          connection is what it usually names. This is the premium for skipping
+          the connection, which is a decision rather than a detail — and it
+          arrives with the search at no extra call. Drawn only when it is dearer:
+          equal figures would just say the cheapest award is already nonstop,
+          which the itinerary beside it already shows. */}
+      {f.direct_miles_cost != null && f.direct_miles_cost > f.miles_cost && (
+        <Tooltip title="What the nonstop costs. The price above is the cheapest itinerary of any shape, which on this route is a connection.">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "block", fontVariantNumeric: "tabular-nums", cursor: "help" }}
+          >
+            nonstop {miles(f.direct_miles_cost)}
+          </Typography>
+        </Tooltip>
+      )}
+      {best && (
+        <Tooltip
+          title={
+            best.isBest
+              ? "The lowest this slot has been recorded at since we started watching it."
+              : `The lowest recorded for this slot is ${miles(f.best_miles_ever!)}.`
+          }
+        >
+          <Typography
+            variant="caption"
+            color={best.isBest ? "success.main" : "text.secondary"}
+            sx={{ display: "block", cursor: "help", fontWeight: best.isBest ? 700 : 400 }}
+          >
+            {best.isBest ? "cheapest seen" : `+${best.pctAbove}% over best`}
+          </Typography>
+        </Tooltip>
       )}
       {portal && (
         <Tooltip
@@ -178,5 +222,33 @@ export function JourneyTotalCost({ j }: { j: Journey }) {
               ))}
       </Box>
     </Tooltip>
+  );
+}
+
+/**
+ * Which program books this, and who else sells the same cabin.
+ *
+ * The carrier marks are HERE rather than under the itinerary they describe,
+ * because this column is `verticalAlign: top` beside a cell that is already as
+ * tall as a drawn itinerary — so they cost no row height, where under the stop
+ * bar they added a line to every row of every table.
+ *
+ * Carriers already named by the legs are omitted: those are drawn one column to
+ * the left on the same row, and what is left is the competition — the reason to
+ * re-search rather than book this one. A summary row has no legs, so it shows
+ * the whole set, which is the only routing information such a row carries.
+ */
+export function FindProgram({ f }: { f: Find }) {
+  return (
+    <>
+      <Typography variant="body2">{f.program}</Typography>
+      <Box sx={{ mt: 0.5 }}>
+        <CarrierSet
+          airlines={f.airlines}
+          directAirlines={f.direct_airlines}
+          omit={itineraryLegs(f).map((l) => l.carrier)}
+        />
+      </Box>
+    </>
   );
 }

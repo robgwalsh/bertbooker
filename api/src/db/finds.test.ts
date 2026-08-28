@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FindsScope, ScopedRoute } from "./finds.js";
-import { routeFindsScope, withinRouteScope } from "./finds.js";
+import { FIND_COLUMNS, findsCte, routeFindsScope, withinRouteScope } from "./finds.js";
 
 /**
  * The scope is the one part of the read path that can lose data silently.
@@ -284,5 +284,37 @@ describe("withinRouteScope", () => {
     // input with UNSCOPED — "read everything" — and an authorization check that
     // borrowed that answer would permit everything.
     expect(withinRouteScope([], "SFO", "NRT", "2026-09-15")).toBe(false);
+  });
+});
+
+describe("findsCte — the best-ever seek", () => {
+  const scope = routeFindsScope([
+    {
+      origin: "SEA",
+      destination: "NRT",
+      origins: null,
+      destinations: null,
+      via: null,
+      date_start: "2026-10-08",
+      date_end: "2026-10-10",
+      round_trip: 0,
+    },
+  ]);
+
+  it("adds no bind, so every caller's .bind() line is unchanged", () => {
+    // The scope's binds are consumed TWICE — once by the inner grouping and
+    // once by the outer filter — and a correlated subquery that took a bind of
+    // its own would land between them and shift every placeholder after it.
+    expect(findsCte(scope).binds).toEqual([...scope.binds, ...scope.binds]);
+  });
+
+  it("projects best_miles_ever and correlates it on the whole group key", () => {
+    expect(FIND_COLUMNS).toContain("f.best_miles_ever");
+    const { sql } = findsCte(scope);
+    expect(sql).toContain("MIN(ph.miles_cost)");
+    // All three ARE the group key, which is what makes the value constant
+    // within the group and the bare-column SELECT safe.
+    for (const col of ["ph.route_key = p.route_key", "ph.program = p.program", "ph.cabin = p.cabin"])
+      expect(sql).toContain(col);
   });
 });

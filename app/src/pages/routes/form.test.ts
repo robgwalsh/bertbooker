@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRouteBody, defaultRouteForm } from "./form";
+import { createRouteBody, defaultRouteForm, parsePointLimit } from "./form";
 
 // `via` is three-valued on the wire and the form is not, which is the whole
 // reason this function exists. Absent means "work it out from the route graph";
@@ -23,11 +23,11 @@ describe("createRouteBody", () => {
   });
 
   it("changes nothing else about the form", () => {
-    const form = { ...defaultRouteForm(), origins: ["SFO"], destinations: ["KTM"], minSeats: 4 };
+    const form = { ...defaultRouteForm(), origins: ["SFO"], destinations: ["KTM"], roundTrip: true };
     const body = createRouteBody(form);
     expect(body.origins).toEqual(["SFO"]);
     expect(body.destinations).toEqual(["KTM"]);
-    expect(body.minSeats).toBe(4);
+    expect(body.roundTrip).toBe(true);
     expect(body.dateStart).toBe(form.dateStart);
   });
 
@@ -36,5 +36,31 @@ describe("createRouteBody", () => {
     const before = JSON.stringify(form);
     createRouteBody(form);
     expect(JSON.stringify(form)).toBe(before);
+  });
+});
+
+// Three different inputs collapse to `null` here, and the collapse is silent:
+// a ceiling of 0 would hide every find the route has, which reads exactly like
+// a broken route. Mirrors `clampPointLimit` in the Worker, and the two now have
+// two callers between them.
+
+describe("parsePointLimit", () => {
+  it("reads an empty field as no limit", () => {
+    expect(parsePointLimit("")).toBeNull();
+    expect(parsePointLimit("   ")).toBeNull();
+  });
+
+  it("refuses a ceiling that would hide everything", () => {
+    expect(parsePointLimit("0")).toBeNull();
+    expect(parsePointLimit("-5")).toBeNull();
+  });
+
+  it("reads anything unparseable as no limit", () => {
+    expect(parsePointLimit("abc")).toBeNull();
+  });
+
+  it("takes a whole number of miles", () => {
+    expect(parsePointLimit("87500")).toBe(87500);
+    expect(parsePointLimit("87500.4")).toBe(87500);
   });
 });

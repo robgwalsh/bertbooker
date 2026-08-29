@@ -22,22 +22,30 @@ export function AddRouteDialog({
   const qc = useQueryClient();
   const phone = useIsPhone();
   const [form, setForm] = useState(defaultRouteForm);
+  // Beside the form rather than in it: cabins is a READ filter, owned by the
+  // header's chip once the route exists. It is offered here because a route
+  // being created has no header yet.
+  const [cabins, setCabins] = useState<string[]>([]);
 
   // Reset each time the dialog opens (so the default window is anchored to
   // "today", not to whenever the component first mounted).
   //
   useEffect(() => {
-    if (open) setForm(defaultRouteForm());
+    if (open) {
+      setForm(defaultRouteForm());
+      setCabins([]);
+    }
   }, [open]);
 
   const add = useMutation({
     // NOT `api.addTrackedRoute(form)`. `createRouteBody` omits an empty `via` so
     // the Worker fills the hubs in — see its docblock, and its test.
-    mutationFn: () => api.addTrackedRoute(createRouteBody(form)),
+    mutationFn: () => api.addTrackedRoute({ ...createRouteBody(form), cabins }),
     onSuccess: ({ id }) => {
       qc.invalidateQueries({ queryKey: ["tracked-routes"] });
       qc.invalidateQueries({ queryKey: ["routes"] });
       setForm(defaultRouteForm());
+      setCabins([]);
       onClose();
       // Last, and after the dialog is out of the way: the search's progress
       // panel belongs on the route's pane, which is what the page navigates to.
@@ -59,7 +67,12 @@ export function AddRouteDialog({
       >
         <DialogTitle>New monitored route</DialogTitle>
         <DialogContent>
-          <RouteFormFields form={form} setForm={setForm} />
+          <RouteFormFields
+            form={form}
+            setForm={setForm}
+            cabins={cabins}
+            onCabinsChange={setCabins}
+          />
 
           {add.isError && (
             <Alert severity="error" sx={{ mt: 2 }}>

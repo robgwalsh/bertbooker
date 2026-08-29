@@ -1,10 +1,12 @@
 // The route form as DATA: what a person is choosing, how it is seeded, and
 // when it is not yet submittable. No JSX — `RouteFormFields` renders it.
 //
-// One shape for creating and for editing, which is the point: a setting
-// expressible on only one of those surfaces is either a choice you make once
-// and can never revise, or a revision you can never make. Both have happened
-// here.
+// This shape is the route's GATHERING spec — the settings that decide what the
+// Worker asks seats.aero for, and which therefore need a search behind them.
+// The read filters (cabins, cards, seats, nonstop, point limit) are not here:
+// they cost nothing, reverse instantly, and are edited where they are stated,
+// in the header's chip strip. Cabins is the one that also appears on this form,
+// as a prop rather than a field — a route being created has no header yet.
 
 import { ALERT_TYPES } from "../../lib/alerts";
 import { parseCodeList, parseCodes } from "../../lib/routeShape";
@@ -26,14 +28,6 @@ export interface RouteForm {
   via: string[];
   dateStart: string;
   dateEnd: string;
-  cabins: string[];
-  currencies: string[];
-  minSeats: number;
-  directOnly: boolean;
-  /** The most miles a find may cost to be shown, or `null` for no limit. A READ
-   *  filter like the two above it — raising it costs no search. Null rather
-   *  than 0 for "unset", because 0 would hide every find. */
-  pointLimit: number | null;
   /** Watch both directions. One of the two fields on this form that change what
    *  is GATHERED rather than what is shown. */
   roundTrip: boolean;
@@ -50,10 +44,11 @@ export interface RouteForm {
 /**
  * One field of the route form, by name — what the header's values point at.
  *
- * Every value in the header IS a field of this form, so reading the header and
- * then hunting for the matching control in a dialog of thirteen is a step the
- * app can just take for you. The keys are `RouteForm`'s own, so a field renamed
- * there fails to compile here rather than quietly pointing at nothing.
+ * The keys are `RouteForm`'s own, so a field renamed there fails to compile here
+ * rather than quietly pointing at nothing. It also means a READ FILTER cannot be
+ * named: those are not fields of this form, so the header physically cannot
+ * route one into the dialog, and the split is enforced by the compiler rather
+ * than by everyone remembering it.
  */
 export type RouteField = keyof RouteForm;
 
@@ -78,18 +73,6 @@ export function defaultRouteForm(): RouteForm {
     via: [] as string[],
     // Shared with the Tools page's "Track these legs", which creates routes too.
     ...defaultRouteWindow(),
-    // Empty = every cabin. The default USED to be business-only, which quietly
-    // hid economy space the route had already paid to find: gathering is wide
-    // and unfiltered, so a cabin filter here only decides what you are shown.
-    // Narrowing is one click; noticing that you never saw it is not.
-    cabins: [] as string[],
-    currencies: [] as string[], // empty = any card the couple holds
-    minSeats: 2,
-    directOnly: false,
-    // No ceiling. Same reasoning as the empty cabin list above: gathering is
-    // wide and unfiltered, so a cap here only decides what you are shown, and a
-    // default cap would quietly hide space the route already paid to find.
-    pointLimit: null,
     roundTrip: false,
     // Off by default: it is the one setting here that spends metered calls
     // without anyone pressing anything.
@@ -108,11 +91,6 @@ export function formFromRoute(r: TrackedRoute): RouteForm {
     via: parseCodeList(r.via),
     dateStart: r.date_start,
     dateEnd: r.date_end,
-    cabins: parseCodeList(r.cabins),
-    currencies: parseCodeList(r.currencies),
-    minSeats: r.min_seats ?? 2,
-    directOnly: Boolean(r.direct_only),
-    pointLimit: r.point_limit ?? null,
     roundTrip: Boolean(r.round_trip),
     alertsEnabled: Boolean(r.alerts_enabled),
     alertEmail: r.alert_email ?? "",
@@ -141,6 +119,20 @@ export function parseAlertOn(json: string | null): AlertType[] {
   }
 }
 
+/**
+ * What someone typed into a points ceiling, as the wire means it.
+ *
+ * EMPTY is the unset value and the only one: 0 and negatives collapse to `null`
+ * here and are refused by the Worker, because a route that hides every find it
+ * has looks exactly like a broken one. Mirrors `clampPointLimit` in
+ * api/src/endpoints/trackedRoutes.ts — a divergence between the two reads as a
+ * filter silently hiding everything.
+ */
+export function parsePointLimit(raw: string): number | null {
+  const trimmed = raw.trim();
+  const n = Number(trimmed);
+  return trimmed === "" || !Number.isFinite(n) || n <= 0 ? null : Math.round(n);
+}
 
 /**
  * The form as a CREATE body.
@@ -158,6 +150,9 @@ export function parseAlertOn(json: string | null): AlertType[] {
  * opinion yet, and the hubs land in the header where one edit removes them.
  * Editing is different — see `EditRouteDialog`, which sends `via` always, so
  * clearing the field there really does clear it.
+ *
+ * Cabins is not here: the Add dialog holds it beside the form and merges it in,
+ * because it is a read filter the header owns everywhere else.
  *
  * Pure and in `form.ts` rather than inline in the dialog so a test can reach it:
  * this is a wire contract expressed in one `?:`, which is exactly the kind that

@@ -2,8 +2,7 @@ import { Box, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha, type Theme } from "@mui/material/styles";
 import FlightRoundedIcon from "@mui/icons-material/FlightRounded";
 import { airportLine } from "./labels";
-import { ROUTE_DIAGRAM_WIDTH } from "./constants";
-import { parseCodes } from "../../lib/routeShape";
+import { parseCodeList, parseCodes } from "../../lib/routeShape";
 import type { AirportName, TrackedRoute } from "../../api";
 
 /**
@@ -68,7 +67,7 @@ function AirportPill({ code, names }: { code: string; names: Map<string, Airport
  *  watches both directions — one plane would draw a one-way route the app is not
  *  monitoring. Mirrored rather than a `⇄` glyph so it stays the same visual
  *  language as the one-way case. */
-function Connector({ roundTrip }: { roundTrip?: boolean }) {
+function Connector({ roundTrip, via }: { roundTrip?: boolean; via?: string[] }) {
   // One rail width for both cases: a width that differed between round-trip
   // and one-way would make the connector — and therefore the whole diagram —
   // narrower for one case than the other, so selecting a different route in
@@ -88,7 +87,7 @@ function Connector({ roundTrip }: { roundTrip?: boolean }) {
   return (
     <Stack
       direction="row"
-      sx={{ alignItems: "center", gap: 0.5, flexShrink: 0 }}
+      sx={{ alignItems: "center", gap: 0.5, flexShrink: 0, position: "relative" }}
       aria-label={roundTrip ? "round trip" : "one way"}
     >
       <Box sx={rail} />
@@ -97,6 +96,36 @@ function Connector({ roundTrip }: { roundTrip?: boolean }) {
         {roundTrip && <FlightRoundedIcon sx={{ ...plane, transform: "rotate(-90deg)" }} />}
       </Stack>
       <Box sx={rail} />
+      {/* Absolutely positioned, and that is the whole trick: the hubs hang below
+          the line without the connector claiming the height, so a route with
+          hubs and one without are the same height and the sticky band never
+          grows. It reads as an annotation ON the line rather than a thing beside
+          it, which is what it is — the route still goes A to B, this is how. */}
+      {via?.length ? (
+        <Tooltip
+          title={`This route also monitors the legs through ${via.join(", ")}. Edit the hubs from Edit route.`}
+          placement="bottom"
+        >
+          <Box
+            component="span"
+            sx={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              right: 0,
+              mt: 0.25,
+              textAlign: "center",
+              fontSize: 9.5,
+              lineHeight: 1,
+              letterSpacing: 0.3,
+              whiteSpace: "nowrap",
+              color: "text.disabled",
+            }}
+          >
+            via {via.join(", ")}
+          </Box>
+        </Tooltip>
+      ) : null}
     </Stack>
   );
 }
@@ -181,7 +210,12 @@ export function RouteDiagram({
     >
       {side(origins, "origins")}
       <Stack direction="row" spacing={1.25} sx={{ alignItems: "center", flexWrap: "nowrap" }}>
-        <Connector roundTrip={route.round_trip === 1} />
+        {/* Hubs are ignored on a round trip — the Worker does not plan the extra
+            query — so the label is not drawn there either. */}
+        <Connector
+          roundTrip={route.round_trip === 1}
+          via={route.round_trip === 1 ? undefined : parseCodeList(route.via)}
+        />
         {side(destinations, "destinations")}
       </Stack>
     </Stack>

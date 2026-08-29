@@ -10,10 +10,12 @@ import { useIsPhone } from "../../hooks/useBreakpoints";
  * The header's spec, opened up as a form. Reached from the pencil beside
  * Search, and the twin of `AddRouteDialog` down to the fields inside it.
  *
- * A dialog, not an inline mode: ten fields and a cost estimate is a page's
- * worth of controls, and unfolding all of it above the finds table pushed the
- * results off screen and left the pane hard to read at a glance. The header
- * stays a two-tier summary; editing borrows the screen and gives it back.
+ * A dialog, not an inline mode: this is a page's worth of controls, and
+ * unfolding all of it above the finds table pushed the results off screen and
+ * left the pane hard to read at a glance. Editing borrows the screen and gives
+ * it back. What is NOT here is the header's chip strip — the five read filters
+ * are edited where they are stated, because a filter that costs nothing does
+ * not deserve a dialog and a Save.
  *
  * The edit itself destroys nothing: narrowing a window stops finds from joining,
  * widening it back shows them again, and the stored snapshots never notice
@@ -22,11 +24,11 @@ import { useIsPhone } from "../../hooks/useBreakpoints";
  * the two answers this app exists to keep apart. So Save is not confirmed
  * (nothing is at risk) but it is labelled with what it spends.
  *
- * Hence TWO submits, and the plain one is not a lesser copy of the other. Most
- * edits move nothing that was never looked at — renaming a route, narrowing it
- * to business, raising `min_seats` — and those are pure display changes over
- * data already in D1, so spending a handful of metered calls to re-learn what is
- * already stored is waste. **Save** is for those; **Save & search** is for the
+ * Hence TWO submits, and the plain one is not a lesser copy of the other. Some
+ * edits move nothing that was never looked at — narrowing a window, changing who
+ * the digest goes to, or which transitions fire — and re-learning what is
+ * already stored costs metered calls for nothing. **Save** is for those;
+ * **Save & search** is for the
  * edits that widen the window, add an airport, or turn on `round_trip`, where
  * the new spec asks a question nobody has run. The dialog can't tell which one
  * you just made — `AddRouteDialog` has no such choice, because a brand-new route
@@ -72,18 +74,14 @@ export function EditRouteDialog({
       api.updateTrackedRoute(route!.id, {
         origins: form.origins,
         destinations: form.destinations,
-        // A GATHERING setting, and this handler enumerates every field it sends —
-        // omitted here it would silently never save.
+        // Every field this dialog owns is enumerated, because an omitted one
+        // would silently never save. The five read filters are omitted on
+        // purpose and that is the same fact read the other way: the Worker
+        // leaves an absent field alone, so this dialog cannot write back the
+        // filters it seeded over whatever the header's chips have since set.
         via: form.via,
         dateStart: form.dateStart,
         dateEnd: form.dateEnd,
-        cabins: form.cabins,
-        currencies: form.currencies,
-        minSeats: form.minSeats,
-        directOnly: form.directOnly,
-        // `null` when the field is empty, which is what CLEARS the ceiling —
-        // omitting it would keep the stored one and make the field one-way.
-        pointLimit: form.pointLimit,
         roundTrip: form.roundTrip,
         alertsEnabled: form.alertsEnabled,
         // Empty string means "use the account address", which on the wire is

@@ -3,50 +3,42 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Box,
   Button,
-  Checkbox,
-  Chip,
-  FormControl,
   FormControlLabel,
-  FormHelperText,
-  InputLabel,
-  ListItemText,
   MenuItem,
-  OutlinedInput,
-  Select,
   Stack,
   Switch,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import { AirportMultiAutocomplete } from "../../components/AirportAutocomplete";
 import { SettingsDialog } from "../../components/SettingsDialog";
-import { BookableCurrencies, CabinChip, CurrencyIcon } from "../../components/brand";
-import { CURRENCY_LABEL } from "../../lib/currencies";
-import { miles } from "../../lib/format";
+import { CabinChip } from "../../components/brand";
 import { SWITCH_ROW_ML } from "../../lib/layout";
 import { MAX_DESTINATIONS, MAX_ORIGINS, MAX_VIA, api } from "../../api";
-import { CABIN_OPTIONS, FILTER_CURRENCIES } from "./constants";
-import { estimateCalls } from "./estimate";
+import { CABIN_OPTIONS } from "./constants";
 import { ALERT_TYPES, ALERT_TYPE_HELP, ALERT_TYPE_LABEL } from "./alertCopy";
-import { usDate } from "./dates";
 import type { RouteField, RouteForm } from "./form";
 import type { AlertType } from "../../api";
 
 /**
- * Everything about a route, as fields.
+ * A route's GATHERING spec, as fields.
  *
  * ONE definition, rendered by two surfaces: the Add dialog and the selected
- * route's header in edit mode. That is the point — a setting expressible on only
- * one of them is either a choice you make once and can never revise, or a
- * revision you can never make in the first place, and both have happened here
- * (cabins and cards were creatable-only for as long as the header was read-only).
- * Adding a field to a route now means adding it here, once.
+ * route's header in edit mode. Everything here decides what the next search asks
+ * seats.aero for, which is why it is worth a dialog and a deliberate Save — the
+ * read filters left for the header's chip strip, where they are stated, because
+ * they cost nothing and reverse instantly.
+ *
+ * Cabins is the one read filter that still appears here, and only for the Add
+ * dialog: a route being created has no header yet, and the cabins you mean are
+ * usually the reason you are creating it.
  */
 export function RouteFormFields({
   form,
   setForm,
   focus,
+  cabins,
+  onCabinsChange,
   onSuggestVia,
   suggestingVia,
 }: {
@@ -54,14 +46,18 @@ export function RouteFormFields({
   setForm: React.Dispatch<React.SetStateAction<RouteForm>>;
   /** Land on this field when the form opens. See `RouteField`. */
   focus?: RouteField;
+  /** The cabins a NEW route starts with. Supplied by the ADD dialog only, and
+   *  the callback's presence is what renders the field: on a stored route the
+   *  header's chip owns cabins, and a second control here would save whatever it
+   *  seeded over whatever the chip has since set. */
+  cabins?: string[];
+  onCabinsChange?: (codes: string[]) => void;
   /** Ask the route graph for hubs and fill the Via field. Supplied by the EDIT
    *  dialog only — a new route has its hubs filled in server-side on save, and
    *  an existing one can otherwise never be re-ranked. */
   onSuggestVia?: () => void;
   suggestingVia?: boolean;
 }) {
-  const estimate = estimateCalls(form, form.dateStart, form.dateEnd, form.roundTrip);
-
   // ONE ref serves every field, and it hangs off each control's ROOT rather
   // than its input, because the three shapes on this form focus differently: a
   // TextField has an `<input>`, a `select` TextField's real focus target is the
@@ -94,8 +90,8 @@ export function RouteFormFields({
           display: "grid",
           // One column on a phone. Two 131px columns is what `1fr 1fr` came to
           // inside a 390px dialog, and these are not small fields: the origin and
-          // destination autocompletes hold a chip per airport, and the cabin and
-          // currency selects render chip lists too.
+          // destination autocompletes hold a chip per airport, and the cabin
+          // select renders a chip list too.
           gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
           gap: 2,
           pt: 1,
@@ -189,192 +185,66 @@ export function RouteFormFields({
           onChange={(e) => setForm({ ...form, dateEnd: e.target.value })}
           slotProps={{ inputLabel: { shrink: true } }}
         />
-        <TextField
-          label="Cabin"
-          select
-          size="small"
-          fullWidth
-          ref={focusOn("cabins")}
-          value={form.cabins}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              cabins:
+        {onCabinsChange && (
+          <TextField
+            label="Cabin"
+            select
+            size="small"
+            fullWidth
+            value={cabins ?? []}
+            onChange={(e) =>
+              onCabinsChange(
                 typeof e.target.value === "string"
                   ? e.target.value.split(",")
                   : (e.target.value as unknown as string[]),
-            })
-          }
-          slotProps={{
-            inputLabel: { shrink: true },
-            select: {
-              multiple: true,
-              displayEmpty: true,
-              renderValue: (selected) => {
-                const codes = selected as string[];
-                if (codes.length === 0)
-                  return (
-                    <Typography component="span" variant="body2" color="text.secondary">
-                      Any cabin
-                    </Typography>
-                  );
-                return (
-                  <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap" }}>
-                    {codes.map((c) => (
-                      <CabinChip key={c} cabin={c} />
-                    ))}
-                  </Stack>
-                );
-              },
-            },
-          }}
-        >
-          {CABIN_OPTIONS.map((c) => (
-            <MenuItem key={c} value={c} sx={{ textTransform: "capitalize" }}>
-              {c}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          label="Book with"
-          select
-          size="small"
-          fullWidth
-          ref={focusOn("currencies")}
-          value={form.currencies}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              currencies:
-                typeof e.target.value === "string"
-                  ? e.target.value.split(",")
-                  : (e.target.value as unknown as string[]),
-            })
-          }
-          slotProps={{
-            inputLabel: { shrink: true },
-            select: {
-              multiple: true,
-              displayEmpty: true,
-              renderValue: (selected) => {
-                const codes = selected as string[];
-                if (codes.length === 0)
-                  return (
-                    <Typography component="span" variant="body2" color="text.secondary">
-                      Any card
-                    </Typography>
-                  );
-                return (
-                  <Stack
-                    direction="row"
-                    spacing={0.5}
-                    useFlexGap
-                    sx={{ flexWrap: "wrap", alignItems: "center" }}
-                  >
-                    {codes.map((c) => (
-                      <CurrencyIcon key={c} code={c} size={20} />
-                    ))}
-                  </Stack>
-                );
-              },
-            },
-          }}
-        >
-          {/* The icon carries the value everywhere else, but a MENU has to stay
-              readable cold — you pick from a list of names, not of logos — so
-              this is the one currency surface that keeps its label. */}
-          {FILTER_CURRENCIES.map((c) => (
-            <MenuItem key={c} value={c}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                <CurrencyIcon code={c} size={20} />
-                <span>{CURRENCY_LABEL[c] ?? c}</span>
-              </Stack>
-            </MenuItem>
-          ))}
-        </TextField>
-
-        <TextField
-          label="Seats"
-          select
-          size="small"
-          fullWidth
-          ref={focusOn("minSeats")}
-          value={form.minSeats}
-          onChange={(e) => setForm({ ...form, minSeats: Number(e.target.value) })}
-          slotProps={{ inputLabel: { shrink: true } }}
-        >
-          {[1, 2, 3, 4, 5, 6].map((n) => (
-            <MenuItem key={n} value={n}>
-              {n} seat{n === 1 ? "" : "s"} or more
-            </MenuItem>
-          ))}
-        </TextField>
-
-        {/* A free number rather than a select, unlike Seats beside it: a seat
-            count is a closed set of six, while a points ceiling is whatever the
-            person has in the account — 87,500 is as real an answer as 100,000,
-            and a menu of round numbers would make them round their own budget.
-            EMPTY is the unset value and the only one: 0 is coerced away here and
-            refused by the Worker, because a route that hides every find it has
-            looks exactly like a broken one. */}
-        <TextField
-          label="Point limit"
-          type="number"
-          size="small"
-          fullWidth
-          ref={focusOn("pointLimit")}
-          value={form.pointLimit ?? ""}
-          onChange={(e) => {
-            const raw = e.target.value.trim();
-            const n = Number(raw);
-            setForm({
-              ...form,
-              pointLimit: raw === "" || !Number.isFinite(n) || n <= 0 ? null : Math.round(n),
-            });
-          }}
-          placeholder="No limit"
-          helperText={
-            form.pointLimit == null
-              ? "Empty for no limit."
-              : `Hides awards over ${miles(form.pointLimit)}.`
-          }
-          slotProps={{
-            inputLabel: { shrink: true },
-            htmlInput: { min: 0, step: 5000, "aria-label": "Point limit in miles" },
-          }}
-        />
-
-        {/* The two switches share a row, one grid column each. Both are
-            one-line yes/no answers, and stacking them full-width put a lot of
-            white space between the fields above and the alerts rule below.
-            `alignSelf: start` plus the input height keeps each switch on the
-            same baseline as a field's INPUT rather than centred on the taller
-            cell its neighbour's helper text makes. */}
-        <Box sx={{ alignSelf: "start", height: 40, display: "flex", alignItems: "center" }}>
-          <FormControlLabel
-            sx={{ ml: SWITCH_ROW_ML }}
-            ref={focusOn("directOnly")}
-            control={
-              <Switch
-                size="small"
-                checked={form.directOnly}
-                onChange={(e) => setForm({ ...form, directOnly: e.target.checked })}
-              />
+              )
             }
-            label={
-              <Typography variant="body2">
-                Nonstop only
-              </Typography>
-            }
-          />
-        </Box>
+            slotProps={{
+              inputLabel: { shrink: true },
+              select: {
+                multiple: true,
+                displayEmpty: true,
+                renderValue: (selected) => {
+                  const codes = selected as string[];
+                  if (codes.length === 0)
+                    return (
+                      <Typography component="span" variant="body2" color="text.secondary">
+                        Any cabin
+                      </Typography>
+                    );
+                  return (
+                    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap" }}>
+                      {codes.map((c) => (
+                        <CabinChip key={c} cabin={c} />
+                      ))}
+                    </Stack>
+                  );
+                },
+              },
+            }}
+          >
+            {CABIN_OPTIONS.map((c) => (
+              <MenuItem key={c} value={c} sx={{ textTransform: "capitalize" }}>
+                {c}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
 
-        {/* The one setting on this form that changes what is GATHERED rather
-            than what is shown, so it says so. Everything above narrows the
-            pane and can be undone for free; this one decides what the next
-            search asks seats.aero for, and until that search runs the return
-            direction does not exist to be filtered. */}
-        <Box sx={{ alignSelf: "start", height: 40, display: "flex", alignItems: "center" }}>
+        {/* Full width: this switch is a one-line yes/no answer with nothing left
+            beside it to share a row with. Like Via above it, and unlike the
+            cabins field, it decides what the next search asks seats.aero for —
+            until that search runs the return direction does not exist to be
+            filtered. */}
+        <Box
+          sx={{
+            gridColumn: "1 / -1",
+            alignSelf: "start",
+            height: 40,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
           <FormControlLabel
             sx={{ ml: SWITCH_ROW_ML }}
             ref={focusOn("roundTrip")}

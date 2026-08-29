@@ -430,8 +430,8 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
 });
 
 /**
- * Edit a stored route — the header's edit mode, and the only writer besides the
- * Add dialog.
+ * Edit a stored route — the edit dialog, the header's filter chips, and no other
+ * writer besides the Add dialog.
  *
  * A **merge then whole-row write**, not a per-column patch. The reason is
  * `normalizeSpec`: it validates the airport sets as one shape, so it has to be
@@ -580,8 +580,8 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
       currencies,
       clampMinSeats(b.minSeats, clampMinSeats(row.min_seats, 1)),
       b.directOnly === undefined ? Number(row.direct_only ?? 0) : b.directOnly ? 1 : 0,
-      // Absent keeps the stored ceiling; `null` (what the edit form sends for an
-      // empty field) clears it.
+      // Absent keeps the stored ceiling; `null` (what the header's chip sends
+      // for an empty field, or for "No limit") clears it.
       clampPointLimit(b.pointLimit, row.point_limit == null ? null : Number(row.point_limit)),
       roundTrip,
       alertsEnabled,

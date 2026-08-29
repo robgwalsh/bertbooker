@@ -1,117 +1,34 @@
-import { Box, Chip, IconButton, Stack, Tooltip, Typography } from "@mui/material";
-import type { Theme } from "@mui/material/styles";
+import { Box, Chip, IconButton, LinearProgress, Stack, Typography } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import NotificationsNoneRoundedIcon from "@mui/icons-material/NotificationsNoneRounded";
 import { ALERT_HEALTH, alertHealth } from "../../lib/alerts";
-import { ROUTE_DIAGRAM_WIDTH } from "./constants";
-import { AlertStateChip } from "../../components/AlertStateChip";
-import { BookableCurrencies, CabinChip } from "../../components/brand";
-import { parseCodeList } from "../../lib/routeShape";
 import { RouteDiagram } from "./RouteDiagram";
+import { RouteFilterChips } from "./RouteFilterChips";
+import { MUTED_CHIP_SX, SpecValue } from "./SpecValue";
 import { ALERTS_OFF_HELP, alertHelp, alertOnLabel } from "./alertCopy";
-import { miles } from "../../lib/format";
-import { dayCount, searchedHelp, searchedLabel } from "./labels";
+import { searchedHelp, searchedLabel } from "./labels";
 import { usDate } from "./dates";
 import type { RouteField } from "./form";
 import type { AirportName, AlertScheduleRoute, TrackedRoute } from "../../api";
 
 /**
- * One field of the header's spec, as a bare value.
- *
- * Unlabelled: the values are self-describing (a date range, cabin chips, card
- * marks) and the sentence explaining each is one hover away, as a tooltip on
- * the value itself rather than a caption above it.
- */
-function SpecValue({
-  help,
-  onClick,
-  children,
-}: {
-  help: string;
-  /** Makes the value a shortcut into the edit dialog, landing on the field it
-   *  states. Every value here IS a form field, so the header doubles as the
-   *  form's table of contents — you read a setting and touch it in one move,
-   *  instead of opening a dialog of thirteen controls and finding it again. */
-  onClick?: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Tooltip
-      title={
-        onClick ? (
-          <>
-            {help}
-            <Box component="span" sx={{ display: "block", mt: 0.5, opacity: 0.75 }}>
-              Click to edit.
-            </Box>
-          </>
-        ) : (
-          help
-        )
-      }
-      placement="bottom-start"
-    >
-      <Box
-        // A Box with a role, never a `<button>`: MUI `Chip` renders a `div`, and
-        // a div inside a button is invalid HTML that browsers reflow around.
-        role={onClick ? "button" : undefined}
-        tabIndex={onClick ? 0 : undefined}
-        onClick={onClick}
-        onKeyDown={
-          onClick
-            ? (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onClick();
-                }
-              }
-            : undefined
-        }
-        sx={{
-          minWidth: 0,
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 0.5,
-          alignItems: "center",
-          cursor: onClick ? "pointer" : "help",
-          // Negative margin against the padding, so the hover ground has room
-          // around the value without widening the row when nothing is hovered —
-          // this strip is sticky and must not move as the pointer crosses it.
-          ...(onClick && {
-            px: 0.5,
-            mx: -0.5,
-            py: 0.25,
-            my: -0.25,
-            transition: "background-color 120ms",
-            "&:hover": { bgcolor: (t: Theme) => t.spec.hover },
-            "&:focus-visible": {
-              outline: "1px solid",
-              outlineColor: (t: Theme) => t.spec.indicator,
-              outlineOffset: 0,
-            },
-          }),
-        }}
-      >
-        {children}
-      </Box>
-    </Tooltip>
-  );
-}
-
-/**
  * The selected route's header: what this route is, and the controls that act
  * on it, on one line.
  *
- * ONE ROW, and it stays put. It was two tiers — identity above, a labelled
- * six-cell spec grid below — which cost about 120px of the pane before a single
- * find, and scrolled away the moment you read past the first page of results.
- * A sticky band only earns its height once, so it has to be short: the spec is
- * still all here, but as bare values with their labels moved into tooltips, and
- * the two cells that were neither identity nor filter are gone. Search cost
- * belongs to the button that spends it (and to the Edit dialog, which still
- * quotes it). The find count is gone for the same reason — the rail already
- * counts every route, including this one.
+ * ONE ROW where it fits, and it stays put. It was two tiers — identity above, a
+ * labelled six-cell spec grid below — which cost about 120px of the pane before
+ * a single find, and scrolled away the moment you read past the first page of
+ * results. A sticky band only earns its height once, so it has to be short: the
+ * spec is bare values with their labels moved into tooltips. The find count is
+ * gone — the rail already counts every route, including this one.
+ *
+ * The read filters are the one thing here that can wrap to a second chip line on
+ * a middling pane width, and they earn it: they are CONTROLS, not statements,
+ * and every one of them is rendered whether it constrains or not so that an
+ * unset filter is still one click from being set. `RouteFilterChips` owns that
+ * argument. Below `sm` they collapse into a single chip of their own, which is
+ * what keeps a phone's band to one line.
  *
  * The one status it keeps is FRESHNESS, and it sits with the actions rather
  * than in the spec: everything in that strip is a setting you can change, while
@@ -129,6 +46,7 @@ export function RouteHeader({
   intervalMinutes,
   onEdit,
   onBack,
+  refreshing,
   actions,
 }: {
   route: TrackedRoute;
@@ -147,12 +65,12 @@ export function RouteHeader({
   /** Back to the route list. Only reachable below `md`, where the rail and this
    *  pane are two screens rather than two panes — see the workbench grid. */
   onBack: () => void;
+  /** The page's own query is re-reading. Drawn as a bar ON the header's bottom
+   *  rule, because the pane below can be a full screen of finds that are about
+   *  to change and a filter chip is small enough to click and not notice. */
+  refreshing?: boolean;
   actions: React.ReactNode;
 }) {
-  const cabins = parseCodeList(route.cabins);
-  const via = parseCodeList(route.via);
-  const currencies = parseCodeList(route.currencies);
-  const days = dayCount(route.date_start, route.date_end);
   const alertsOn = route.alerts_enabled === 1;
 
   return (
@@ -169,6 +87,13 @@ export function RouteHeader({
         borderColor: "divider",
       }}
     >
+      {/* Absolutely positioned over the bottom rule, so a refresh never moves
+          the band it sits on — the one thing a sticky header must not do. */}
+      {refreshing && (
+        <LinearProgress
+          sx={{ position: "absolute", left: 0, right: 0, bottom: -1, height: 2, zIndex: 1 }}
+        />
+      )}
       <Stack
         direction="row"
         spacing={1.5}
@@ -189,16 +114,30 @@ export function RouteHeader({
           <ArrowBackRoundedIcon fontSize="small" />
         </IconButton>
 
-        {/* A FIXED width, so the spec and the buttons sit at the same x on every
-            route. The diagram's natural width tracks how many airports the route
-            watches and which way it runs, so left to size itself it moved the
-            whole rest of the header sideways every time you picked a different
-            route in the rail — the one motion a header you are scanning down a
-            list with must not have. Wide enough for two airports a side; a 3×3
-            route wraps inside the box rather than pushing anything. */}
-        <Box sx={{ width: { xs: "auto", sm: ROUTE_DIAGRAM_WIDTH }, flexShrink: 0 }}>
+        {/* WHICH FLIGHTS THIS ROUTE IS: the airports say where, the window says
+            when, and the two are one statement, so they sit together as one item
+            that wraps as one.
+
+            NOTHING here is width-reserved. Aligning the filter strip to a fixed
+            column across routes cost more horizontal room than the alignment was
+            worth — at 1268px the strip ran out of row and wrapped, which is a
+            worse jump than the one the reservation was avoiding. */}
+        <Stack
+          direction="row"
+          spacing={1.25}
+          useFlexGap
+          sx={{ flexShrink: 0, alignItems: "center", minWidth: 0 }}
+        >
           <RouteDiagram route={route} names={names} onEditSide={onEdit} />
-        </Box>
+          <SpecValue
+            help="The departure dates this route watches."
+            onClick={() => onEdit("dateStart")}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
+              {usDate(route.date_start)} – {usDate(route.date_end)}
+            </Typography>
+          </SpecValue>
+        </Stack>
 
         {/* The spec, unlabelled. Every value keeps its help text as a tooltip,
             so nothing about the route goes unexplained — only unlabelled,
@@ -209,18 +148,6 @@ export function RouteHeader({
           useFlexGap
           sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}
         >
-          <SpecValue
-            help="The departure dates this route watches."
-            onClick={() => onEdit("dateStart")}
-          >
-            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-              {usDate(route.date_start)} – {usDate(route.date_end)}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
-              {days}d
-            </Typography>
-          </SpecValue>
-
           {/* The one value here describing what the route GATHERS rather than
               what it shows — every other setting can be changed and seen
               instantly, this one needs a search behind it. The diagram draws it
@@ -234,86 +161,12 @@ export function RouteHeader({
             </SpecValue>
           )}
 
-          {/* The OTHER gathering setting, and the only one that changes what a
-              search costs. Sits beside Round trip rather than among the filters
-              below for exactly that reason: everything under this line decides
-              what you are shown, everything above it decides what is fetched. */}
-          {via.length > 0 && (
-            <SpecValue
-              help={`This route also monitors ${via
-                .map((h) => `${route.origin}→${h}→${route.destination}`)
-                .join(", ")}. Nobody sells the pair itself, so the search asks a second query per date range — the hubs, then the hubs onward — and the results are joined into journeys below.`}
-              onClick={() => onEdit("via")}
-            >
-              <Chip
-                size="small"
-                color="secondary"
-                variant="outlined"
-                label={`via ${via.join(", ")}`}
-              />
-            </SpecValue>
-          )}
-
-          <SpecValue
-            help="Cabins. Results outside these are stored, just not shown here."
-            onClick={() => onEdit("cabins")}
-          >
-            {cabins.length > 0 ? (
-              cabins.map((c) => <CabinChip key={c} cabin={c} />)
-            ) : (
-              <Chip size="small" variant="outlined" label="Any cabin" />
-            )}
-          </SpecValue>
-
-          {currencies.length > 0 && (
-            <SpecValue
-              help="Cards: only space bookable with these — by transfer, or by buying the cash fare through that card's portal."
-              onClick={() => onEdit("currencies")}
-            >
-              <BookableCurrencies json={route.currencies ?? undefined} size={20} />
-            </SpecValue>
-          )}
-
-          {/* Constraints, and only when they constrain. An unset filter is the
-              default reading of a row that doesn't mention it, and two "Any"
-              chips in a sticky strip are two chips of nothing. */}
-          {route.direct_only ? (
-            <SpecValue
-              help="Nonstop-only filters what this route SHOWS. Connecting itineraries are still gathered and still stored, so turning it off brings them straight back — no search, no API call."
-              onClick={() => onEdit("directOnly")}
-            >
-              <Chip size="small" color="info" variant="outlined" label="Nonstop" />
-            </SpecValue>
-          ) : null}
-
-          {(route.min_seats ?? 1) > 1 && (
-            <SpecValue
-              help="Finds with fewer seats than this are hidden here."
-              onClick={() => onEdit("minSeats")}
-            >
-              <Chip size="small" variant="outlined" label={`${route.min_seats}+ seats`} />
-            </SpecValue>
-          )}
-
-          {route.point_limit != null && (
-            <SpecValue
-              help="A points ceiling filters what this route SHOWS. Dearer awards are still gathered and still stored, so raising it brings them straight back — no search, no API call."
-              onClick={() => onEdit("pointLimit")}
-            >
-              <Chip
-                size="small"
-                variant="outlined"
-                label={`${miles(route.point_limit)} max`}
-              />
-            </SpecValue>
-          )}
-
-          {/* Alerts, and — alone on this row — stated even when OFF.
-              Everything else here is a filter, whose absence reads correctly as
-              "not filtered"; alerts are a whole feature, and a route that isn't
-              enrolled looks exactly like an app that doesn't have them. This
-              muted chip is the only place the Routes page says otherwise, and
-              it is one click from turning them on. */}
+          {/* Alerts leads the chips. It is the one here that is not a filter —
+              it changes what is GATHERED and is the only setting on this row that
+              spends metered calls with nobody watching — so it takes the position
+              you read first rather than the one you reach last. Stated even when
+              OFF, because a route that isn't enrolled looks exactly like an app
+              that doesn't have alerts. */}
           <SpecValue
             help={alertsOn ? alertHelp(route, alert, intervalMinutes) : ALERTS_OFF_HELP}
             onClick={() => onEdit(alertsOn ? "alertOn" : "alertsEnabled")}
@@ -332,14 +185,12 @@ export function RouteHeader({
                 variant="outlined"
                 icon={<NotificationsNoneRoundedIcon />}
                 label="Alerts off"
-                sx={{
-                  color: "text.disabled",
-                  borderColor: "divider",
-                  "& .MuiChip-icon": { color: "text.disabled" },
-                }}
+                sx={{ ...MUTED_CHIP_SX, "& .MuiChip-icon": { color: "text.disabled" } }}
               />
             )}
           </SpecValue>
+
+          <RouteFilterChips route={route} />
         </Stack>
 
         {/* Eats the slack, so the actions sit at the right edge however wide the

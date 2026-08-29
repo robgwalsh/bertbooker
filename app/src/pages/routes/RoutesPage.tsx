@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Alert,
@@ -26,7 +26,6 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AltRouteRoundedIcon from "@mui/icons-material/AltRouteRounded";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
-import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import { api, ENRICH_MAX_PER_RUN, type Find, type SearchCall, type TrackedRoute } from "../../api";
 import { PagePad } from "../../components/PagePad";
@@ -42,6 +41,7 @@ import { MultiLegTable } from "./MultiLegTable";
 import { RoundTripTable } from "./RoundTripTable";
 import { useRouteSearch } from "./useRouteSearch";
 import { useRouteEnrich } from "./useRouteEnrich";
+import { ROUTE_FILTER_MUTATION_KEY } from "./useRouteFilterPatch";
 import { AddRouteDialog } from "./AddRouteDialog";
 import { EditRouteDialog } from "./EditRouteDialog";
 import { CallDialog } from "./CallDialog";
@@ -72,7 +72,16 @@ const EMPTY_JOURNEYS: JourneyResult = {
 
 export function Routes() {
   const qc = useQueryClient();
-  const { data, isLoading, error } = useQuery({ queryKey: ["routes"], queryFn: api.routes });
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: ["routes"],
+    queryFn: api.routes,
+  });
+
+  // A filter chip saving, counted across every route so the header does not need
+  // to know which chip is in flight. Paired with `isFetching` below: the two
+  // halves are the PATCH and the re-read it triggers, and only both together
+  // cover the whole wait.
+  const savingFilter = useIsMutating({ mutationKey: ROUTE_FILTER_MUTATION_KEY }) > 0;
 
   // How each alert route's sweep is actually going, for the rail's bell and the
   // header's chip.
@@ -177,8 +186,8 @@ export function Routes() {
    * miniature: a window moved forward two months is mostly dates nobody has
    * checked — but only *some* edits do that, so the edit dialog offers a plain
    * Save beside this one and `EditRouteDialog` calls this for the "& search" half
-   * alone. Every button that reaches here says "& search" and both dialogs quote
-   * the call range above them, so the spend is stated before it happens.
+   * alone. Every button that reaches here says "& search", so the spend is
+   * stated before it happens.
    *
    * Safe to call for a route the pane hasn't rendered yet: the run state is keyed
    * by id on the page, and the endpoint is addressed by id too.
@@ -419,6 +428,12 @@ export function Routes() {
                     // the list keeps any nights range the route was being read
                     // with — come forward again and you are where you were.
                     onBack={() => setSearch({ route: undefined })}
+                    // A REFRESH, not a load: `isLoading` is the first read,
+                    // which the page already answers with its own skeleton. This
+                    // is the pane it already has going stale — a filter chip
+                    // saved, a search finished — and the bar is how you know the
+                    // rows under it are about to change.
+                    refreshing={savingFilter || (isFetching && !isLoading)}
                     actions={
                       <>
                         {/* Text, not an icon: this runs for tens of seconds and
@@ -483,37 +498,6 @@ export function Routes() {
                             </span>
                           </Tooltip>
                         )}
-                        {/* Edit carries the same weight as Search: same size,
-                            same fill, same labelled shape, and only the colour
-                            saying what each is for. Correcting a window you got
-                            wrong is as much a part of running a route as
-                            searching it. A neutral tint rather than a solid
-                            fill, so "equal" doesn't mean two shouting buttons.
-
-                            Remove used to sit here as a third. It moved to the
-                            rail (`RouteNav`), as a 14px icon on the row it acts
-                            on: it could only ever remove the route already open,
-                            so a labelled button in the editor's header spent
-                            header weight on the one action you would want to
-                            take WITHOUT opening a route first.
-
-                            Everything the spec beside this button states is
-                            editable from Edit — the row is that form, read-only,
-                            and Edit is where the call cost is quoted. */}
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="inherit"
-                          onClick={() => setEditRoute({ route: r })}
-                          startIcon={<EditRoundedIcon fontSize="small" />}
-                          sx={{
-                            color: "text.primary",
-                            bgcolor: "background.raised",
-                            "&:hover": { bgcolor: (t) => t.spec.selectedIdle },
-                          }}
-                        >
-                          Edit
-                        </Button>
                       </>
                     }
                   />

@@ -16,8 +16,9 @@ export const addTrackedRoute = (body: RouteInput) =>
 
 /** Edit a stored route. The Worker MERGES this against the stored row — an
  *  absent field is left alone, an empty array clears that filter — so a caller
- *  holding only part of a route can send only that part. The header's edit
- *  mode sends the whole thing. */
+ *  holding only part of a route can send only that part. Both callers rely on
+ *  it: the edit dialog sends the gathering spec, and the header's filter chips
+ *  send one field each. */
 export const updateTrackedRoute = (id: number, body: Partial<RouteInput>) =>
   req<{ ok: true }>(`/tracked-routes/${id}`, {
     method: "PATCH",

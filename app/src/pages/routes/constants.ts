@@ -20,8 +20,3 @@ export const FILTER_CURRENCIES = ["chase_ur", "capital_one", "bilt", "citi_ty"];
 /** The widest the route rail is allowed to get. It sizes to its content below
  *  this — see the grid that lays out the two panes. */
 export const RAIL_MAX_WIDTH = 320;
-
-/** The header diagram's reserved width — a constant, not a measurement, so the
- *  spec and the action buttons beside it don't move when you select a route
- *  with a different number of airports. Holds `SEA/PDX ⇄ NRT/HND` on one line. */
-export const ROUTE_DIAGRAM_WIDTH = 248;

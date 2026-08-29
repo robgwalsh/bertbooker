@@ -1,12 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import { Box, Tooltip, Typography } from "@mui/material";
-import { api, type Find } from "../../api";
+import type { Find } from "../../api";
 import { CarrierSet } from "../../components/brand";
 import { itineraryLegs } from "./Itinerary";
 import type { Journey } from "../../lib/multiLeg";
 import type { RoundTripPair } from "../../lib/roundtrip";
-import { bestPortalPrice } from "../../lib/booking";
-import { CURRENCY_LABEL } from "../../lib/currencies";
 import { dollars, miles, money } from "../../lib/format";
 import { vsBest } from "../../lib/priceHistory";
 
@@ -15,33 +12,25 @@ import { vsBest } from "../../lib/priceHistory";
 // `FindsTable` and `RoundTripTable` each render two ways now — a table on a
 // desktop, a stack of cards on a phone — and these are the pieces where that
 // would have cost something. Every one of them encodes a decision rather than a
-// format: cash quoted beside miles and never ranked against it, "never checked"
-// told apart from "checked and empty", a round trip's total split by direction
-// because the two halves are separate bookings.
+// format: an award's tax quoted in the currency it is charged in, "never
+// checked" told apart from "checked and empty", a round trip's total split by
+// direction because the two halves are separate bookings.
 //
 // Extracted rather than written twice for the same reason `FindsTable` itself
 // was extracted from the Routes page: a second copy does not stay a copy. The
 // drift would be silent and it would be in the numbers.
 
 /**
- * What a find costs, in both currencies it can be paid in.
+ * What a find costs.
  *
- * Miles first, then fees, then the nonstop's own price when one exists and costs
- * more, then — only when a cash fare is known — the same seat priced through a
- * card portal. **Shown side by side and never ranked:** "16,802 Chase" and
- * "27,500 Alaska miles" are different currencies, and calling either one cheaper
- * needs a points valuation this app deliberately does not model.
+ * Miles first, then the award's own residual tax, then the nonstop's own price
+ * when one exists and costs more, then how this price compares to the cheapest
+ * the slot has ever been seen at.
  */
 export function FindCost({ f }: { f: Find }) {
   // Its OWN currency, not assumed dollars: a KRW figure read as USD is off by
   // more than an order of magnitude, and it is a number people act on.
   const fees = f.cash_fees_cents > 0 ? `+ ${money(f.cash_fees_cents, f.fees_currency)}` : "";
-
-  // Shared cache key with the Library tab, so this is one fetch for the whole
-  // table however many rows or cards render.
-  const currenciesQ = useQuery({ queryKey: ["currencies"], queryFn: api.currencies });
-  const portal = bestPortalPrice(f.cash_price_cents, currenciesQ.data);
-  const portalRate = currenciesQ.data?.find((c) => c.code === portal?.code);
 
   // Read off the row, which `findsCte` filled from price_history — no fetch, so
   // a page of two hundred of these costs nothing. Null when the slot has no
@@ -90,21 +79,6 @@ export function FindCost({ f }: { f: Find }) {
             sx={{ display: "block", cursor: "help", fontWeight: best.isBest ? 700 : 400 }}
           >
             {best.isBest ? "cheapest seen" : `+${best.pctAbove}% over best`}
-          </Typography>
-        </Tooltip>
-      )}
-      {portal && (
-        <Tooltip
-          title={`${dollars(f.cash_price_cents!)} cash, paid with ${
-            portalRate?.portalName ?? CURRENCY_LABEL[portal.code] ?? portal.code
-          } at ${portalRate?.portalCentsPerPoint}¢/pt`}
-        >
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: "block", fontVariantNumeric: "tabular-nums", cursor: "help" }}
-          >
-            or {portal.points.toLocaleString()} {CURRENCY_LABEL[portal.code] ?? portal.code}
           </Typography>
         </Tooltip>
       )}

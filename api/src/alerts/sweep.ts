@@ -2,7 +2,6 @@ import { type DigestRoute, groupForRecipients, renderDigest } from "../alerts/di
 import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "../alerts/pace.js";
 import { parseAlertTypes, selectAlertable } from "../alerts/select.js";
 import type { ChangeSummary } from "../domain/diff.js";
-import { PORTAL_CURRENCIES } from "../domain/programs.js";
 import { planSeatsAeroChunks } from "../providers/seatsaero.js";
 import { queryGroupCount } from "../domain/routing.js";
 import { todayISO } from "../providers/window.js";
@@ -491,7 +490,7 @@ async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string
         AND ${ROUTE_FINDS_MATCH}
       WHERE ${ROUTE_FINDS_SEATS}`,
   )
-    .bind(...cte.binds, route.id, JSON.stringify(PORTAL_CURRENCIES))
+    .bind(...cte.binds, route.id)
     .all<{ route_key: string; program: string; cabin: string }>();
 
   // Must match `changeKey` in api/src/domain/diff.ts exactly.

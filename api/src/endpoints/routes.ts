@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { PORTAL_CURRENCIES } from "../domain/programs.js";
 import type { Env, Vars } from "../bindings.js";
 import type { Find, RoutesData, TrackedRoute } from "../../../shared/src/wire/index.js";
 import type { ScopedRoute } from "../db/finds.js";
@@ -107,7 +106,7 @@ routes.get("/api/routes", async (c) => {
         WHERE ${ROUTE_FINDS_SEATS}
         ORDER BY tr.id, f.flight_date ASC, f.seats_available DESC, f.miles_cost ASC`,
   )
-    .bind(...pageFinds.binds, email, JSON.stringify(PORTAL_CURRENCIES))
+    .bind(...pageFinds.binds, email)
     .all<Find>();
 
   // The annotation buys the envelope: a renamed or dropped key is a compile

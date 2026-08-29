@@ -27,6 +27,7 @@ export const CURRENCY_LABEL: Record<string, string> = {
   capital_one: "Cap One",
   bilt: "Bilt",
   citi_ty: "Citi",
+  amex_mr: "Amex",
   direct: "Direct",
 };
 
@@ -42,6 +43,9 @@ export const CURRENCY_COLOR: Record<string, string> = {
   capital_one: "#ff6b6b",
   bilt: "#38e0c8",
   citi_ty: "#c084fc",
+  // Lime rather than Amex's own blue: the brand colour is a near-match for
+  // Chase's, and these dots exist to be told apart at 22px.
+  amex_mr: "#a3e635",
   direct: NEUTRAL_COLOR,
 };
 
@@ -66,6 +70,7 @@ export const CURRENCY_DOMAIN: Record<string, string> = {
   capital_one: "capitalone.com",
   bilt: "biltrewards.com",
   citi_ty: "citi.com",
+  amex_mr: "americanexpress.com",
 };
 
 export const faviconUrl = (domain: string) => `https://icons.duckduckgo.com/ip3/${domain}.ico`;

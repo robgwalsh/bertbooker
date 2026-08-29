@@ -50,19 +50,9 @@ export interface AvailabilityResult {
   cabin: Cabin;
   seatsAvailable: number;
   milesCost: number;
+  /** The residual tax owed on top of an award redemption — not a ticket price. */
   cashFeesCents: number;
   feesCurrency: string; // ISO 4217, e.g. "USD"
-  /** What this same itinerary costs as a CASH fare, per passenger, when the
-   *  source can see one. Deliberately NOT `cashFeesCents` — that is the residual
-   *  tax owed on top of an award redemption. This is the whole ticket price, and
-   *  it is what converts into card-portal points at a fixed cents-per-point rate
-   *  (see `pointsForCash` in data/programs.ts).
-   *
-   *  `undefined` means "we don't know" — which is NOT the same as 0. Sources
-   *  that only see award inventory leave it unset. */
-  cashPriceCents?: number;
-  /** ISO 4217 for `cashPriceCents`. Only meaningful when that is set. */
-  cashPriceCurrency?: string;
   isDirect: boolean;
   segments: Segment[];
   /** Number of stops (0 = nonstop), or `undefined` for **genuinely unknown**.

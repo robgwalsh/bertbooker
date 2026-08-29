@@ -242,7 +242,8 @@ CREATE TABLE IF NOT EXISTS availability_snapshots (
   seats_available     INTEGER NOT NULL,
   miles_cost          INTEGER NOT NULL,
   -- The residual tax owed on top of an award redemption. NOT the portal price —
-  -- see cash_price_cents below, which answers a different question.
+  -- see cash_price_cents below (DROPPED BY 0012), which answered a different
+  -- question. THIS column stays: it is award data.
   cash_fees_cents     INTEGER NOT NULL DEFAULT 0,
   fees_currency       TEXT NOT NULL DEFAULT 'USD',
   is_direct           INTEGER NOT NULL DEFAULT 0,
@@ -279,6 +280,13 @@ CREATE TABLE IF NOT EXISTS availability_snapshots (
   -- costs in dollars beside what it costs in miles. Nullable on purpose: NULL
   -- means "no source could see a fare", which is a different fact from 0. Do not
   -- confuse with cash_fees_cents above.
+  --
+  -- BOTH DROPPED BY 0012. No source ever wrote them: seats.aero returns no
+  -- revenue fare, and PointsYeah — the only other source this app ever had —
+  -- lost its rows to 0002. Every row in production held NULL in both. Still
+  -- created here because this file is the record of what was APPLIED, and 0012
+  -- is the delta. `cash_fees_cents` above is a DIFFERENT column, the award tax,
+  -- and it stays.
   cash_price_cents    INTEGER,
   cash_price_currency TEXT,
 

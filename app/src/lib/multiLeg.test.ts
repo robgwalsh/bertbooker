@@ -248,19 +248,19 @@ describe("stitchJourneys — the route's other filters", () => {
     ).toEqual([]);
   });
 
-  it("counts a known cash fare as bookable, erring wide rather than hiding", () => {
-    // The portal half of the SQL's currency clause needs PORTAL_CURRENCIES,
-    // which the SPA cannot import. Passing a cash fare outright is the
-    // over-inclusive error, which is the safe one here.
+  it("drops a leg with no transfer currencies at all", () => {
+    // A program nothing transfers to. The empty list must read as "nobody can
+    // book this", never as "no filter" — the same way the SQL reads it.
     const r = route({ currencies: JSON.stringify(["chase_ur"]) });
-    const out = stitch(
-      [
-        first("2027-03-10", { transfer_currencies: "[]", cash_price_cents: 90_000 }),
-        second("2027-03-10", { transfer_currencies: JSON.stringify(["chase_ur"]) }),
-      ],
-      r,
-    );
-    expect(out.journeys).toHaveLength(1);
+    expect(
+      stitch(
+        [
+          first("2027-03-10", { transfer_currencies: "[]" }),
+          second("2027-03-10", { transfer_currencies: JSON.stringify(["chase_ur"]) }),
+        ],
+        r,
+      ).journeys,
+    ).toEqual([]);
   });
 
   it("treats no currency filter as no filter", () => {

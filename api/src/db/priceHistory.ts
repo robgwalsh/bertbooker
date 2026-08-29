@@ -33,19 +33,17 @@ interface HistoryJson {
   a: number | null;
   f: number | null;
   u: string | null;
-  h: number | null;
   t: number | null;
 }
 
 const INSERT_SQL = `INSERT INTO price_history
     (route_key, flight_date, program, cabin, source, miles_cost, seats_available,
-     cash_fees_cents, fees_currency, cash_price_cents, source_fetched_at, captured_at)
+     cash_fees_cents, fees_currency, source_fetched_at, captured_at)
   SELECT json_extract(value, '$.k'), json_extract(value, '$.d'),
          json_extract(value, '$.p'), json_extract(value, '$.c'),
          json_extract(value, '$.s'), json_extract(value, '$.m'),
          json_extract(value, '$.a'), json_extract(value, '$.f'),
-         json_extract(value, '$.u'), json_extract(value, '$.h'),
-         json_extract(value, '$.t'), ?2
+         json_extract(value, '$.u'), json_extract(value, '$.t'), ?2
     FROM json_each(?1)`;
 
 /** A row's identity columns, shared by both writers. */
@@ -87,7 +85,6 @@ export function priceStatements(
       a: r.seatsAvailable,
       f: r.cashFeesCents,
       u: r.feesCurrency ?? null,
-      h: r.cashPriceCents ?? null,
       t: r.sourceFetchedAt,
     })),
     capturedAt,
@@ -112,7 +109,7 @@ export function goneStatements(
 ): D1PreparedStatement[] {
   return statements(
     db,
-    rows.map((r) => ({ ...identity(r), m: null, a: null, f: null, u: null, h: null, t: null })),
+    rows.map((r) => ({ ...identity(r), m: null, a: null, f: null, u: null, t: null })),
     capturedAt,
   );
 }
@@ -123,7 +120,6 @@ export interface PriceHistoryRow {
   seats_available: number | null;
   cash_fees_cents: number | null;
   fees_currency: string | null;
-  cash_price_cents: number | null;
   source: string;
   source_fetched_at: number | null;
   captured_at: number;
@@ -141,7 +137,7 @@ export async function readSlotHistory(
   const { results } = await db
     .prepare(
       `SELECT miles_cost, seats_available, cash_fees_cents, fees_currency,
-              cash_price_cents, source, source_fetched_at, captured_at
+              source, source_fetched_at, captured_at
          FROM price_history
         WHERE route_key = ? AND program = ? AND cabin = ?
         ORDER BY captured_at ASC`,

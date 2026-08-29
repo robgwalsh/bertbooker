@@ -22,6 +22,7 @@ export type Currency =
   | "capital_one"
   | "bilt"
   | "citi_ty"
+  | "amex_mr"
   | "direct"; // miles/points held directly in a loyalty program
 
 export type Alliance = "star" | "oneworld" | "skyteam" | null;

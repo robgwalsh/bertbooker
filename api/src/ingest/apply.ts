@@ -40,9 +40,6 @@ export function hashResult(r: AvailabilityResult): string {
       r.seatsAvailable,
       r.milesCost,
       r.cashFeesCents,
-      // Must be here, or a fare that moved while the award price held steady
-      // would hash identically and never be written.
-      r.cashPriceCents ?? "",
       r.isDirect ? 1 : 0,
     ].join("|") + JSON.stringify(r.segments),
   );
@@ -123,8 +120,7 @@ export function prunable(
 const SNAPSHOT_COLUMNS = `s.origin, s.destination, s.flight_date, s.program, s.cabin,
        s.seats_available, s.miles_cost, s.cash_fees_cents, s.fees_currency,
        s.is_direct, s.segments_json, s.source, s.source_fetched_at,
-       s.transfer_currencies, s.duration_minutes, s.booking_url,
-       s.cash_price_cents, s.cash_price_currency, s.raw_hash,
+       s.transfer_currencies, s.duration_minutes, s.booking_url, s.raw_hash,
        s.source_record_id, s.detail_level,
        s.stop_count, s.airlines, s.direct_airlines, s.direct_miles_cost`;
 
@@ -151,8 +147,6 @@ export function rowToResult(r: Record<string, unknown>): AvailabilityResult {
     milesCost: Number(r.miles_cost),
     cashFeesCents: Number(r.cash_fees_cents),
     feesCurrency: String(r.fees_currency),
-    cashPriceCents: r.cash_price_cents == null ? undefined : Number(r.cash_price_cents),
-    cashPriceCurrency: r.cash_price_currency == null ? undefined : String(r.cash_price_currency),
     isDirect: Number(r.is_direct) === 1,
     segments: JSON.parse(String(r.segments_json)),
     // NULL is a real answer here — "a connecting award exists, nobody said how
@@ -368,11 +362,10 @@ export async function applyTask(
              (route_key, origin, destination, flight_date, program, cabin,
               seats_available, miles_cost, cash_fees_cents, fees_currency,
               is_direct, segments_json, source, source_fetched_at, raw_hash,
-              transfer_currencies, duration_minutes, booking_url,
-              cash_price_cents, cash_price_currency, search_run_id,
+              transfer_currencies, duration_minutes, booking_url, search_run_id,
               source_record_id, detail_level,
               stop_count, airlines, direct_airlines, direct_miles_cost)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           routeKey(r.origin, r.destination, r.flightDate),
@@ -393,8 +386,6 @@ export async function applyTask(
           JSON.stringify(r.bookableWith ?? []),
           r.durationMinutes ?? null,
           r.bookingUrl ?? null,
-          r.cashPriceCents ?? null,
-          r.cashPriceCurrency ?? null,
           runId,
           r.sourceRecordId ?? null,
           // Absent means the source produced real legs — which is every source

@@ -10,12 +10,10 @@ import type { ChangeSummary, ChangeType } from "../domain/diff.js";
  * `findKeys`.
  *
  * The reason is worth stating, because writing the filter here would have been
- * the obvious thing to do. "Can the couple book this?" already exists twice —
- * `bookableCurrencies()` in `providers/filter.ts` and `BOOKABLE_WITH_CLAUSE` in
- * the Worker — and CLAUDE.md flags that the two must be kept in step. A third
- * copy here would be the only one blind to the cross-source collapse and to the
- * cash-fare carry-forward, so it could fire on a snapshot another source has
- * already superseded: an email about a seat the app itself does not show.
+ * the obvious thing to do. "Can the couple book this?" is the currency clause in
+ * `ROUTE_FINDS_MATCH`, and a copy here would be blind to the cross-source
+ * collapse — so it could fire on a snapshot another source has already
+ * superseded: an email about a seat the app itself does not show.
  */
 
 /** The four transitions `diffAvailability` classifies. */

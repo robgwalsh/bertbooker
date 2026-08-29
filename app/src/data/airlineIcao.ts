@@ -15,7 +15,7 @@
  * The first block covers `AIRLINE_SEEDS` in `api/src/domain/airlines.ts` (the carriers the Library
  * knows); the second is the operators that show up *inside* an itinerary without
  * being award carriers in their own right — US regionals flying a mainline
- * number, and low-cost carriers a cash fare can surface.
+ * number, and low-cost carriers appearing as the operator of a leg.
  */
 export const AIRLINE_ICAO: Record<string, string> = {
   // ---- mirrors AIRLINE_SEEDS (api/src/domain/airlines.ts) ----

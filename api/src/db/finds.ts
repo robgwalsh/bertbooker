@@ -1,4 +1,3 @@
-import { PORTAL_CURRENCIES } from "../domain/programs.js";
 import { addDaysISO } from "../providers/window.js";
 
 /**
@@ -19,15 +18,13 @@ import { addDaysISO } from "../providers/window.js";
  * in. The tables it reads are defined in migrations/0001_init.sql.
  */
 
-/** Columns projected out of the collapsed set. `cash_price_cents` /
- *  `cash_price_currency` are the CARRIED-FORWARD values (see `findsCte`), not
- *  the winning row's own — callers must not reach past this list. */
+/** Columns projected out of the collapsed set — callers must not reach past
+ *  this list. */
 export const FIND_COLUMNS = `f.origin, f.destination, f.flight_date, f.route_key,
        f.program, f.cabin, f.seats_available, f.miles_cost, f.cash_fees_cents,
        f.fees_currency, f.is_direct, f.segments_json, f.source, f.source_fetched_at,
        f.captured_at, f.transfer_currencies, f.duration_minutes,
-       f.booking_url, f.cash_price_cents, f.cash_price_currency,
-       f.search_run_id,
+       f.booking_url, f.search_run_id,
        f.detail_level, f.enriched_at, f.source_record_id,
        f.stop_count, f.airlines, f.direct_airlines, f.direct_miles_cost,
        f.best_miles_ever`;
@@ -44,13 +41,11 @@ export const FIND_COLUMNS = `f.origin, f.destination, f.flight_date, f.route_key
  * **A scope predicate may constrain `origin`, `destination` and `flight_date`,
  * and nothing else.** Those three *are* `route_key` (`routeKey()`,
  * `domain/types.ts`), and `route_key` is in every group key this CTE uses —
- * `per_source` groups by (route_key, program, cabin, source), `cash_any` by
- * (route_key, program, cabin), `finds` by (route_key, program, cabin). So a
- * predicate that is a function of `route_key` includes or excludes each group
- * **whole**, and can never change which row wins a collapse or make a cash fare
- * vanish out of `cash_any`. A predicate naming `program`, `cabin`, `source`,
- * `captured_at` or `source_fetched_at` can do exactly that, and would look like
- * it worked.
+ * `per_source` groups by (route_key, program, cabin, source), `finds` by
+ * (route_key, program, cabin). So a predicate that is a function of `route_key`
+ * includes or excludes each group **whole**, and can never change which row wins
+ * a collapse. A predicate naming `program`, `cabin`, `source`, `captured_at` or
+ * `source_fetched_at` can do exactly that, and would look like it worked.
  *
  * Column names go in UNQUALIFIED. The text is interpolated twice — into the
  * inner grouping subquery, where the table is bare, and into the outer join,
@@ -259,19 +254,13 @@ export function withinRouteScope(
 /**
  * Build the `finds` CTE.
  *
- * Three steps, and the middle one is the subtle one:
+ * Two steps:
  *
  *  1. `per_source` — the latest row per (route_key, program, cabin, **source**).
- *  2. `cash_any` — the freshest known cash fare per (route_key, program, cabin)
- *     from ANY source. A dollar fare is an attribute of the itinerary, not a
- *     competing claim about it, so it must survive its source losing the
- *     collapse; otherwise a find's portal price would blink in and out as
- *     sources take turns being freshest. (Same rule the pre-pivot
- *     `mergeContributions` applied at write time.)
- *  3. `finds` — one row per (route_key, program, cabin), the freshest
- *     `source_fetched_at` winning, with the carried cash fare coalesced in.
+ *  2. `finds` — one row per (route_key, program, cabin), the freshest
+ *     `source_fetched_at` winning.
  *
- * The bare-column-with-MAX in step 3 is SQLite-specific and deliberate: it
+ * The bare-column-with-MAX in step 2 is SQLite-specific and deliberate: it
  * returns the whole row that produced the max, which is exactly the winner.
  *
  * `scope.binds` are consumed TWICE (the inner grouping and the outer filter
@@ -294,34 +283,35 @@ WITH per_source AS (
      AND latest.mx = s.captured_at
     ${where}
 ),
-cash_any AS (
-  SELECT route_key, program, cabin,
-         cash_price_cents AS cp, cash_price_currency AS cc,
-         MAX(source_fetched_at) AS _fresh
-    FROM per_source
-   WHERE cash_price_cents IS NOT NULL
-   GROUP BY route_key, program, cabin
-),
-finds AS (
+-- MATERIALIZED, and it is worth 2.5x on its own.
+--
+-- The Routes page joins this CTE to tracked_routes through ROUTE_FINDS_MATCH,
+-- which is all json_each — no index can serve it, so the plan is a nested loop
+-- with SCAN tr outside and SCAN f inside. This CTE is referenced ONCE, so
+-- SQLite defaults to a co-routine, and a co-routine as the inner loop is
+-- RESTARTED per outer row: the whole pipeline above — both scans of
+-- availability_snapshots, the automatic index on latest, both GROUP BY temp
+-- b-trees, and every price_history seek — re-ran once per tracked route.
+--
+-- Measured on production, six routes over 11,687 snapshots: 284,399 rows read
+-- and 276ms, against 115,507 and 78ms with this keyword. The cost scaled with
+-- the route COUNT, so adding a seventh route that gathered nothing still made
+-- every Routes page load dearer. (No backticks in here — this is a template
+-- literal.)
+finds AS MATERIALIZED (
   SELECT p.origin, p.destination, p.flight_date, p.route_key, p.program, p.cabin,
          p.seats_available, p.miles_cost, p.cash_fees_cents, p.fees_currency,
          p.is_direct, p.segments_json, p.source, p.source_fetched_at, p.captured_at,
          p.transfer_currencies, p.duration_minutes, p.booking_url,
          p.search_run_id,
          -- Whether this find describes a real aeroplane, and the handle to buy
-         -- that if it does not. Attributes of the WINNING row, deliberately NOT
-         -- carried forward the way cash_price_cents is: a cash fare is a fact
-         -- about the itinerary whoever saw it, but an itinerary belongs to the
-         -- source that claimed it, and one source's legs must never be
-         -- attributed to another source's price.
+         -- that if it does not. Attributes of the WINNING row: an itinerary
+         -- belongs to the source that claimed it, so one source's legs must
+         -- never be attributed to another source's row.
          p.detail_level, p.enriched_at, p.source_record_id,
          -- Same rule as detail_level above: these describe the WINNING row's
-         -- own claim about which aeroplanes serve this slot, so they are not
-         -- carried forward the way a cash fare is. One source's carrier list
-         -- must never be attributed to another source's price.
+         -- own claim about which aeroplanes serve this slot.
          p.stop_count, p.airlines, p.direct_airlines, p.direct_miles_cost,
-         COALESCE(p.cash_price_cents, ca.cp) AS cash_price_cents,
-         COALESCE(p.cash_price_currency, ca.cc) AS cash_price_currency,
          -- The cheapest this slot has EVER been seen at, as a correlated seek.
          -- Across sources on purpose: "the best anyone ever saw" is not a
          -- claim about who saw it, unlike detail_level and the carrier lists
@@ -359,8 +349,6 @@ finds AS (
              AND ph.miles_cost IS NOT NULL) AS best_miles_ever,
          MAX(p.source_fetched_at) AS _winner
     FROM per_source p
-    LEFT JOIN cash_any ca
-      ON ca.route_key = p.route_key AND ca.program = p.program AND ca.cabin = p.cabin
    GROUP BY p.route_key, p.program, p.cabin
 )`;
   return { sql, binds: [...scope.binds, ...scope.binds] };
@@ -369,13 +357,6 @@ finds AS (
 /**
  * "Does this find belong to this tracked route, and does it pass the route's own
  * filters?" — as a correlated predicate over `finds f` and `tracked_routes tr`.
- *
- * Its currency clause is the SQL statement of the bookability rule, whose
- * reference implementation is `bookableCurrencies()` in
- * `api/src/providers/filter.ts`. The two halves must stay in step: the portal
- * branch is what makes an Alaska find (Bilt-only) visible to a Chase-filtered
- * view once its dollar price is known, which is the entire reason cash pricing
- * exists.
  *
  * This one is a shared constant because the Routes page join and the alert sweep
  * are asking exactly the same question — *what would this route show me?* — and
@@ -387,8 +368,7 @@ finds AS (
  * keeps them literally identical, where two builders would only look it.
  *
  * The caller supplies the join (`tr`), the CTE (`f`), and `WHERE`
- * `ROUTE_FINDS_SEATS`. **One bind**, at the `?` in the currency clause:
- * `JSON.stringify(PORTAL_CURRENCIES)`.
+ * `ROUTE_FINDS_SEATS`. **No binds.**
  */
 export const ROUTE_FINDS_MATCH = `(
         -- MEMBERSHIP, not equality: a route is a SET of airports per side, so
@@ -465,25 +445,12 @@ export const ROUTE_FINDS_MATCH = `(
         -- filtered route when its bookable currencies intersect the filter.
         -- Snapshots are shared across routes matched by origin/destination/
         -- date, so this join condition (not the gather) enforces it per-route.
-        --
-        -- A known cash fare widens that: the seat can then be BOUGHT through
-        -- any card's travel portal, whatever the program's transfer partners
-        -- are. Without this clause an Alaska find (Bilt-only) stays invisible
-        -- to a Chase-filtered route even when we know its dollar price — which
-        -- is precisely the case cash pricing exists to surface. Mirrors
-        -- bookableCurrencies() in api/src/providers/filter.ts.
         AND (tr.currencies IS NULL
              OR EXISTS (
                SELECT 1
                  FROM json_each(tr.currencies) rc
                  JOIN json_each(f.transfer_currencies) tc ON tc.value = rc.value
-             )
-             OR (f.cash_price_cents IS NOT NULL
-                 AND EXISTS (
-                   SELECT 1
-                     FROM json_each(tr.currencies) rc
-                     JOIN json_each(?) pc ON pc.value = rc.value
-                 )))
+             ))
         -- Nonstop-only, when the route asks for it. A READ filter and nothing
         -- more: the connecting itineraries it hides are still stored and still
         -- claim coverage, so switching this off shows them again with no

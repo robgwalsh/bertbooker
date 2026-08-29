@@ -162,10 +162,6 @@ export interface Find {
    *  in CAD and Korean Air out of Seoul in KRW, and 2,400,000 KRW read as
    *  dollars is $24,029.90 instead of about $1,700. Format with money(). */
   fees_currency?: string | null;
-  /** Cash fare for the same itinerary — NOT the award tax (that's
-   *  cash_fees_cents). Null when no source could see a fare. */
-  cash_price_cents?: number | null;
-  cash_price_currency?: string | null;
   is_direct: number;
   source: string;
   source_fetched_at: number;
@@ -321,7 +317,6 @@ export interface PricePoint {
   seats_available: number | null;
   cash_fees_cents: number | null;
   fees_currency: string | null;
-  cash_price_cents: number | null;
   source: string;
   source_fetched_at: number | null;
   captured_at: number;

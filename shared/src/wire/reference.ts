@@ -16,23 +16,6 @@ import type { Alliance, Currency } from "./domain.js";
 export interface CurrencyInfo {
   code: Currency;
   name: string;
-  /** What one point is worth when redeemed against a CASH fare in this
-   *  currency's own travel portal, in cents. Undefined = no portal (miles held
-   *  directly in a loyalty program can't buy a revenue ticket this way).
-   *
-   *  These are the FIXED portal rates, deliberately not the aspirational
-   *  "valuations" the points blogs publish (1.85-2.2c). A valuation describes
-   *  what a good *transfer* redemption might return; this number is the rate the
-   *  portal actually charges, and using the bigger one would understate every
-   *  points price the app quotes.
-   *
-   *  Card-tier dependent — these reflect the cards the couple holds (Chase
-   *  Sapphire Reserve, Capital One Venture X). Change them in
-   *  `api/src/domain/programs.ts`; conversion happens at DISPLAY time, so an
-   *  edit re-prices every stored row without re-gathering it. */
-  portalCentsPerPoint?: number;
-  /** Display name of that portal, e.g. "Chase Travel". */
-  portalName?: string;
 }
 
 /** Wire shape for `GET /api/airlines`: the seed with its programs resolved. The

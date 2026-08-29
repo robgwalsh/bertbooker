@@ -14,8 +14,8 @@ export const CABIN_OPTIONS = ["economy", "premium", "business", "first"];
 
 // The couple's transfer currencies, in display order — the options for a route's
 // currency filter. (Excludes "direct": a stored find is only ever tagged
-// bookable with one of these four transfer partners.)
-export const FILTER_CURRENCIES = ["chase_ur", "capital_one", "bilt", "citi_ty"];
+// bookable with one of these transfer partners.)
+export const FILTER_CURRENCIES = ["chase_ur", "capital_one", "bilt", "citi_ty", "amex_mr"];
 
 /** The widest the route rail is allowed to get. It sizes to its content below
  *  this — see the grid that lays out the two panes. */

@@ -15,7 +15,7 @@ that reasoning back up here; a second copy is a second thing to drift.
 **BertBooker** — a private, self-hosted award-travel availability tracker (a
 personal seats.aero) for two users. A live view of monitored routes and a
 browsable flight database, each result tagged with which of the couple's cards
-can book it (Chase / Capital One / Bilt / Citi — **no Amex**).
+can book it (Chase / Capital One / Bilt / Citi / Amex).
 
 **There is ONE source and ONE place code runs.** Pressing Search on a tracked
 route makes the Worker call the seats.aero **Partner API**, streaming progress
@@ -426,8 +426,7 @@ constrains. When you touch the file, read it there.
 | --- | --- |
 | write-on-change, the stored-vs-recomputed baseline hash, why `collapseBy` is required, co-terminal answers and `routesTouched` | `api/src/ingest/apply.ts` |
 | what claims coverage, and what a task may report | `api/src/ingest/types.ts`, `api/src/sources/types.ts` |
-| the `findsCte` shape, `cash_any`, why a cash fare is an attribute rather than a competing claim | `api/src/db/finds.ts` |
-| bookability's two halves — transfer partners *and* a known cash fare — and why the SQL must mirror `bookableCurrencies` | `api/src/providers/filter.ts` (pinned by `filter.test.ts`) |
+| the `findsCte` shape, and why a scope may constrain only the three columns that *are* `route_key` | `api/src/db/finds.ts` |
 | hub routes planning two seats.aero queries per date chunk, chunk-major task order, `autoVia`, `splitDirectAndLegs` | `api/src/domain/routing.ts` |
 | a connection is LEGS, not a trip; the depth ladder and why the mixed tier stops at one stop | `api/src/domain/graphPaths.ts` |
 | `empty` is a SUCCESS — why the fetch itself is recorded, and why rendering it as an error destroys the signal | `api/src/endpoints/seatsaeroRoutes.ts`, `docs/SEATS-AERO.md` §12 |

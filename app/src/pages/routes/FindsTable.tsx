@@ -39,9 +39,9 @@ import { useIsPhone } from "../../hooks/useBreakpoints";
 // page (a route's current finds, route implied by its heading).
 //
 // Extracted from the Routes page rather than duplicated: these cells encode real
-// decisions — cash fares shown beside miles and never ranked against them, a
-// booking link that falls back to Google Flights — and a second copy would drift
-// away from them quietly.
+// decisions — an award's tax quoted in the currency it is charged in, a booking
+// link that falls back to Google Flights — and a second copy would drift away
+// from them quietly.
 //
 // The itinerary itself is drawn by `ItineraryCard`: the legs, their times and
 // their layovers are on the row, not behind a chevron.
@@ -203,7 +203,7 @@ function FindCard({ f, opts }: { f: Find; opts: FindsTableOptions }) {
 
       {/* Program and seats against the price, which is the comparison somebody
           scanning a phone is actually making. `alignItems: flex-start` so the
-          price's second and third lines (fees, portal) hang under the first
+          price's later lines (fees, the nonstop premium) hang under the first
           rather than centring the whole block against one line of text. */}
       <Stack
         direction="row"

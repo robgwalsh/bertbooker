@@ -194,14 +194,6 @@ describe("prunable", () => {
 });
 
 describe("hashResult", () => {
-  it("changes when the cash fare moves but the award price holds", () => {
-    // Pinned because the award fields are identical here: without cashPriceCents
-    // in the hash, a fare change would never be written.
-    expect(hashResult(offer({ cashPriceCents: 25_200 }))).not.toBe(
-      hashResult(offer({ cashPriceCents: 31_000 })),
-    );
-  });
-
   it("is stable for an unchanged result", () => {
     expect(hashResult(offer())).toBe(hashResult(offer()));
   });
@@ -298,8 +290,6 @@ const storedRow = (r: AvailabilityResult, rawHash: string): StubbedRow => ({
   transfer_currencies: JSON.stringify(r.bookableWith ?? []),
   duration_minutes: r.durationMinutes ?? null,
   booking_url: r.bookingUrl ?? null,
-  cash_price_cents: r.cashPriceCents ?? null,
-  cash_price_currency: r.cashPriceCurrency ?? null,
   raw_hash: rawHash,
   source_record_id: r.sourceRecordId ?? null,
   detail_level: r.detailLevel ?? "itinerary",

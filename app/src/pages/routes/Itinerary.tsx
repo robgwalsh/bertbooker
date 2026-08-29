@@ -72,8 +72,7 @@ function lacksLegTimes(f: Find): boolean {
  *
  * The tooltip always states the cost, because clicking spends a metered call
  * with no confirmation. The quota it quotes rides the shared `quota`
- * query key, so a hundred rows are one fetch — the same trick the cash-fare
- * cell plays with `currencies`.
+ * query key, so a hundred rows are one fetch.
  *
  * One click enriches every cabin of its (route, date, program): they share one
  * availability id, so the sibling rows update too and the whole group flips.

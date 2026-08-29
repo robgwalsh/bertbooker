@@ -1,30 +1,6 @@
-// Where a find's "book" button points, and what a cash fare costs in points.
-// Pure and JSX-free.
+// Where a find's "book" button points. Pure and JSX-free.
 
 import type { Find } from "../api";
-
-/**
- * The cheapest way to pay a CASH fare with points, across the currencies the
- * couple holds.
- *
- * Mirrors `bestPointsForCash` in api/src/domain/programs.ts, but reads
- * its rates from `api.currencies()` rather than a second hardcoded copy — so the
- * portal rate lives in exactly one place even though the conversion happens on
- * the client. Returns undefined when there's no fare or no portal rate.
- */
-export function bestPortalPrice(
-  cents: number | null | undefined,
-  currencies: { code: string; portalCentsPerPoint?: number }[] | undefined,
-): { code: string; points: number } | undefined {
-  if (cents == null || !Number.isFinite(cents) || cents <= 0 || !currencies) return undefined;
-  let best: { code: string; points: number } | undefined;
-  for (const c of currencies) {
-    if (!c.portalCentsPerPoint) continue;
-    const points = Math.ceil(cents / c.portalCentsPerPoint);
-    if (!best || points < best.points) best = { code: c.code, points };
-  }
-  return best;
-}
 
 // Google Flights search for a route + date — the fallback when a result has no
 // airline booking link (e.g. summary-only results whose detail fetch failed).

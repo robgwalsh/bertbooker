@@ -33,10 +33,10 @@ import { airlineLogoUrl, carrierMarks } from "../lib/flights";
  * A transfer currency as its issuer's mark — the one shape every "who can book
  * this" surface uses.
  *
- * It replaced a text chip, and the lost name is what that cost: four chips
- * reading Chase / Cap One / Bilt / Citi were among the widest cells in a finds
- * row and the least varied, but a card you recognize by its logo needs no word
- * beside it. So **the tooltip is the label, not decoration** — it is built in
+ * It replaced a text chip, and the lost name is what that cost: a row of chips
+ * reading Chase / Cap One / Bilt / Citi / Amex was among the widest cells in a
+ * finds row and the least varied, but a card you recognize by its logo needs no
+ * word beside it. So **the tooltip is the label, not decoration** — it is built in
  * here rather than left to callers, because an unnamed mark in a row that never
  * spells the name out is unreadable to anyone who doesn't already know it.
  *

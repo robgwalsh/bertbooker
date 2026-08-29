@@ -8,7 +8,6 @@ function point(at: number, miles: number | null): PricePoint {
     seats_available: miles == null ? null : 2,
     cash_fees_cents: null,
     fees_currency: null,
-    cash_price_cents: null,
     source: "seatsaero",
     source_fetched_at: miles == null ? null : at,
     captured_at: at,

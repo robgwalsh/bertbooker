@@ -224,11 +224,9 @@ task's notes, so unmapped breadth shows up as a number rather than as silence.
   multi-airport query answers with rows for whichever airports it has, and ingest
   keys coverage and pruning on the route it is told.
 - **`bookableWith` comes from our own transfer table**, not the payload —
-  seats.aero carries no transfer data. An empty array is a correct answer
-  (SkyMiles takes none of the couple's currencies) and the row still matters,
-  because a cash fare from another source can make it reachable.
-- **Never `cashPriceCents`.** seats.aero returns no revenue fare, and that field
-  means the whole cash ticket.
+  seats.aero carries no transfer data. An empty array is a correct answer for a
+  program nothing transfers to, and the row is still stored and still counted;
+  it just cannot surface under a currency-filtered route.
 - `stops: undefined` means **unknown** and stays that way for a summary row. It
   lands in the nullable `stop_count` column, whose NULL is exactly that.
 

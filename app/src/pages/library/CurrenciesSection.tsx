@@ -25,7 +25,7 @@ import { ProgramTileGrid } from "./BrandTile";
 import { SectionHeader } from "../../components/SectionHeader";
 import type { CurrencyInfo, ProgramInfo } from "../../api";
 
-/** The couple's four transfer currencies, and what each one reaches.
+/** The couple's transfer currencies, and what each one reaches.
  *
  *  This table is the LEGEND for the mark every other screen draws — which is why
  *  the short name is still spelled out here, in text, beside the icon. */
@@ -54,7 +54,6 @@ export function CurrenciesSection({
             <TableRow>
               <TableCell>Currency</TableCell>
               <TableCell>Code</TableCell>
-              <TableCell align="right">Portal rate</TableCell>
               <TableCell align="right">Transfers to</TableCell>
             </TableRow>
           </TableHead>
@@ -82,27 +81,6 @@ export function CurrenciesSection({
                     <Typography variant="body2" sx={{ color, fontWeight: 600 }}>
                       {CURRENCY_LABEL[cur.code] ?? cur.code}
                     </Typography>
-                  </TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                    {/* What a cash fare costs in this currency's own travel
-                        portal. This is the rate the app converts at — edit it in
-                        api/src/domain/programs.ts, and every stored find
-                        re-prices without re-gathering it. */}
-                    {cur.portalCentsPerPoint ? (
-                      <Tooltip title={cur.portalName ?? "Travel portal"}>
-                        <Typography
-                          component="span"
-                          variant="body2"
-                          sx={{ fontVariantNumeric: "tabular-nums", cursor: "help" }}
-                        >
-                          {cur.portalCentsPerPoint}¢/pt
-                        </Typography>
-                      </Tooltip>
-                    ) : (
-                      <Typography component="span" variant="body2" color="text.disabled">
-                        —
-                      </Typography>
-                    )}
                   </TableCell>
                   <TableCell align="right">
                     {n > 0 ? (

@@ -285,16 +285,7 @@ export function splitDirectAndLegs(
  * `ROUTE_FINDS_MATCH` (`api/src/db/finds.ts`) already applied each route's
  * filters to its OWN finds server-side. A journey borrows legs from other
  * routes, so those filters have to be applied again here or a route filtered to
- * business could be shown an economy leg.
- *
- * **The currency clause is the one approximation, and it is deliberate.** The
- * SQL's third branch is "a known cash fare is bookable through any card's travel
- * portal, if the route's currencies include a portal one" — and the portal list
- * lives in `api/src/domain/programs.ts`, which the SPA cannot import. Rebuilding
- * it here would be a second copy of a rule that has already drifted once (see
- * `bookableCurrencies` in CLAUDE.md), so a known cash fare passes outright. The
- * error that leaves is over-inclusive, which is the safe direction: this app's
- * standing bias is against hiding a bookable seat.
+ * business could be shown an economy leg. This mirrors that SQL exactly.
  */
 function legFilter(route: TrackedRoute): (f: Find) => boolean {
   const cabins = new Set(parseCodeList(route.cabins));
@@ -304,7 +295,6 @@ function legFilter(route: TrackedRoute): (f: Find) => boolean {
     if (route.point_limit != null && f.miles_cost > route.point_limit) return false;
     if (cabins.size && !cabins.has(f.cabin)) return false;
     if (!currencies.size) return true;
-    if (f.cash_price_cents != null) return true;
     return parseCodeList(f.transfer_currencies).some((c) => currencies.has(c));
   };
 }

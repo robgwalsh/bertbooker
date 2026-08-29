@@ -64,9 +64,9 @@ const compare = (a: Cell, b: Cell): number =>
   typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
 
 /** Each column's value on a one-way find. `cost` reads `miles_cost` because
- *  that is the figure the Cost cell leads with — the fees, the nonstop premium
- *  and the portal price under it are other currencies, and ranking a row by one
- *  of those would sort the column by a number it is not headed with. */
+ *  that is the figure the Cost cell leads with — the fees and the nonstop
+ *  premium under it are other numbers, and ranking a row by one of those would
+ *  sort the column by a figure it is not headed with. */
 const findCell: Record<FindSortKey, (f: Find) => Cell> = {
   date: (f) => f.flight_date,
   cabin: (f) => cabinRank(f.cabin),

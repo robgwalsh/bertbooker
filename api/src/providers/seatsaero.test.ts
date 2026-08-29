@@ -60,13 +60,17 @@ describe("SEATSAERO_PROGRAM_MAP", () => {
     );
   });
 
-  it("routes aeromexico to a program only Capital One and Citi can reach", () => {
+  it("routes aeromexico to a program Chase and Bilt cannot reach", () => {
     // Added 2026-08-09. It is the one seats.aero source outside our original
     // set that the couple can actually book — Chase and Bilt do NOT transfer to
-    // Aeroméxico Rewards, so a four-currency `bookableWith` here would be a
+    // Aeroméxico Rewards, so listing them in `bookableWith` here would be a
     // silent lie that makes unreachable seats look reachable.
     expect(SEATSAERO_PROGRAM_MAP.aeromexico).toBe("aeromexico");
-    expect(currenciesForProgram("aeromexico").sort()).toEqual(["capital_one", "citi_ty"]);
+    expect(currenciesForProgram("aeromexico").sort()).toEqual([
+      "amex_mr",
+      "capital_one",
+      "citi_ty",
+    ]);
   });
 
   it("does not claim programs seats.aero has no source for", () => {
@@ -220,9 +224,15 @@ describe("normalizeSeatsAero", () => {
   it("derives bookableWith from our transfer table", () => {
     const as = norm.offers.find((o) => o.program === "alaska")!;
     expect(as.bookableWith).toEqual(["bilt"]);
-    // Qatar folds onto avios, which all four currencies reach.
+    // Qatar folds onto avios, which every currency reaches.
     const avios = norm.offers.find((o) => o.program === "avios")!;
-    expect(avios.bookableWith!.sort()).toEqual(["bilt", "capital_one", "chase_ur", "citi_ty"]);
+    expect(avios.bookableWith!.sort()).toEqual([
+      "amex_mr",
+      "bilt",
+      "capital_one",
+      "chase_ur",
+      "citi_ty",
+    ]);
   });
 
   it("takes sourceFetchedAt from UpdatedAt, not from the fetch time", () => {
@@ -232,10 +242,6 @@ describe("normalizeSeatsAero", () => {
     const as = norm.offers.find((o) => o.program === "alaska")!;
     expect(as.sourceFetchedAt).toBe(Date.parse("2026-08-09T13:58:49.539607Z"));
     expect(as.sourceFetchedAt).not.toBe(999);
-  });
-
-  it("never sets cashPriceCents — seats.aero sees no revenue fare", () => {
-    for (const o of norm.offers) expect(o.cashPriceCents).toBeUndefined();
   });
 
   it("reports the furthest date it actually saw", () => {

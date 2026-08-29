@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS price_history (
   seats_available   INTEGER,
   cash_fees_cents   INTEGER,
   fees_currency     TEXT,
+  -- DROPPED BY 0012, with its two counterparts on availability_snapshots. No
+  -- source ever wrote a portal fare, so the seed below and every write since
+  -- copied NULL. The two columns above are the award tax and stay.
   cash_price_cents  INTEGER,
   source_fetched_at INTEGER,
   captured_at INTEGER NOT NULL
@@ -72,6 +75,12 @@ CREATE INDEX IF NOT EXISTS idx_ph_expiry ON price_history (flight_date);
 -- these already carry distinct `captured_at` values, so this is real history
 -- rather than a flat line -- and it is why the feature has something to draw on
 -- the day it ships instead of a month from now.
+--
+-- The two `cash_price_cents` references below are DROPPED BY 0012. Both columns
+-- still exist at this point in the sequence, so this statement is left exactly
+-- as it was applied -- editing it would make a fresh database diverge from a
+-- migrated one, which is the whole reason applied migrations are annotated
+-- rather than changed.
 INSERT INTO price_history
   (route_key, flight_date, program, cabin, source, miles_cost, seats_available,
    cash_fees_cents, fees_currency, cash_price_cents, source_fetched_at, captured_at)

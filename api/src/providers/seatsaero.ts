@@ -338,8 +338,8 @@ export function normalizeSeatsAero(
 
     // `bookableWith` comes from our own transfer-partner table, not the payload:
     // seats.aero carries no transfer data at all. An empty array is a correct
-    // answer (skymiles takes none of the couple's currencies) and the row still
-    // matters, because a cash fare from another source can make it reachable.
+    // answer for a program nothing transfers to, and the row is still stored —
+    // it just cannot surface under a currency-filtered route.
     const bookableWith = currenciesForProgram(program);
     const sourceFetchedAt = epochMs(a.UpdatedAt) ?? epochMs(a.CreatedAt) ?? fetchedAtFallback;
     const feesCurrency = String(a.TaxesCurrency ?? "USD") || "USD";
@@ -409,8 +409,6 @@ export function normalizeSeatsAero(
         milesCost,
         cashFeesCents: Math.round(num(a[`${letter}TotalTaxes`])),
         feesCurrency,
-        // Never cashPriceCents: seats.aero returns no revenue fare, and that
-        // field specifically means the whole cash ticket.
         isDirect,
         segments,
         // `undefined` means UNKNOWN, and it stays that way for a summary row:
@@ -998,7 +996,7 @@ export interface ParseTripsResult {
  *
  * So: only trips whose `MileageCost` equals the stored row's are candidates, and
  * a cabin with no match is left alone. A miss stays a miss; never fall back to
- * another itinerary's price. (The same line Alaska's cash matching holds.)
+ * another itinerary's price.
  *
  * **Throws** rather than returning empty when the payload is about a different
  * availability. A wrong-row payload is the one failure that would decorate a

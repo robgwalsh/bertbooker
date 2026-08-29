@@ -453,12 +453,10 @@ in `api/src/db/finds.ts`) restricted to the one route, and hands the resulting
 `changeKey` set in.
 
 The reason is worth stating, because writing the filter in `select.ts` would have
-been the obvious thing to do. "Can the couple book this?" already exists twice —
-`bookableCurrencies()` in `providers/filter.ts` and the currency clause in
-`ROUTE_FINDS_MATCH` — and CLAUDE.md already flags that those two must be kept in
-step. A third copy would be the only one blind to the cross-source collapse and
-to the cash-fare carry-forward, so it could fire on a snapshot another source has
-already superseded: **an email about a seat the app itself does not show.**
+been the obvious thing to do. "Can the couple book this?" is the currency clause
+in `ROUTE_FINDS_MATCH`, and a second copy in TypeScript would be blind to the
+cross-source collapse — so it could fire on a snapshot another source has already
+superseded: **an email about a seat the app itself does not show.**
 
 `changeKey` is `route_key|program|cabin`, and `routeFindKeys` builds its set with
 exactly that concatenation. The two must not drift.

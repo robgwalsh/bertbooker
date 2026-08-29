@@ -28,16 +28,25 @@ coverage and prunes nothing. **Alerts** (`api/src/alerts/`) is a Cron Trigger
 re-running the same Search engine (`search/run.ts`, two callers and one
 behaviour) with nobody pressing a button.
 
-**The Worker reaches exactly two hosts, and the split is the rule rather than an
+**The Worker reaches exactly three hosts, and the split is the rule rather than an
 exception list:** inbound data — **seats.aero**, allowed because it is a keyed
 vendor API that authenticates the *key*, not the client; outbound notification —
-**Resend**, a delivery channel rather than a data source. The test is who is
-being scored: a service may authenticate the **credential**, and may not judge
-the **client**. Carriers do the latter and refuse datacenter IPs — United with an
-Akamai `428`, Delta with a `444` that survives a real browser session replayed
-verbatim. **If you are adding a `fetch` to an airline in `api`, stop.** A source
-that fails this test does not get added; there is no local-execution escape
-hatch for it.
+**Resend**, a delivery channel rather than a data source; observability about
+ourselves — **Cloudflare's GraphQL Analytics API**, asked what our own D1
+queries have cost today so the app bar can show it (`providers/cloudflareAnalytics.ts`).
+The test is who is being scored: a service may authenticate the **credential**,
+and may not judge the **client**. Carriers do the latter and refuse datacenter
+IPs — United with an Akamai `428`, Delta with a `444` that survives a real
+browser session replayed verbatim. **If you are adding a `fetch` to an airline in
+`api`, stop.** A source that fails this test does not get added; there is no
+local-execution escape hatch for it.
+
+The third host was added deliberately, and the reasoning is in `wrangler.toml`
+beside the list: it passes the credential test, it is neither a data source nor a
+delivery channel, its token is scoped `Account Analytics: Read` and can change
+nothing, and unset it costs only two chips. **This is not a precedent for a
+fourth.** The categories are the rule; a host that fits none of them still has to
+argue its way in.
 
 Two rules out of `docs/ALERTS.md` constrain code elsewhere:
 
@@ -296,7 +305,11 @@ else lives at its point of use — see *Where the depth lives*.
 - **D1 bills rows READ, including temp b-tree and sort rows.** The only reliable
   lever is a `WHERE` that scans fewer base rows. **Measure, don't reason from the
   query's shape** — rewriting `per_source` as a `ROW_NUMBER()` window measured
-  *worse* (38,637 vs 22,835) and `MATERIALIZED` did not recover it. Use
+  *worse* (38,637 vs 22,835) and `MATERIALIZED` did not recover it. The app bar's
+  two arrow chips are the first place to look — today's rows read and written
+  against the daily ceiling, account-wide, from Cloudflare's own analytics
+  (`endpoints/d1Usage.ts`). They report and never enforce, and they are blind
+  without `CLOUDFLARE_API_TOKEN`, so the per-query attribution is still
   `wrangler d1 execute --remote --json`'s `meta.rows_read` and
   `wrangler d1 insights`.
 - **D1 allows 100 bound parameters per query, not SQLite's 999**, and 1,000
@@ -431,6 +444,8 @@ constrains. When you touch the file, read it there.
 | preferences: client-only, deliberately not a table and deliberately not the URL | `app/src/lib/preferences.ts` |
 | the two named viewport seams, and why they pass `noSsr` | `app/src/hooks/useBreakpoints.ts` |
 | `QuotaIndicator` unrendered below `sm`, never `display: none` | `app/src/router.tsx`, at the render site |
+| the app bar's three meters, and why D1's two are a separate payload and poll | `app/src/components/QuotaIndicator.tsx`, `app/src/lib/quota.ts` |
+| why an absent D1 reading is never a zero, and the third host it needs | `api/src/providers/cloudflareAnalytics.ts`, `api/src/endpoints/d1Usage.ts` |
 | the app bar's width is MEASURED, not assumed | `e2e/mobile.spec.ts` |
 | card layouts must not drift from the columns they replace; the shared React key | `app/src/pages/routes/findCells.tsx`, `findKey.ts` |
 | `showMap` defaults ON while an added option would default off | `app/src/pages/routes/FindsTable.tsx` |

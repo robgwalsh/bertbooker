@@ -167,8 +167,9 @@ enabled = true
 [triggers]
 crons = ["*/15 * * * *"]
 
-# This worker talks to exactly TWO hosts, and the split is the rule rather than
-# an exception list:
+# This worker talks to exactly THREE hosts, and the split is the rule rather
+# than an exception list. The test a host has to pass is the same for all of
+# them: a service may authenticate the CREDENTIAL, and may not judge the CLIENT.
 #
 #   INBOUND DATA — seats.aero's Partner API (src/searchRun.ts). One source, and
 #     it is allowed because it authenticates the CREDENTIAL, not the client. It
@@ -183,8 +184,26 @@ crons = ["*/15 * * * *"]
 #     a keyed vendor API that wants the key, not a browser. Nothing about the
 #     airline prohibition changes.
 #
-# Those two are the whole list, and there is no longer a third place for a
-# source to live. A source whose posture against a datacenter IP was unmeasured
+#   OBSERVABILITY ABOUT OURSELVES — Cloudflare's GraphQL Analytics API
+#     (src/providers/cloudflareAnalytics.ts), asked what our own D1 queries have
+#     cost today so the app bar can show it. This line used to say TWO, and the
+#     third was added deliberately rather than slipped in.
+#
+#     It passes the test above — an API token is a credential, and Cloudflare
+#     has no opinion about where the request came from — and it is neither of
+#     the categories above: nothing it returns reaches the ingest pipeline, no
+#     row of award space comes from it, and it notifies nobody. The token is
+#     scoped Account Analytics: Read and can change nothing at all. Unset, the
+#     two D1 chips simply do not draw; see CLOUDFLARE_API_TOKEN in bindings.ts.
+#
+#     Why it earns a host: D1's row allowance is the one this app has actually
+#     exceeded. migrations/0005_read_indexes.sql records 18,357,629 rows read in
+#     24h against a free-plan ceiling of 5,000,000, found by hand long after the
+#     fact, because nothing reported it. A number nobody can see is a number
+#     nobody checks.
+#
+# Those three are the whole list, and no source may live anywhere but inside
+# this worker. A source whose posture against a datacenter IP was unmeasured
 # used to declare `runtime: "local"` and run from a laptop, POSTing to
 # /api/ingest/*; that source, those endpoints and that field are all gone. See
 # docs/SOURCES.md. If you find yourself adding a `fetch` to an airline here, stop.
@@ -273,3 +292,24 @@ crons = ["*/15 * * * *"]
 # in api/.dev.vars (gitignored) — NOT here.
 # Unset => the search endpoint answers 503, deliberately, rather than returning
 # an empty result that would read as "no award space".
+#
+# ---- The D1 usage chips (the two arrows in the app bar). ----
+#
+# CLOUDFLARE_API_TOKEN is a SECRET scoped Account Analytics: Read and nothing
+#   else — the credential behind the third host described above. It reads
+#   account analytics and can change nothing.
+# CLOUDFLARE_ACCOUNT_ID is the account it belongs to. Not a secret, but not in
+#   this file either, because this file names no account at all: wrangler infers
+#   one at deploy time and the running worker cannot.
+#
+# Both unset is the ordinary local state, and it costs only the two D1 chips —
+# GET /api/d1-usage answers with no `usage` and the SPA draws neither. Absent,
+# never zero: a zeroed meter would render as a FULL allowance, which is the
+# wrong reassurance to give when the truth is that nobody asked.
+#
+# D1_ROWS_READ_LIMIT (5,000,000) and D1_ROWS_WRITTEN_LIMIT (100,000) are the
+#   ceilings those chips draw against — the Workers FREE per-day allowances,
+#   which is what this app runs on. Read the note in bindings.ts before changing
+#   either: the paid plan's equivalents are 25 billion and 50 million a MONTH,
+#   not a day, so on a paid plan these become a self-chosen daily pace rather
+#   than a limit anyone enforces. The chips' window is always the UTC day.

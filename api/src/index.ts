@@ -24,6 +24,7 @@ import { runAlertTick } from "./alerts/sweep.js";
 // The endpoint modules, each a `Hono` sub-app mounted below. THE ORDER OF THESE
 // MOUNTS IS THE ROUTING TABLE — see the block comment above them.
 import { quota } from "./endpoints/quota.js";
+import { d1Usage } from "./endpoints/d1Usage.js";
 import { search } from "./endpoints/search.js";
 import { enrich } from "./endpoints/enrich.js";
 import { findHistory } from "./endpoints/findHistory.js";
@@ -106,6 +107,11 @@ app.use("/api/*", identity);
 // The metered sources' remaining daily allowance — what the app-bar chip reads.
 // A plain read, covered by the password gate like any other.
 app.route("/", quota);
+
+// The other two chips in that same cluster: what today's D1 row allowance
+// stands at. Its own mount and its own poll because it waits on Cloudflare
+// rather than on D1 — see the docblock in endpoints/d1Usage.ts.
+app.route("/", d1Usage);
 
 // Searching a tracked route against seats.aero, streamed. Also after `identity`:
 // a search is scoped to the caller's own routes and spends the shared API key.

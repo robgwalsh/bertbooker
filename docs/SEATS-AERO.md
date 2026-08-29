@@ -420,6 +420,12 @@ full-screen once on unlock. Both read one `summarizeQuota`, so they cannot quote
 different numbers off the same payload, and both repeat that it is a display, not
 a limit.
 
+**Only the bolt chip is seats.aero's.** That cluster now carries three meters —
+the two arrows beside it are D1's daily rows read and written, off a separate
+payload (`GET /api/d1-usage`) and a separate poll. They share the tone scale and
+the 00:00 UTC reset and nothing else; `docs/SOURCES.md` does not cover them,
+because D1 is not a source. `QuotaSplash` is still seats.aero alone.
+
 **Nothing INTERACTIVE reads it to refuse a call.** Search and enrich spend first
 and report after, because nobody needs protecting from a call they deliberately
 asked for — that was, and remains, the whole of the argument for deleting the

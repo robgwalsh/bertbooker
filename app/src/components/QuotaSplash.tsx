@@ -214,7 +214,7 @@ export function QuotaSplash({ onDone }: { onDone: () => void }) {
                 </Typography>
               ))}
               <Typography variant="caption" sx={{ color: "text.disabled" }}>
-                Previously fetched data is staill available while seats.aero quota is exhausted.
+                Previously fetched data is still available while seats.aero quota is exhausted.
               </Typography>
             </Stack>
 

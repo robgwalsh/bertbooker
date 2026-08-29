@@ -81,3 +81,31 @@ APP_URL=http://127.0.0.1:8787
 # ALERT_DAILY_BUDGET=600
 # ALERT_MANUAL_RESERVE=300
 # ALERT_MAX_CALLS_PER_TICK=25
+
+# ---- D1 usage chips. Optional; leaving them blank is the normal local setup. ----
+
+# The app bar carries three meters: what is left of the seats.aero allowance,
+# and what is left of D1's daily rows-read and rows-written allowances. The two
+# D1 numbers come from Cloudflare's own GraphQL Analytics API, which needs a
+# token — there is no way for a worker to observe its own D1 row counts.
+#
+# BOTH UNSET => GET /api/d1-usage answers with no usage and the SPA draws
+# neither D1 chip. The bolt chip is unaffected. That is the ordinary local
+# state and nothing else about the app changes.
+#
+# The token needs `Account Analytics: Read` and nothing else — it reads account
+# analytics and can change nothing. Create it at
+# https://dash.cloudflare.com/profile/api-tokens. The account id is the 32-hex
+# tag on your account's dashboard overview.
+#
+# In production: `wrangler secret put CLOUDFLARE_API_TOKEN`.
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ACCOUNT_ID=
+
+# The ceilings those chips draw against. Defaults (5,000,000 / 100,000) are the
+# Workers FREE per-day allowances and live in api/src/bindings.ts. Set these
+# only to change them — and read the note there first: the PAID plan's numbers
+# are 25 billion and 50 million per MONTH, not per day, so on a paid plan these
+# become a daily pace you chose rather than a limit anyone enforces.
+# D1_ROWS_READ_LIMIT=5000000
+# D1_ROWS_WRITTEN_LIMIT=100000

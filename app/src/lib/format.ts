@@ -12,6 +12,22 @@ export function miles(n: number) {
   return n.toLocaleString() + " mi";
 }
 
+/**
+ * A count short enough for the app bar: 91_600 -> "91.6K", 5_000_000 -> "5M".
+ *
+ * The quota chips read `remaining/limit`, and `3,760,000/5,000,000` is
+ * nineteen characters of a toolbar that already carries four tabs and three
+ * controls. Only the D1 chips use this; the seats.aero one keeps
+ * `toLocaleString()`, because four digits already fit and "842" is more useful
+ * than "0.8K".
+ */
+export function compactCount(n: number): string {
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(n);
+}
+
 export function dollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }

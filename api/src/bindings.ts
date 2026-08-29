@@ -84,6 +84,40 @@ export interface Env {
   /** Absolute base URL for links in the digest, e.g.
    *  `https://example.com`. Unset omits the link. */
   APP_URL?: string;
+
+  // ---- D1 usage reporting (the two right-hand chips in the app bar). ----
+
+  /** A Cloudflare API token with **Account Analytics: Read** and nothing else,
+   *  used to ask Cloudflare's GraphQL Analytics API what our own queries have
+   *  cost today (`providers/cloudflareAnalytics.ts`).
+   *
+   *  This is the credential behind the one host in this worker that is neither
+   *  a data source nor a delivery channel — see the host note in wrangler.toml.
+   *  It reads account analytics and can change nothing.
+   *
+   *  Unset => `GET /api/d1-usage` answers with no `usage` at all and the SPA
+   *  draws no D1 chips. Absent, never zero: zero rows read would render as a
+   *  full allowance, which is the wrong reassurance to give when the truth is
+   *  that nobody asked. That is the ordinary local-dev state. */
+  CLOUDFLARE_API_TOKEN?: string;
+  /** The account the token above belongs to, as its 32-hex account tag. Both
+   *  halves are required; either one missing behaves as unset. It is not in
+   *  wrangler.toml because that file names no account either — wrangler infers
+   *  it at deploy time, and the running worker cannot. */
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  /** The daily ceiling the rows-read chip draws against. Default 5,000,000, the
+   *  Workers FREE plan's per-day allowance, which is what this app runs on and
+   *  what `migrations/0005_read_indexes.sql` was written against.
+   *
+   *  Configurable because the paid plan's numbers differ in both size and
+   *  PERIOD — 25 billion rows read a MONTH, not a day. The chip's window is
+   *  always the UTC day, so on a paid plan this is a self-chosen daily pace
+   *  rather than a limit anyone enforces. Set it deliberately or leave it. */
+  D1_ROWS_READ_LIMIT?: string;
+  /** The daily ceiling the rows-written chip draws against. Default 100,000,
+   *  the Workers Free per-day allowance. Paid is 50 million a month; see the
+   *  note above about the period. */
+  D1_ROWS_WRITTEN_LIMIT?: string;
 }
 
 /** Hono context variables set by middleware. */

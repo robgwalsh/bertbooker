@@ -36,6 +36,8 @@ export type {
   SearchRun,
   SourceQuota,
   QuotaPage,
+  D1Usage,
+  D1UsagePage,
   AlertDelivery,
   // The scheduled sweep
   AlertSchedule,
@@ -120,7 +122,7 @@ export { enrichRoute } from "./enrich";
 
 import { login, logout, session } from "./session";
 import { airportCountries, airportNames, airports, airportsGeo } from "./airports";
-import { airlines, currencies, programs, quota } from "./reference";
+import { airlines, currencies, d1Usage, programs, quota } from "./reference";
 import {
   addTrackedRoute,
   deleteTrackedRoute,
@@ -189,6 +191,11 @@ export const api = {
   findHistory,
 
   quota,
+
+  /** Today's D1 rows read and written against their ceilings. Free, and
+   *  separate from `quota` so a slow answer from Cloudflare cannot delay the
+   *  seats.aero number. */
+  d1Usage,
 
   // ---- The seats.aero route graph (Library) ----
   routeGraphSources,

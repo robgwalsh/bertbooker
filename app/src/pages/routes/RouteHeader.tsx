@@ -100,23 +100,12 @@ export function RouteHeader({
         useFlexGap
         sx={{ px: { xs: 1.5, sm: 2.5 }, py: 1, alignItems: "center", flexWrap: "wrap" }}
       >
-        {/* Back to the list, and only below `md` — above it the list is already
-            on screen to the left, so this would be a button that undoes nothing.
-            Hidden with `sx` rather than a second `useIsNarrow`: it is genuinely
-            just visibility, and it sits inside a header that is already sticky,
-            so it is reachable from anywhere in a long page of finds. */}
-        <IconButton
-          size="small"
-          aria-label="All routes"
-          onClick={onBack}
-          sx={{ display: { xs: "inline-flex", md: "none" }, flexShrink: 0, ml: -0.5 }}
-        >
-          <ArrowBackRoundedIcon fontSize="small" />
-        </IconButton>
-
         {/* WHICH FLIGHTS THIS ROUTE IS: the airports say where, the window says
             when, and the two are one statement, so they sit together as one item
-            that wraps as one.
+            that wraps as one. The back arrow is INSIDE that item rather than
+            beside it — as its own flex child it was the one thing narrow enough
+            to fit when the route beside it wasn't, so a phone spent a whole row
+            on a 34px arrow.
 
             NOTHING here is width-reserved. Aligning the filter strip to a fixed
             column across routes cost more horizontal room than the alignment was
@@ -126,8 +115,21 @@ export function RouteHeader({
           direction="row"
           spacing={1.25}
           useFlexGap
-          sx={{ flexShrink: 0, alignItems: "center", minWidth: 0 }}
+          sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}
         >
+          {/* Only below `md` — above it the list is already on screen to the
+              left, so this would be a button that undoes nothing. Hidden with
+              `sx` rather than a second `useIsNarrow`: it is genuinely just
+              visibility. */}
+          <IconButton
+            size="small"
+            aria-label="All routes"
+            onClick={onBack}
+            sx={{ display: { xs: "inline-flex", md: "none" }, flexShrink: 0, ml: -0.5 }}
+          >
+            <ArrowBackRoundedIcon fontSize="small" />
+          </IconButton>
+
           <RouteDiagram route={route} names={names} onEditSide={onEdit} />
           <SpecValue
             help="The departure dates this route watches."

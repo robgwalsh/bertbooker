@@ -5,6 +5,10 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControlLabel,
   MenuItem,
@@ -77,9 +81,13 @@ export function RouteFilterChips({ route }: { route: TrackedRoute }) {
         help="Cabins, cards, seats, routing and a points ceiling — all five decide what this route SHOWS. Everything they hide is still stored, so changing one costs no search."
         label={active ? `Filters · ${active}` : "Filters"}
         set={active > 0}
+        // A dialog, not the popover the single chips use: five controls fill a
+        // phone, and a surface that covers the screen with nothing but a scrim
+        // to dismiss it is a surface you have to guess your way out of.
+        dialogTitle="Filters"
       >
-        {(close) => (
-          <Stack sx={{ p: 1.5, gap: 1.5, minWidth: 260 }}>
+        {() => (
+          <Stack sx={{ gap: 1.5 }}>
             <FilterSection title="Cabins">
               <CabinRows {...shared} cabins={cabins} />
             </FilterSection>
@@ -97,7 +105,7 @@ export function RouteFilterChips({ route }: { route: TrackedRoute }) {
             </FilterSection>
             <Divider />
             <FilterSection title="Points ceiling">
-              <PointLimitField {...shared} pointLimit={pointLimit} onDone={close} />
+              <PointLimitSelect {...shared} pointLimit={pointLimit} />
             </FilterSection>
           </Stack>
         )}
@@ -204,6 +212,7 @@ function FilterChip({
   value,
   pressed,
   onToggle,
+  dialogTitle,
   children,
 }: Shared & {
   field: FilterField;
@@ -219,6 +228,10 @@ function FilterChip({
   pressed?: boolean;
   /** Given instead of `children` by a filter that toggles in place. */
   onToggle?: () => void;
+  /** Open in a titled dialog with a Done button rather than a popover. For a
+   *  body big enough to cover the screen, where a scrim is not a visible way
+   *  out. */
+  dialogTitle?: string;
   children?: (close: () => void) => React.ReactNode;
 }) {
   // The trigger is `SpecValue`'s own Box, so the popover lands under the hover
@@ -258,18 +271,36 @@ function FilterChip({
           />
         )}
       </SpecValue>
-      {children && (
-        <Popover
-          open={open}
-          anchorEl={anchor.current}
-          onClose={close}
-          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-          transformOrigin={{ vertical: "top", horizontal: "left" }}
-          slotProps={{ paper: { sx: { mt: 0.5 } } }}
-        >
-          {children(close)}
-        </Popover>
-      )}
+      {children &&
+        (dialogTitle ? (
+          // Deliberately NOT `fullScreen`, unlike the route dialogs: those are
+          // long forms with a Save, this is five controls that have already
+          // saved themselves. Leaving a scrim margin around it is what makes
+          // "tap outside" a visible way out rather than a guess.
+          <Dialog open={open} onClose={close} maxWidth="xs" fullWidth>
+            <DialogTitle sx={{ pb: 1 }}>{dialogTitle}</DialogTitle>
+            <DialogContent dividers>{children(close)}</DialogContent>
+            {/* Done, not Apply or Cancel: every change here saved when you made
+                it, so there is nothing pending to apply and nothing staged to
+                take back. The button closes, and says only that. */}
+            <DialogActions>
+              <Button onClick={close} variant="contained">
+                Done
+              </Button>
+            </DialogActions>
+          </Dialog>
+        ) : (
+          <Popover
+            open={open}
+            anchorEl={anchor.current}
+            onClose={close}
+            anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+            transformOrigin={{ vertical: "top", horizontal: "left" }}
+            slotProps={{ paper: { sx: { mt: 0.5 } } }}
+          >
+            {children(close)}
+          </Popover>
+        ))}
     </>
   );
 }
@@ -418,5 +449,53 @@ function PointLimitField({
         No limit
       </Button>
     </Box>
+  );
+}
+
+/** The rungs the phone's ceiling picker offers. 25k is about the coarsest step
+ *  that still lands on the numbers people actually hold, and the list stops
+ *  where award charts do rather than running on into the millions the Worker
+ *  would accept. */
+const POINT_LIMIT_STEPS = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300].map((k) => k * 1000);
+
+/**
+ * The points ceiling on a phone: a picker, not a number field.
+ *
+ * The field is the better control on a desktop — a ceiling is whatever is in the
+ * account, and 87,500 is as real an answer as 100,000. On a phone it summons the
+ * keyboard over the sheet you are still reading, and it summons it on OPEN,
+ * which is what made this the one filter you had to dismiss before you could use
+ * the other four. Rungs cost precision that a phone was never the place for.
+ *
+ * A stored value off the rungs keeps its own option rather than being rounded or
+ * blanked — a Select with a value absent from its options renders empty and
+ * warns, and this one would be silently discarding a ceiling set at a desk.
+ */
+function PointLimitSelect({ filters, pointLimit }: Shared & { pointLimit: number | null }) {
+  const steps = POINT_LIMIT_STEPS.includes(pointLimit ?? 0)
+    ? POINT_LIMIT_STEPS
+    : [...POINT_LIMIT_STEPS, pointLimit].filter((n): n is number => n != null).sort((a, b) => a - b);
+
+  return (
+    <TextField
+      select
+      size="small"
+      fullWidth
+      // 0 is the wire's "no ceiling" too — `clampPointLimit` reads it as null —
+      // so the empty option can carry a real value and the Select never has to
+      // hold "".
+      value={pointLimit ?? 0}
+      onChange={(e) =>
+        filters.set("pointLimit", { pointLimit: Number(e.target.value) || null })
+      }
+      slotProps={{ htmlInput: { "aria-label": "Point limit in miles" } }}
+    >
+      <MenuItem value={0}>No limit</MenuItem>
+      {steps.map((n) => (
+        <MenuItem key={n} value={n}>
+          {miles(n)}
+        </MenuItem>
+      ))}
+    </TextField>
   );
 }

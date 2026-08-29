@@ -165,9 +165,10 @@ frame rule. `searchRoute` in `app/src/api/search.ts` hides it by re-issuing with
 stream — but it still yields the frame so the UI can show the pause. The loop is
 bounded at 64 requests so a Worker that somehow always pauses cannot spin.
 
-Resuming reuses the **same run id**, because `search_coverage.run_id` is a
-foreign key to it and a second row would split one search's coverage across two
-runs.
+Resuming reuses the **same run id**, because `search_tasks.run_id` is a foreign
+key to it and `(run_id, source, task_key)` is UNIQUE — which is what makes
+re-applying a resumed task an update rather than a duplicate. A second run row
+would split one search's tasks across two ids and defeat that.
 
 If a platform limit is ever hit anyway, it degrades correctly rather than
 corrupting: the chunk throws → `failed` → claims no coverage → the run is
@@ -333,10 +334,11 @@ the enrichment away — forever. Pinned by the `applyTask — write-on-change` t
 
 Three things enrichment deliberately does **not** do:
 
-- **Claims no coverage and prunes nothing.** `search_coverage` answers "did
-  anyone look at (route, date, program)", and enrichment looks at a row that was
-  already looked at. A coverage row here would move a find's freshness forward
-  without re-checking whether the seat still exists.
+- **Claims no coverage and prunes nothing.** A coverage claim says "I looked at
+  this slice and what I return is the complete truth for it", and enrichment
+  looks at ONE row that was already looked at. Claiming here would license
+  deleting every other row in that slice on the strength of a detail fetch that
+  never asked about them.
 - **Writes no `search_runs` / `search_tasks` row.** The observable-task
   invariant is about unattended gathering, where a failure is otherwise
   indistinguishable from "no award space". A failure here goes straight back to
@@ -377,8 +379,8 @@ Two kinds of row are worth a call, and the second only exists since
 A chunk claims coverage for the pairs it asked about and the dates it actually
 saw. `SourceTaskReport.routes` carries the pair list; `origin`/`destination` stay
 **real airports** (the first of each list), because `search_tasks` stores them as
-NOT NULL scalars and `search_coverage`'s primary key would happily store an
-"airport" called `SEA,PDX` that no future query could ever match.
+NOT NULL scalars and the baseline read's pair filter would happily take an
+"airport" called `SEA,PDX` and match no stored row at all.
 
 - **The empty pairs are claimed too, and must be.** "seats.aero answered a query
   covering PDX→HND and returned nothing" is a real `empty`; without the claim, a
@@ -676,10 +678,9 @@ rather than calling `/api/airports/geo`, which would 404 in production.
 
 `assessGraphReach` (`api/src/domain/graphReach.ts`) asks whether the pairs a
 tracked route covers are in anybody's graph. **Do not call this coverage.**
-`search_coverage` means *did WE look at (route, date, program), and when* — a
-stored fact about our own searching that licenses a prune. This is a fact about
-the SOURCE'S network, true before anyone searches anything, and it can never
-license a prune.
+Coverage means *did WE look at (route, date, program)* — a fact about our own
+searching that licenses a prune. This is a fact about the SOURCE'S network, true
+before anyone searches anything, and it can never license a prune.
 
 It expands routes with `searchPairs`, the same function the search plans with, so
 the panel cannot report on a pair the search never asks about. A route's verdict

@@ -213,11 +213,11 @@ export interface PairPaths {
 /**
  * Whether anyone's graph contains a pair.
  *
- * **Not "coverage".** `search_coverage` already means *did anyone look at
- * (route, date, program), and when* — a stored fact about our own searching,
- * which licenses a prune. This is a fact about the SOURCE'S network, true
- * whether or not we ever searched. Keeping the two words apart is what stops a
- * future reader treating one as the other.
+ * **Not "coverage".** Coverage already means *did we look at (route, date,
+ * program)* — a fact about our own searching, which licenses a prune. This is a
+ * fact about the SOURCE'S network, true whether or not we ever searched.
+ * Keeping the two words apart is what stops a future reader treating one as the
+ * other.
  *
  * - `ok`       — at least one fetched source flies this pair.
  * - `indirect` — nobody flies it, but the network reaches it with a stop. **A

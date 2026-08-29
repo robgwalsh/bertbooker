@@ -112,7 +112,14 @@ function airportFilter(
   const where: string[] = [];
   const binds: unknown[] = [];
 
-  if (iataOnly) where.push("iata IS NOT NULL AND iata != ''");
+  // `iata > ''` selects the same 9,054 rows as `iata IS NOT NULL AND iata != ''`
+  // — NULL compares NULL and drops out, and every `iata` here is text or NULL, so
+  // SQLite's cross-type ordering cannot widen it. The difference is that `!=` is
+  // not sargable and `>` is, so the planner takes `idx_airports_iata` as a range
+  // seek instead of scanning all 72,454 rows. That matters when there is no `q`
+  // to drive the fts subquery, because then this clause is the whole WHERE:
+  // measured 81,508 rows read against 18,108. With a `q` both forms measure 227.
+  if (iataOnly) where.push("iata > ''");
   if (scheduledOnly) where.push("scheduled = 1");
   if (continent) {
     where.push("continent = ?");
@@ -146,7 +153,7 @@ function airportFilter(
   //
   // A `rowid IN (…)` predicate rather than a JOIN, deliberately: `airports_fts`
   // shares SIX column names with `airports`, so joining it would make `country =
-  // ?`, `iata != ''` and every other clause in this builder ambiguous. As a
+  // ?`, `iata > ''` and every other clause in this builder ambiguous. As a
   // subquery, this builder's contract is unchanged — one more entry in `where`,
   // its bind pushed in SQL order — and both callers need no edit. `rowid` is
   // unambiguous in both: neither joins anything.

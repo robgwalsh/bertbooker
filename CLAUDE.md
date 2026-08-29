@@ -281,10 +281,11 @@ else lives at its point of use — see *Where the depth lives*.
   `flight | hotel`; a *program* is `airline | hotel`. Different types — don't
   conflate them.
 - **Ingest order is the safety property**: read baseline → write changed
-  snapshots → prune → **record coverage last**, so a crash under-claims rather
-  than over-claims. Only `ok` and `empty` claim coverage
-  (`COVERAGE_CLAIMING_STATUSES`), and `coveredDates` is read off the payload,
-  never off the plan — sites clamp windows near today and near their horizon, and
+  snapshots → prune. **Coverage is a claim, not a table** — `coverageSlices()`
+  computes it in memory before any write and `prunable()` is its only consumer,
+  so a crash under-claims rather than over-claims. Only `ok` and `empty` claim
+  coverage (`COVERAGE_CLAIMING_STATUSES`), and `coveredDates` is read off the
+  payload, never off the plan — sites clamp windows near today and near their horizon, and
   over-claiming hard-deletes real finds while under-claiming costs a stale row.
   When unsure, narrow it. `ingest/apply.ts` explains each clause;
   `docs/SOURCES.md` is the contract.

@@ -35,10 +35,10 @@ interface RunnableSource extends SourceDescriptor {
 ```
 
 **`id` is a permanent stored value.** It is written into
-`availability_snapshots.source` and `search_coverage.source`, and prunes are
-scoped per source. Two things follow:
+`availability_snapshots.source`, and prunes are scoped per source. Two things
+follow:
 
-- Renaming an id without migrating both tables orphans every row it ever wrote:
+- Renaming an id without migrating that table orphans every row it ever wrote:
   nothing would clean them and they would read as current forever.
 - **Retiring a source without deleting its rows does the same thing.** Delete the
   code and nothing is left with the authority to prune what it wrote. Retiring a
@@ -152,8 +152,10 @@ source.run()  →  AvailabilityResult[]  →  applyTask()  →  D1
 
 `applyTask` (`api/src/ingest/apply.ts`) runs per task, as work completes —
 gathering can die halfway and the successful tasks should already be durable. Its
-order is the safety property: **read baseline → write changed snapshots → prune →
-record coverage last**, so a crash under-claims rather than over-claims.
+order is the safety property: **read baseline → write changed snapshots →
+prune**, so a crash under-claims rather than over-claims. The claim itself is
+`coverageSlices(task)`, decided before anything is written and never stored —
+`prunable()` is its only consumer.
 
 Four things worth knowing because they constrain what a source may return:
 
@@ -165,17 +167,19 @@ Four things worth knowing because they constrain what a source may return:
   itineraries for an SFO→NRT search, and the good space is often on the airport
   nobody asked for. `AvailabilityResult` carries optional `origin`/`destination`,
   and one task may touch several route keys. The route is therefore part of the
-  collapse key, the baseline read *and* the coverage claim — miss any one and you
-  either merge two real finds into one, rewrite rows every run, or leave rows
-  prunable-but-never-marked-checked.
+  collapse key and the baseline read — miss either and you merge two real finds
+  into one, or rewrite rows every run because a substituted airport was never in
+  the baseline to compare against.
 - **Write-on-change is keyed off the STORED `raw_hash`, not a recomputed one.**
   Enrichment replaces a summary's synthetic segment with real legs, and
   `hashResult` folds segments in — so a recomputed baseline would differ from the
   identical summary arriving next and throw the enrichment away on every search,
   forever.
 - **A re-run that changes nothing upstream writes ZERO rows.** That is the
-  cheapest end-to-end proof this pipeline has that a source's ids, hashes and
-  coverage claim all line up.
+  cheapest end-to-end proof this pipeline has that a source's ids and hashes
+  line up. It is literally true only since `search_coverage` was dropped
+  (`migrations/0010`): coverage used to re-stamp `checked_at` on every slice of
+  every run, which was 93% of the account's daily D1 write allowance.
 
 ---
 

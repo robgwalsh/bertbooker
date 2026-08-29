@@ -112,13 +112,6 @@ export function FindCost({ f }: { f: Find }) {
   );
 }
 
-// `FindProvenance` was here — the source that wrote a row, over how long ago
-// anybody checked that slot. It went with the Source / checked column
-// (`FindsTable`), which went with the database browser. Its one real idea was
-// that "never checked" and "checked, found nothing" are different answers and
-// must not render alike; if that column ever comes back, that is the part to
-// bring with it. `last_checked_at` is still on every `Find`.
-
 /**
  * A round trip's total, split by direction.
  *

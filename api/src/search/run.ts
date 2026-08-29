@@ -53,7 +53,7 @@ export type { SearchTotals } from "../db/runs.js";
  * sweep will cost (`plan.chunks.length`) *before* deciding whether the day's
  * allowance can afford it, and it must not leave a `search_runs` row behind for
  * a sweep the budget refused. `search_runs.status` has a CHECK constraint with
- * no `'skipped'` in it, and `search_coverage.run_id` is a foreign key — so the
+ * no `'skipped'` in it, and `search_tasks.run_id` is a foreign key — so the
  * ordering is forced anyway.
  */
 
@@ -302,9 +302,10 @@ export async function planSearchPass(
  * sweep must leave no trace, and `search_runs.status`'s CHECK constraint has no
  * `'skipped'` to record one with.
  *
- * Resuming REUSES the run row, because `search_coverage.run_id` is a foreign key
- * to it and a second row would split one search's coverage across two runs —
- * making "was this route checked" answerable only by knowing both ids.
+ * Resuming REUSES the run row, because `search_tasks.run_id` is a foreign key to
+ * it and `(run_id, source, task_key)` is UNIQUE — which is what makes
+ * re-applying a resumed task an update rather than a duplicate. A second run
+ * row would split one search's tasks across two ids and defeat that.
  */
 export async function openSearchRun(
   db: D1Database,
@@ -323,8 +324,8 @@ export async function openSearchRun(
   }
 
   const runId = crypto.randomUUID();
-  // A run row is not bookkeeping: `search_coverage.run_id` is a foreign key to
-  // it, so coverage cannot be claimed without one. `trigger` deliberately has
+  // A run row is not bookkeeping: `search_tasks.run_id` is a foreign key to it,
+  // so no task can be recorded without one. `trigger` deliberately has
   // no CHECK constraint, which is how 'search' joined 'cli'/'ui' for free — and
   // now 'alert' joins the same way.
   //

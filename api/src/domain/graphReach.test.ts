@@ -4,8 +4,8 @@ import type { GraphPair } from "../db/routeGraph.js";
 import type { GraphPath } from "../../../shared/src/wire/index.js";
 
 // `assessGraphReach` answers "is this pair in anyone's graph", NOT "did anyone
-// search it" — that second question is `search_coverage`, and the two must not
-// merge. These tests are about the first one only.
+// search it" — that second question is coverage, and the two must not merge.
+// These tests are about the first one only.
 
 const route = (over: Partial<ReachRouteInput> = {}): ReachRouteInput => ({
   id: 1,

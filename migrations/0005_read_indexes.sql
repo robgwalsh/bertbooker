@@ -40,6 +40,12 @@
 -- both the old index and the new cost exactly one secondary-index entry per
 -- upsert. Adding without dropping would have spent ~16k rows_written/day for
 -- nothing.
+-- DROPPED BY 0010 with the table itself. The write cost this paragraph calls
+-- write-neutral was real and unavoidable — every upsert moved `checked_at`, so
+-- every upsert rewrote an index entry — and at 48,864 upserts a day that was
+-- half of 97,728 rows written. Swapping one index for another was the right
+-- call for the read problem 0005 was solving; the table was the wrong thing to
+-- be maintaining at all.
 CREATE INDEX IF NOT EXISTS idx_scov_current
   ON search_coverage (origin, destination, flight_date, program, checked_at DESC);
 DROP INDEX IF EXISTS idx_scov_freshness;

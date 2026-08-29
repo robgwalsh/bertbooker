@@ -27,7 +27,7 @@ export const FIND_COLUMNS = `f.origin, f.destination, f.flight_date, f.route_key
        f.fees_currency, f.is_direct, f.segments_json, f.source, f.source_fetched_at,
        f.captured_at, f.transfer_currencies, f.duration_minutes,
        f.booking_url, f.cash_price_cents, f.cash_price_currency,
-       f.search_run_id, f.last_checked_at,
+       f.search_run_id,
        f.detail_level, f.enriched_at, f.source_record_id,
        f.stop_count, f.airlines, f.direct_airlines, f.direct_miles_cost,
        f.best_miles_ever`;
@@ -269,12 +269,7 @@ export function withinRouteScope(
  *     sources take turns being freshest. (Same rule the pre-pivot
  *     `mergeContributions` applied at write time.)
  *  3. `finds` — one row per (route_key, program, cabin), the freshest
- *     `source_fetched_at` winning, with the carried cash fare coalesced in and
- *     `last_checked_at` read out of `search_coverage` by a correlated seek.
- *
- * There was a fourth step once — a `coverage` CTE that grouped the whole of
- * `search_coverage` to supply that last column. It collapsed nothing and cost
- * 46,368 rows read every time. See the comment at the correlated subquery.
+ *     `source_fetched_at` winning, with the carried cash fare coalesced in.
  *
  * The bare-column-with-MAX in step 3 is SQLite-specific and deliberate: it
  * returns the whole row that produced the max, which is exactly the winner.
@@ -327,42 +322,15 @@ finds AS (
          p.stop_count, p.airlines, p.direct_airlines, p.direct_miles_cost,
          COALESCE(p.cash_price_cents, ca.cp) AS cash_price_cents,
          COALESCE(p.cash_price_currency, ca.cc) AS cash_price_currency,
-         -- "When did anyone last look at this slice?", as a correlated seek
-         -- rather than a whole-table GROUP BY. (No backticks in here — this is
-         -- a template literal.)
-         --
-         -- The coverage CTE this replaces collapsed NOTHING: there is one
-         -- source, so its GROUP BY read all 46,368 rows of search_coverage and
-         -- returned 46,368 of them — unfiltered, on every Routes page load and
-         -- every alert tick. It was the single largest term in the query.
-         --
-         -- Safe against the bare-column rule this SELECT relies on, because all
-         -- four correlated columns are CONSTANT within the group: the group key
-         -- is (route_key, program, cabin), and route_key IS
-         -- origin-destination-flight_date (routeKey(), domain/types.ts). So it
-         -- cannot matter which row of the group SQLite evaluates this on.
-         --
-         -- A LEFT JOIN miss and MAX() over the empty set agree on NULL, so
-         -- "nobody ever checked" reads exactly as it did.
-         --
-         -- Wants idx_scov_current (migration 0005) to be one row per seek —
-         -- four equality terms and MAX on a trailing DESC column. Measured on
-         -- the old index these same lookups cost 74,969 rows.
-         (SELECT MAX(sc.checked_at)
-            FROM search_coverage sc
-           WHERE sc.origin = p.origin
-             AND sc.destination = p.destination
-             AND sc.flight_date = p.flight_date
-             AND sc.program = p.program) AS last_checked_at,
-         -- The cheapest this slot has EVER been seen at, as a second correlated
-         -- seek. Across sources on purpose: "the best anyone ever saw" is not a
+         -- The cheapest this slot has EVER been seen at, as a correlated seek.
+         -- Across sources on purpose: "the best anyone ever saw" is not a
          -- claim about who saw it, unlike detail_level and the carrier lists
          -- above.
          --
-         -- Safe against the same bare-column rule, and more directly than the
-         -- seek above it: all three correlated columns ARE the group key, so
-         -- the value is constant within the group by construction rather than
-         -- by way of what route_key is made of.
+         -- Safe against the bare-column rule this SELECT relies on: all three
+         -- correlated columns ARE the group key, so the value is constant
+         -- within the group by construction, and it cannot matter which row of
+         -- the group SQLite evaluates this on.
          --
          -- Adds NO BIND, which is what keeps findsCte's binds exactly
          -- [...scope.binds, ...scope.binds] and every caller's .bind() line

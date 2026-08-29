@@ -135,7 +135,19 @@ export function RouteHeader({
             help="The departure dates this route watches."
             onClick={() => onEdit("dateStart")}
           >
-            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
+            {/* A step down on a phone, and only there: at the body size the
+                window is the last thing on the row and the first to be pushed
+                off it, which costs a whole line for two dates that read fine a
+                point smaller. The `sm` value is read off the variant rather than
+                restated, so the two cannot drift apart. */}
+            <Typography
+              variant="body2"
+              sx={(t) => ({
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                fontSize: { xs: 11.5, sm: t.typography.body2.fontSize },
+              })}
+            >
               {usDate(route.date_start)} – {usDate(route.date_end)}
             </Typography>
           </SpecValue>

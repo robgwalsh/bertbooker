@@ -166,9 +166,9 @@ export function sweepPacing(args: {
  * Known edge, deliberately not handled: `last_checked_at` is one timestamp for
  * the whole route, so a search that covered only part of the window looks as
  * fresh as one that covered all of it. Widening a window and enabling alerts in
- * the same breath can still produce one noisy digest. Bounding that properly
- * means comparing `search_coverage` against the planned chunks, which is a lot
- * of machinery for one avoidable email.
+ * the same breath can still produce one noisy digest. Bounding it properly would
+ * mean recording per-slice check times, which is a whole stored table for one
+ * avoidable email — the trade that got that table deleted.
  */
 export function baselineOnEnable(
   lastCheckedAt: number | null | undefined,

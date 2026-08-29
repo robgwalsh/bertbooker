@@ -13,8 +13,7 @@
 // surface is unchanged and no `api/` import moved.
 
 /**
- * The id this source writes into `availability_snapshots.source` and
- * `search_coverage.source`.
+ * The id this source writes into `availability_snapshots.source`.
  *
  * DO NOT RENAME. It is a permanent database value: every row seats.aero has ever
  * written carries it, pruning is scoped by it, and a new name orphans all of them

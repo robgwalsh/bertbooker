@@ -205,6 +205,10 @@ CREATE TABLE IF NOT EXISTS tracked_routes (
 );
 -- The scheduler's one hot query is "which alert-enabled route is most overdue".
 -- Partial, because alert-enabled routes are a handful out of the table.
+--
+-- DROPPED BY 0011: that query stopped being SQL. `dueRoutes` (alerts/pace.ts) is
+-- a pure function over rows already in memory, and this index's only remaining
+-- cost was making the pacing-clock UPDATE bill 2 rows instead of 1.
 CREATE INDEX IF NOT EXISTS idx_tracked_routes_alerts
   ON tracked_routes (alert_last_attempt_at)
   WHERE alerts_enabled = 1;
@@ -427,6 +431,8 @@ CREATE TABLE IF NOT EXISTS search_runs (
   route_id       INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_srun_recent   ON search_runs (user_email, started_at DESC);
+-- DROPPED BY 0011: nothing ever queried search_runs by origin/destination, and
+-- 0008's route_id is what everything asks about a route with instead.
 CREATE INDEX IF NOT EXISTS idx_srun_route    ON search_runs (origin, destination, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_srun_route_id ON search_runs (route_id, started_at DESC);
 
@@ -486,6 +492,12 @@ CREATE TABLE IF NOT EXISTS search_logs (
 CREATE INDEX IF NOT EXISTS idx_slog_run ON search_logs (run_id, at_ms);
 
 -- What was LOOKED AT, by whom, and when.
+--
+-- DROPPED BY 0010, along with idx_scov_current. It was a write-only table by
+-- then: its one reader fed a wire field nothing rendered, while costing 93% of
+-- the daily D1 write allowance. The INVARIANT below still holds — it is now a
+-- task-local, in-memory claim (`coverageSlices`/`prunable`, ingest/apply.ts),
+-- which is the only place the pruner ever read it from. See 0010.
 --
 -- INVARIANT (the one that destroys data if broken): a row here is a claim that
 -- this source searched this slice and its findings are the complete truth for

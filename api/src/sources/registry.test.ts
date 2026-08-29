@@ -58,11 +58,10 @@ describe("the built-in catalogue", () => {
   });
 
   it("keeps the id the database stores", () => {
-    // `seatsaero` is written into `availability_snapshots.source` and
-    // `search_coverage.source`, and prunes are scoped per source — so renaming
-    // it without migrating both tables orphans every row it ever wrote. It was
-    // `api:seatsaero` once, and that rename took a migration touching four
-    // tables. See docs/SEATS-AERO.md.
+    // `seatsaero` is written into `availability_snapshots.source`, and prunes
+    // are scoped per source — so renaming it without migrating that table
+    // orphans every row it ever wrote. It was `api:seatsaero` once, and that
+    // rename took a migration touching four tables. See docs/SEATS-AERO.md.
     expect(seatsAeroSource.id).toBe("seatsaero");
   });
 

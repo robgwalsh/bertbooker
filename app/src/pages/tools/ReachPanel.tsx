@@ -25,9 +25,9 @@ import { VerdictChip } from "./chips";
  * whether the space is gone or was never monitored. That is the whole value
  * here, and it is only answerable because the cache spans programs.
  *
- * **This is not `search_coverage`.** That table records whether WE looked. This
- * records whether the SOURCE flies it at all, which is true or false before
- * anyone searches anything.
+ * **This is not coverage.** Coverage records whether WE looked. This records
+ * whether the SOURCE flies it at all, which is true or false before anyone
+ * searches anything.
  */
 export function ReachPanel() {
   return (

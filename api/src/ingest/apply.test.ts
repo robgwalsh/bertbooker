@@ -246,7 +246,6 @@ interface HistoryArg {
 function stubDb(baseline: StubbedRow[]) {
   const inserts: unknown[][] = [];
   const deletes: unknown[][] = [];
-  const coverage: unknown[][] = [];
   const history: HistoryArg[] = [];
   /** Every `.all()` read, so a test can assert on the baseline query's SHAPE
    *  and not only on what came back from it. */
@@ -273,13 +272,12 @@ function stubDb(baseline: StubbedRow[]) {
         else if (s.sql.includes("DELETE FROM availability_snapshots")) deletes.push(s.args);
         else if (s.sql.includes("INSERT INTO price_history"))
           history.push(...(JSON.parse(String(s.args[0])) as HistoryArg[]));
-        else if (s.sql.includes("search_coverage")) coverage.push(s.args);
       }
       return stmts.map(() => ({ meta: { changes: 1 } }));
     },
   } as unknown as D1Database;
 
-  return { db, inserts, deletes, coverage, history, reads };
+  return { db, inserts, deletes, history, reads };
 }
 
 /** The columns `loadPreviousForSource` selects, for one stored snapshot. */
@@ -568,20 +566,18 @@ describe("applyTask — a task that asked about several city pairs", () => {
     expect(routesTouched(multi(), [])).toHaveLength(4);
   });
 
-  it("NEVER writes a comma-joined airport into search_coverage", async () => {
-    // The bug this whole `routes` field exists to make impossible. The coverage
-    // primary key is (origin, destination, flight_date, program, source), so an
-    // "airport" called `SEA,PDX` would be stored happily and matched by nothing
-    // ever again — leaving the real pairs looking unchecked while the pruner
-    // believed it had covered them.
-    const { db, coverage } = stubDb([]);
+  it("NEVER binds a comma-joined airport into the baseline read", async () => {
+    // The bug this whole `routes` field exists to make impossible. The baseline
+    // query's pair list is the one thing standing between a task and pruning a
+    // pair it never touched, so an "airport" called `SEA,PDX` reaching it would
+    // match no stored row — leaving the real pairs' rows outside the baseline
+    // and so invisible to both write-on-change and the pruner.
+    const { db, reads } = stubDb([]);
     await applyTask(db, "run-multi", multi({ offers: [] }));
-    expect(coverage).toHaveLength(4);
-    for (const binds of coverage) {
-      expect(String(binds[0])).not.toContain(",");
-      expect(String(binds[1])).not.toContain(",");
-    }
-    expect(coverage.map((b) => `${b[0]}-${b[1]}`).sort()).toEqual([
+    const args = reads.flatMap((r) => r.args).map(String);
+    expect(args.length).toBeGreaterThan(0);
+    for (const a of args) expect(a).not.toContain(",");
+    expect([...new Set(args.filter((a) => a.includes("-") && !a.startsWith("20")))].sort()).toEqual([
       "PDX-HND",
       "PDX-NRT",
       "SEA-HND",
@@ -592,11 +588,13 @@ describe("applyTask — a task that asked about several city pairs", () => {
   it("claims NOTHING for any pair when the task failed", async () => {
     // The status gate sits upstream of the pair fan-out, and must stay there: a
     // blocked call covering four pairs looked at none of them.
-    const { db, coverage, deletes } = stubDb([]);
+    const { db, inserts, deletes, reads } = stubDb([]);
     const out = await applyTask(db, "run-blocked", multi({ status: "blocked", offers: [] }));
-    expect(coverage).toHaveLength(0);
     expect(deletes).toHaveLength(0);
-    expect(out.coverageRows).toBe(0);
+    expect(inserts).toHaveLength(0);
+    // It does not even read the baseline: the gate is upstream of everything.
+    expect(reads).toHaveLength(0);
+    expect(out.offersKept).toBe(0);
   });
 
   it("folds in a pair the source answered with but nobody asked for", async () => {

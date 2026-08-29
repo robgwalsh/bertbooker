@@ -192,10 +192,6 @@ export interface Find {
   segments_json?: string; // JSON array of Segment (flight numbers, times, aircraft)
   /** Which run wrote this row. Absent on rows predating the pivot. */
   search_run_id?: string | null;
-  /** When any source last CHECKED this (route, date, program) — from
-   *  search_coverage, not from the snapshot. Null means nobody ever has, which
-   *  is a different thing from "checked and still there". */
-  last_checked_at?: number | null;
   /** `"summary"` means segments_json is one synthetic leg with no flight number
    *  — seats.aero said there is space at this price and nothing about which
    *  aeroplane. `"itinerary"` means the legs are real. Absent reads as an

@@ -16,7 +16,7 @@ import type { RunStatus, SourceTaskStatus } from "../../../shared/src/wire/domai
 
 export type { RunStatus, SourceTaskStatus } from "../../../shared/src/wire/domain.js";
 
-/** Statuses that are allowed to write `search_coverage` rows.
+/** Statuses that are allowed to claim coverage.
  *
  *  INVARIANT: keep this list exactly {ok, empty}. Coverage is a claim that this
  *  source searched this slice and its findings are the complete truth for it —
@@ -49,8 +49,8 @@ export interface SourceTaskReport {
    * Omitted means `[{origin, destination}]`, which is every search before
    * multi-airport routes existed. The alternative — deriving the
    * pairs by splitting `origin` on commas — is the bug this field exists to make
-   * impossible: `search_coverage`'s primary key would happily store an
-   * "airport" called `SEA,PDX` and nothing would ever match it again.
+   * impossible: an "airport" called `SEA,PDX` would reach the snapshot writes as
+   * a real airport code and match nothing that ever asked about SEA or PDX.
    */
   routes?: { origin: string; destination: string }[];
   /** Dates this task asked about. */
@@ -113,6 +113,5 @@ export interface ApplyTaskResult {
   offersKept: number;
   snapshotsWritten: number;
   snapshotsPruned: number;
-  coverageRows: number;
   changeCounts: { new: number; more_seats: number; price_drop: number; gone: number };
 }

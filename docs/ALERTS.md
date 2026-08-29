@@ -409,9 +409,9 @@ cycle diffs against.
 **Known edge, deliberately not handled.** `last_checked_at` is one timestamp for
 the whole route, so a search that covered only part of the window looks as fresh
 as one that covered all of it. Widening a window and enabling alerts in the same
-breath can still produce one noisy digest. Bounding that properly means comparing
-`search_coverage` against the planned chunks, which is a lot of machinery for one
-avoidable email.
+breath can still produce one noisy digest. Bounding it properly would mean
+recording per-slice check times, which is a whole stored table for one avoidable
+email — the trade that got that table deleted (`migrations/0010`).
 
 ---
 
@@ -759,13 +759,19 @@ independent facts; there is no requirement that they match.
 | `alert_last_digest_at` | **the email clock** — NULL suppresses (§5) |
 | `alert_consecutive_failures` | back-off; reset on success and on edit |
 
-Plus `last_checked_at`, which alerts *read* but never write — coverage does.
-**Three clocks, and collapsing any two re-creates a bug the others exist to
-prevent.**
+Plus `last_checked_at`, the coverage clock, written by `search/run.ts` at the
+end of any pass that claimed coverage — so the sweeper reads it but does not
+write it itself. **Three clocks, and collapsing any two re-creates a bug the
+others exist to prevent.** In particular `alert_last_attempt_at` is stamped
+BEFORE the search and the other two after it, which is what stops a
+permanently-failing route being due on every tick.
 
-`idx_tracked_routes_alerts` is partial (`WHERE alerts_enabled = 1`), because the
-scheduler's one hot query is "which alert-enabled route is most overdue" and
-alert routes are a handful out of the table.
+`idx_tracked_routes_alerts` was partial (`WHERE alerts_enabled = 1`) because the
+scheduler's one hot query was "which alert-enabled route is most overdue".
+**Dropped by `migrations/0011`:** that question stopped being SQL when
+`dueRoutes` (`alerts/pace.ts`) became a pure function over rows already in
+memory. It was the only index on `tracked_routes`, so it was also the only
+reason the pacing-clock UPDATE billed two D1 rows instead of one.
 
 `alert_outbox` — §8. `alert_deliveries` and `alert_recipients` — §9. Neither `type` nor
 `search_runs.trigger` carries a CHECK constraint: a new transition type should

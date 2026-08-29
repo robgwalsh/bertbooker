@@ -195,10 +195,10 @@ export interface PreviousSnapshot {
  *     mostly SFO→HND) means one task touches a route it never asked about.
  *
  * `task.routes` is read INSTEAD of splitting `task.origin`, and that is the
- * whole safety property: `search_coverage`'s primary key is (origin,
- * destination, …), so a comma-joined value would be stored as an airport named
- * `SEA,PDX` that no future query could ever match — leaving the real pairs
- * looking permanently unchecked while the pruner believed otherwise.
+ * whole safety property: this list becomes the baseline read's pair filter, and
+ * a comma-joined value would enter it as an airport named `SEA,PDX` that
+ * matches no stored row — leaving the real pairs' rows outside the baseline, so
+ * invisible to write-on-change and untouchable by the pruner.
  *
  * Exported for the tests that pin all three.
  */
@@ -312,11 +312,13 @@ async function loadPreviousForSource(
 /**
  * Apply one completed task.
  *
- * Order matters: read the baseline, write changed snapshots, prune what the
- * coverage claim licenses, then record the coverage itself. Coverage last means
- * a crash mid-apply leaves a claim NOT made rather than a claim made for work
- * that was only half-applied — under-claiming costs a stale row, over-claiming
- * destroys one.
+ * Order matters: read the baseline, write changed snapshots, then prune what the
+ * coverage claim licenses.
+ *
+ * The claim is `slices`, computed here and never stored. It is decided BEFORE
+ * anything is written and describes only what this task looked at, so a crash
+ * mid-apply performs fewer deletes than it was entitled to and never more —
+ * under-claiming costs a stale row, over-claiming destroys one.
  */
 export async function applyTask(
   db: D1Database,
@@ -328,7 +330,6 @@ export async function applyTask(
     offersKept: 0,
     snapshotsWritten: 0,
     snapshotsPruned: 0,
-    coverageRows: 0,
     changeCounts: { new: 0, more_seats: 0, price_drop: 0, gone: 0 },
     changes: [],
   };
@@ -411,7 +412,7 @@ export async function applyTask(
   // price point and the snapshot it describes land together or not at all.
   if (inserts.length) await db.batch([...inserts, ...priceStatements(db, changed, now)]);
 
-  // --- prune what this source's own coverage licenses deleting ---------------
+  // --- prune what this task's own coverage licenses deleting -----------------
   const gone = prunable(previous, kept, slices);
   let snapshotsPruned = 0;
   if (gone.length) {
@@ -431,46 +432,6 @@ export async function applyTask(
     for (const res of results.slice(0, deletes.length)) snapshotsPruned += res.meta.changes ?? 0;
   }
 
-  // --- record the coverage claim --------------------------------------------
-  // Claimed for every route the task touched, not just the one it asked for.
-  // The alternative — claim only the requested route — leaves a substituted
-  // airport's rows prunable (they are in `previous`) but never marked checked,
-  // so the finds table would show them as "never looked at" while the pruner
-  // was already acting as though it had. One rule for both, or neither.
-  const foundPerSlice = new Map<string, number>();
-  for (const o of kept) {
-    const k = `${o.origin}-${o.destination}|${o.flightDate}|${o.program}`;
-    foundPerSlice.set(k, (foundPerSlice.get(k) ?? 0) + 1);
-  }
-  const coverageStmts = routes.flatMap((route) =>
-    slices.map((s) =>
-      db
-        .prepare(
-          `INSERT INTO search_coverage
-           (origin, destination, flight_date, program, source, run_id, checked_at, offers_found)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (origin, destination, flight_date, program, source) DO UPDATE SET
-           run_id = excluded.run_id,
-           checked_at = excluded.checked_at,
-           offers_found = excluded.offers_found`,
-        )
-        .bind(
-          route.origin,
-          route.destination,
-          s.flightDate,
-          s.program,
-          task.source,
-          runId,
-          now,
-          foundPerSlice.get(`${route.origin}-${route.destination}|${s.flightDate}|${s.program}`) ?? 0,
-        ),
-    ),
-  );
-  // D1 caps a batch; coverage can be dates x programs, so chunk it.
-  for (let i = 0; i < coverageStmts.length; i += 50) {
-    await db.batch(coverageStmts.slice(i, i + 50));
-  }
-
   // --- diff, for the run summary --------------------------------------------
   const tally = { new: 0, more_seats: 0, price_drop: 0, gone: 0 };
   const changes: ChangeSummary[] = [];
@@ -483,7 +444,6 @@ export async function applyTask(
     offersKept: kept.length,
     snapshotsWritten: inserts.length,
     snapshotsPruned,
-    coverageRows: coverageStmts.length,
     changeCounts: tally,
     changes,
   };

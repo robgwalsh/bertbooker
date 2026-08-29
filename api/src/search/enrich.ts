@@ -24,11 +24,11 @@ import { recordQuota } from "../db/runs.js";
  *
  * Three things this module deliberately does NOT do:
  *
- *  - **It claims no coverage and prunes nothing.** `search_coverage` answers
- *    "did anyone look at (route, date, program)", and enrichment looks at a row
- *    that was already looked at. Writing a coverage row here would move a find's
- *    freshness forward without re-checking whether the seat still exists, which
- *    is exactly the lie the coverage table exists to prevent.
+ *  - **It claims no coverage and prunes nothing.** A coverage claim says "I
+ *    looked at this slice and what I return is the complete truth for it", and
+ *    enrichment looks at ONE row that was already looked at. Claiming here
+ *    would license deleting every other row in that slice on the strength of a
+ *    detail fetch that never asked about them.
  *  - **It writes no `search_runs` / `search_tasks` row.** The observable-task
  *    invariant is about unattended gathering, where a failure is otherwise
  *    indistinguishable from "there is no award space". A failure here goes

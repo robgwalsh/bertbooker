@@ -41,6 +41,12 @@ export function AirportAutocomplete({
     queryKey: ["airport-options", q],
     queryFn: () => api.airports(q, { iataOnly: true, limit: 8 }),
     placeholderData: (prev) => prev,
+    // An empty `q` is not a cheap query, it is the most expensive one this app
+    // makes. With no search text there is no fts subquery to drive the plan, so
+    // the Worker ranks every airport holding an IATA code and D1 bills the sort:
+    // 18,108 rows read to return eight nobody asked for. `noOptionsText` below
+    // already says to type something, so this fetched a list it never showed.
+    enabled: q.length > 0,
   });
 
   // Resolve a preset code (e.g. Calendar's default JFK/DXB) to a full option so
@@ -100,7 +106,10 @@ export function AirportAutocomplete({
       onInputChange={(_, next, reason) => {
         if (reason !== "reset") setInput(next);
       }}
-      options={options}
+      // `placeholderData` outlives the gate above: it is keyed off the PREVIOUS
+      // query, not off `enabled`, so clearing the box left the last search’s
+      // results hanging under an empty field. Empty input shows nothing.
+      options={q ? options : []}
       loading={isFetching}
       filterOptions={(x) => x} // server already ranks/filters
       isOptionEqualToValue={(o, v) => o.ident === v.ident}
@@ -196,7 +205,8 @@ export function AirportMultiAutocomplete({
     queryKey: ["airport-options", q],
     queryFn: () => api.airports(q, { iataOnly: true, limit: 8 }),
     placeholderData: (prev) => prev,
-    enabled: !atMax,
+    // Empty `q` gated for the same reason as the single-select above.
+    enabled: !atMax && q.length > 0,
   });
 
   return (
@@ -216,7 +226,7 @@ export function AirportMultiAutocomplete({
       onInputChange={(_, next, reason) => {
         if (reason !== "reset") setInput(next);
       }}
-      options={atMax ? [] : options}
+      options={atMax || !q ? [] : options}
       loading={isFetching}
       filterOptions={(x) => x}
       isOptionEqualToValue={(o, v) => o.ident === v.ident}

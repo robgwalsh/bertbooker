@@ -15,12 +15,12 @@ export const REACH_PATHS_PER_PAIR = 3;
 /**
  * Does anyone's route graph contain the pairs a tracked route asks about?
  *
- * **This is not "coverage", and the word is avoided on purpose.**
- * `search_coverage` already means *did anyone look at (route, date, program),
- * and when* — a stored fact about our own searching, and the thing that licenses
- * a prune. This is a fact about the SOURCE'S OWN NETWORK: true or false before
- * anyone searches anything, and it can never license a prune. Merging the two
- * vocabularies would be the beginning of merging the two facts.
+ * **This is not "coverage", and the word is avoided on purpose.** Coverage
+ * already means *did we look at (route, date, program)* — a fact about our own
+ * searching, and the thing that licenses a prune. This is a fact about the
+ * SOURCE'S OWN NETWORK: true or false before anyone searches anything, and it
+ * can never license a prune. Merging the two vocabularies would be the
+ * beginning of merging the two facts.
  *
  * What it is good for: a tracked pair that is in no program's graph will come
  * back empty from every search, forever, and nothing else in the app says so.
@@ -162,8 +162,8 @@ export interface ReachRouteInput {
  * SEA/PDX -> NRT/HND is four independent pairs. If one of them is in nobody's
  * graph, the route has a named hole, and calling it "ok" because three quarters
  * of it is fine would hide exactly the thing worth acting on. The rest of the
- * system already treats a route this way — `search_coverage`'s primary key
- * includes both endpoints and pruning is per pair.
+ * system already treats a route this way — a coverage claim names both
+ * endpoints and pruning is per pair.
  *
  * `indirect` sits between `gap` and `ok` because it is genuinely between them:
  * the network reaches the pair, and a search of the route as written still

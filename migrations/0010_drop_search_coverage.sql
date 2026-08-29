@@ -1,0 +1,44 @@
+-- `search_coverage` was, in practice, a write-only table, and it cost 93% of
+-- the account's daily D1 write allowance.
+--
+-- MEASURED, on 2026-08-29, the day the 100,000 rows/day free-plan ceiling was
+-- hit at 105,302:
+--
+--   INSERT INTO search_coverage   97,728 rows written / 24h   (48,864 upserts)
+--   everything else combined       7,574
+--
+-- One press of Search accounted for ~82,000 of it. A route with a 366-day
+-- window and three `via` hubs plans 7 pairs; `applyTask` claimed
+-- `7 pairs x 366 dates x 16 programs = 40,992` slices, at 2 rows each (the row,
+-- plus its `idx_scov_current` entry — `checked_at` changes on every upsert, so
+-- the index entry is never free). That search spent 26 API calls and wrote 455
+-- snapshots. The bookkeeping was ~180x the data.
+--
+-- WHY IT IS DELETED RATHER THAN SHRUNK. Its only reader anywhere was a
+-- correlated seek in `findsCte` (db/finds.ts) producing `Find.last_checked_at`,
+-- and no component rendered that field — the Source/checked column went with
+-- the database browser and took the only consumer with it. `alerts/sweep.ts`
+-- paid for the seek on every cron tick and discarded the value. `run_id` and
+-- `offers_found` were read by nothing, ever. Every "Searched 3h ago" in the app
+-- reads `tracked_routes.last_checked_at`, a different column on a different
+-- table, and still does.
+--
+-- The `program` column was 16x pure fan-out on top of that: one seats.aero call
+-- returns every program at once, and a task's program list is a per-source
+-- constant, so 46,688 stored rows encoded 2,918 distinct facts. Verified on
+-- production — of 2,918 (pair, date) groups, ZERO had programs differing in
+-- `checked_at` or `run_id`.
+--
+-- WHAT THIS DOES NOT TOUCH: the pruner. `prunable()` (ingest/apply.ts) tests
+-- against the in-memory `CoverageSlice[]` that `coverageSlices()` builds
+-- earlier in the same call, and never read this table. Coverage remains exactly
+-- what it was — a claim that a task looked at a slice and its findings are the
+-- complete truth for it, which is what licenses a prune. It is now task-local
+-- and computed before any write, so a crash mid-apply performs fewer deletes
+-- than it was entitled to and never more.
+--
+-- What is genuinely lost: because snapshot writes are on-change, an unchanged
+-- find keeps its old `captured_at`, so nothing now distinguishes "re-confirmed
+-- ten minutes ago" from "nobody has looked since June". Accepted deliberately.
+DROP INDEX IF EXISTS idx_scov_current;
+DROP TABLE IF EXISTS search_coverage;

@@ -93,12 +93,11 @@ export interface SourceCtx {
  * that judges the CLIENT. A source that fails that test does not get added.
  */
 export interface SourceDescriptor {
-  /** Stable id, and the value stored in `availability_snapshots.source` and
-   *  `search_coverage.source`.
+  /** Stable id, and the value stored in `availability_snapshots.source`.
    *
-   *  It is a PERMANENT STORED VALUE. Renaming one without migrating those two
-   *  tables orphans every row it ever wrote: prunes are scoped per source, so
-   *  nothing would ever clean them and they would read as current forever. */
+   *  It is a PERMANENT STORED VALUE. Renaming one without migrating that table
+   *  orphans every row it ever wrote: prunes are scoped per source, so nothing
+   *  would ever clean them and they would read as current forever. */
   readonly id: string;
   /** Human label for the UI and for run logs. */
   readonly label: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REACH_PATHS_PER_PAIR, assessGraphReach, type ReachRouteInput } from "./reach.js";
-import type { GraphPair } from "../../db/routeGraph.js";
+import type { GraphPair } from "../../models/routeGraph.js";
 import type { GraphPath } from "../../../../shared/src/wire/index.js";
 
 // `assessGraphReach` answers "is this pair in anyone's graph", NOT "did anyone

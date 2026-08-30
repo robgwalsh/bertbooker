@@ -1,4 +1,5 @@
 import type { AlertDelivery } from "../../../shared/src/wire/index.js";
+import type { DeliveryRecord } from "../models/run.js";
 
 /**
  * The `alert_deliveries` table — every digest this app tried to send, including
@@ -9,16 +10,6 @@ import type { AlertDelivery } from "../../../shared/src/wire/index.js";
  * refused" (`failed`). `WITHOUT ROWID` on `(sweep_id, to_email)`, which is also
  * the double-send guard.
  */
-
-export interface DeliveryRecord {
-  sweepId: string;
-  recipient: string;
-  status: string;
-  subject: string;
-  changeCount: number;
-  providerMessageId: string | null;
-  error: string | null;
-}
 
 export async function insertDelivery(db: D1Database, v: DeliveryRecord): Promise<void> {
   await db

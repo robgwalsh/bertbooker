@@ -14,12 +14,12 @@ import type { PathSearchResult } from "../../../../shared/src/wire/index.js";
  * The escalation ladder over the route graph: how you would get there with a
  * stop, when nobody monitors the pair itself.
  *
- * Impure orchestration over D1 and the pure `rankPaths` — which is why it sits
- * here beside `run.ts` rather than in `domain/` (which is pure) or `db/` (which
- * is SQL). It was a private helper in `endpoints/seatsaeroRoutes.ts` with two
- * callers in that file; a tracked route filling in its own hubs on save is the
- * third, and a helper with three callers in two directories is a module. Same
- * argument that split `search/run.ts` from its HTTP shell.
+ * Impure orchestration over D1 and the pure `rankPaths` in `./paths.ts` — which
+ * is why it is its own module rather than part of either. It was a private
+ * helper in `./endpoints.ts` with two callers in that file; a tracked route
+ * filling in its own hubs on save is the third, and a helper with three callers
+ * in two slices is a module. Same argument that split `features/search/run.ts`
+ * from its HTTP shell.
  *
  * **It stops at the first depth that answers.** JFK->LHR is a monitored market
  * and never runs a self-join at all; SFO->KTM answers at one stop through seven

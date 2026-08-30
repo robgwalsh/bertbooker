@@ -1,4 +1,5 @@
 import type { AirportGeo, AirportInfo, AirportName } from "../../../shared/src/wire/index.js";
+import type { QueryReader } from "../http/params.js";
 
 /**
  * The `airports` table and its `airports_fts` index — ~72k public-domain
@@ -18,11 +19,6 @@ import type { AirportGeo, AirportInfo, AirportName } from "../../../shared/src/w
  *  parameters per query and this binds one per code; two below the ceiling for
  *  headroom. See the chunking note at the call site. */
 const LOOKUP_BIND_CHUNK = 98;
-
-/** How the callers hand a search in: whatever the request's query string says,
- *  read by name. Deliberately not a Hono `Context` — nothing in `db/` knows
- *  about HTTP. */
-export type QueryReader = (k: string) => string | undefined;
 
 /**
  * A user's search box turned into an fts5 MATCH expression, or `null` when

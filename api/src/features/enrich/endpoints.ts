@@ -16,8 +16,8 @@ import { ENRICH_MAX_PER_RUN } from "../../../../shared/src/wire/enrich.js";
 /**
  * The two HTTP shapes over `search/enrich.ts` — one find, or a whole route.
  *
- * Split from the engine for the same reason `endpoints/search.ts` is split from
- * `search/run.ts`: these two handlers answer very differently (a single-shot
+ * Split from the engine for the same reason `features/search/endpoints.ts` is split from
+ * `features/search/run.ts`: these two handlers answer very differently (a single-shot
  * JSON reply and a 100-line NDJSON stream) over one implementation of "buy the
  * itinerary behind this row".
  *

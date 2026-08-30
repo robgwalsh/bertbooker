@@ -5,6 +5,14 @@ import type {
   RouteGraphRow,
 } from "../../../shared/src/wire/index.js";
 import type { SeatsAeroGraphRoute } from "../providers/seatsaero.js";
+import type { QueryReader } from "../http/params.js";
+import type {
+  GraphPair,
+  GraphPathRow,
+  PairSourceRow,
+  PathQueryPair,
+  RouteFetchOutcome,
+} from "../models/routeGraph.js";
 
 /**
  * Reads and writes for `seatsaero_routes` / `seatsaero_route_fetches`
@@ -49,18 +57,6 @@ export const ROUTE_HARD_MAX = 250_000;
 
 const FETCH_COLUMNS = `source, status, route_count, duplicate_rows, malformed_rows,
                        fetched_at, duration_ms, http_status, bytes, error`;
-
-export interface RouteFetchOutcome {
-  status: RouteFetchStatus;
-  routeCount: number;
-  duplicates: number;
-  malformed: number;
-  fetchedAt: number;
-  durationMs?: number | null;
-  httpStatus?: number | null;
-  bytes?: number | null;
-  error?: string | null;
-}
 
 /**
  * Replace one source's graph and record the fetch, atomically.
@@ -178,12 +174,6 @@ export function fetchedSources(records: RouteFetchRecord[]): string[] {
   return records.filter((r) => r.status === "ok" || r.status === "empty").map((r) => r.source);
 }
 
-export interface GraphPair {
-  origin: string;
-  destination: string;
-  source: string;
-}
-
 /**
  * Rows a self-join over the graph would return past D1's ceiling.
  *
@@ -194,26 +184,6 @@ export interface GraphPair {
  * under-report paths, never invent one.
  */
 export const PATH_ROW_LIMIT = 20_000;
-
-/** One pair to search paths for, with the budget its own great circle earns. */
-export interface PathQueryPair {
-  origin: string;
-  destination: string;
-  /** Total STORED `distance_mi` a path may span, or null for no bound (the pair
-   *  has no coordinates, so no budget can be computed). A cheap pre-filter, not
-   *  the authority: `distance_mi` has zeros, so this only ever lets too much
-   *  through, which `rankPaths` then judges properly. */
-  budgetMi: number | null;
-}
-
-/** One hub sequence for one asked pair, with the source flying each leg. */
-export interface GraphPathRow {
-  origin: string;
-  destination: string;
-  via: string[];
-  /** One per leg, so `via.length + 1` of them. */
-  legSources: string[];
-}
 
 /**
  * Every (pair, source) row for a set of pairs, in one query.
@@ -331,10 +301,6 @@ export async function graphPathRowsForPairs(
 }
 
 // ---- the pane's reads -------------------------------------------------------
-
-/** How the pane hands a search in: whatever the request's query string says,
- *  read by name. Deliberately not a Hono `Context`. */
-export type QueryReader = (k: string) => string | undefined;
 
 /**
  * Shared WHERE builder for the graph table and the graph map — the pair that
@@ -469,13 +435,6 @@ export async function selectGraphGeo(
     .all<RouteGraphEdge>();
 
   return { edges: results, total: counted?.n ?? 0 };
-}
-
-export interface PairSourceRow {
-  source: string;
-  origin: string;
-  destination: string;
-  distance_mi: number | null;
 }
 
 /** Who flies this pair — an exact lookup across EVERY source, deliberately not

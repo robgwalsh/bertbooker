@@ -10,7 +10,7 @@ import {
 import type { SeatsAeroGraphRoute } from "../providers/seatsaero.js";
 import type { RouteFetchRecord } from "../../../shared/src/wire/index.js";
 
-// A deliberately dumb D1 stub, in the style of `ingest/apply.test.ts`: it routes
+// A deliberately dumb D1 stub, in the style of `features/search/apply.test.ts`: it routes
 // on substring matches in the SQL and records the bound arguments. It is not a
 // SQLite engine, and the assertions below are all about the STATEMENTS issued —
 // their order, their count, and how many parameters each one binds.

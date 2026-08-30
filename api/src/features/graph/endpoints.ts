@@ -238,7 +238,7 @@ seatsaeroRoutes.get("/api/seatsaero/routes/pair", async (c) => {
 //
 // The escalation ladder, shared by the pair lookup below and the reach sweep
 // after it: two callers and one behaviour, which is the same reason
-// `search/run.ts` is split from its HTTP shell.
+// `features/search/run.ts` is split from its HTTP shell.
 //
 // **It stops at the first depth that answers.** JFK->LHR is a monitored market
 // and never runs a self-join at all; SFO->KTM answers at one stop through seven

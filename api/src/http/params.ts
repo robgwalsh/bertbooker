@@ -14,6 +14,17 @@
  */
 
 /**
+ * How a handler hands a query string to something that must not know about
+ * HTTP.
+ *
+ * The WHERE builders in `db/` are shaped by the request's query string, and they
+ * take one of these rather than a Hono `Context` — which is what keeps `db/`
+ * free of the web framework while the handler stays free of SQL. Declared once
+ * here because two db modules take one.
+ */
+export type QueryReader = (k: string) => string | undefined;
+
+/**
  * A row id from a path segment, or `null` when the segment is not one.
  *
  * `Number.isInteger` rather than `!Number.isNaN`, and the difference is the

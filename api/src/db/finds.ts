@@ -1,5 +1,7 @@
 import { addDaysISO } from "../util/dates.js";
 import type { AvailabilityResult } from "../models/availability.js";
+import type { EnrichTargetRow, EnrichableRow, FindsScope } from "../models/find.js";
+import type { FilteredRoute, RouteFilters, ScopedRoute } from "../models/trackedRoute.js";
 import type { Find } from "../../../shared/src/wire/index.js";
 import type { MatchableFind } from "../../../shared/src/match/routeMatch.js";
 
@@ -35,64 +37,10 @@ const FIND_COLUMNS = `f.origin, f.destination, f.flight_date,
        f.detail_level, f.enriched_at, f.source_record_id,
        f.stop_count, f.airlines, f.direct_airlines, f.direct_miles_cost`;
 
-/**
- * A predicate narrowing which rows the read returns.
- *
- * **A scope may constrain any column `routeMatcher` reads, exactly as hard as
- * the matcher constrains it and never harder.** That is the whole contract, and
- * the only way to break it is to push a filter down here that the matcher does
- * not apply — which drops finds silently, out of the Routes page and out of
- * digests, which send no mail when they find nothing and so cannot tell you.
- *
- * Column names go in UNQUALIFIED; the text is interpolated once into a plain
- * SELECT over the bare table.
- */
-export interface FindsScope {
-  where: string[];
-  binds: unknown[];
-}
-
 /** No narrowing — the whole table. The last rung of `routeFindsScope`'s ladder,
  *  when a route set cannot be described inside D1's bind limit at all. Slow and
  *  right. */
 const UNSCOPED: FindsScope = { where: [], binds: [] };
-
-/** The `tracked_routes` columns a scope is derived from — a subset of what
- *  `MatchableRoute` reads. Structurally satisfied by `AlertRouteRow` and by the
- *  Routes page's route SELECT, so neither caller needs an extra query. */
-export interface ScopedRoute {
-  origin: string;
-  destination: string;
-  origins: string | null;
-  destinations: string | null;
-  via: string | null;
-  date_start: string;
-  date_end: string;
-  round_trip: number;
-}
-
-/**
- * The route's READ FILTERS — what it shows out of what was gathered.
- *
- * Separate from `ScopedRoute`, and every field optional, because the two answer
- * different questions and only one of them may be pushed down. `ScopedRoute`
- * says where a route REACHES, and `withinRouteScope` authorizes against it: it
- * must never see a filter, or a points ceiling would start returning 404 on a
- * row the Routes page is displaying.
- *
- * Optional because omitting one only ever WIDENS. Wrong in the cheap direction.
- *
- * `currencies` is deliberately absent; `pushFilters` says why.
- */
-export interface RouteFilters {
-  cabins?: string | null;
-  min_seats?: number;
-  direct_only?: number;
-  point_limit?: number | null;
-}
-
-/** What `routeFindsScope` reads. */
-export type FilteredRoute = ScopedRoute & RouteFilters;
 
 /**
  * D1 allows **100 bound parameters per query**. `scope.binds` is consumed once
@@ -102,7 +50,7 @@ export type FilteredRoute = ScopedRoute & RouteFilters;
 const MAX_SCOPE_BINDS = 90;
 
 /** A JSON list column, with the scalar fallback. Mirrors `parseList` in
- *  `alerts/sweep.ts`. */
+ *  `features/alerts/alertRoutes.ts`. */
 function codeList(json: string | null, fallback?: string): string[] {
   if (json) {
     try {
@@ -642,21 +590,6 @@ export async function deleteFinds(
 
 // ---- enrichment -----------------------------------------------------------
 
-/** One `finds` row that could be enriched. */
-export interface EnrichableRow {
-  origin: string;
-  destination: string;
-  flight_date: string;
-  program: string;
-  cabin: string;
-  miles_cost: number;
-  source_record_id: string | null;
-  detail_level: string;
-  /** The stored hash of the SOURCE's claim, carried so the writes below can
-   *  check the row still holds the price the itinerary was chosen against. */
-  raw_hash: string;
-}
-
 /**
  * The seats.aero snapshot per cabin for one (route, date, program).
  *
@@ -682,14 +615,6 @@ export async function selectEnrichableRows(
     .bind(origin, destination, flightDate, program)
     .all<EnrichableRow>();
   return results;
-}
-
-export interface EnrichTargetRow {
-  origin: string;
-  destination: string;
-  flight_date: string;
-  program: string;
-  source_record_id: string;
 }
 
 /**

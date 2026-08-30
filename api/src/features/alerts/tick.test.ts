@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `sweepPacing` correctly returned `every 15m`, `dueRoutes` correctly returned
  * all four routes, and the tick then swept `due[0]` and threw the other three
  * away. Nothing pure could have caught that, so the loop is stubbed at its two
- * real boundaries — D1 and `search/run.ts` — and asserted directly.
+ * real boundaries — D1 and `features/search/run.ts` — and asserted directly.
  */
 
 const passResult = (calls: number, paused = false) => ({

@@ -192,7 +192,7 @@ export function validateLists(b: RouteBody): { ok: true } | { ok: false; message
 }
 
 /** The currency codes a route may filter on — derived from the one catalogue in
- *  `domain/programs.ts` rather than restated, so adding a currency there is the
+ *  `models/program.ts` rather than restated, so adding a currency there is the
  *  whole of adding it. */
 const CURRENCY_CODES: readonly string[] = CURRENCIES.map((c) => c.code);
 

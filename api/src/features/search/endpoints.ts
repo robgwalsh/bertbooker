@@ -13,7 +13,7 @@ import {
 /**
  * Searching a tracked route, on the Worker, against seats.aero.
  *
- * The engine moved to `search/run.ts` when the alert scheduler became its second
+ * The engine moved to `features/search/run.ts` when the alert scheduler became its second
  * caller — two implementations of "search a route and ingest the result" would
  * eventually disagree about coverage, which is the one thing in this pipeline
  * that silently destroys data. What is left here is the HTTP shape: a preflight
@@ -21,7 +21,7 @@ import {
  *
  * What HAS changed since this file said otherwise: something does now run on a
  * schedule. A Cron Trigger sweeps alert-enabled routes through the same engine
- * (`alerts/sweep.ts`), and it — alone — consults the day's remaining quota
+ * (`features/alerts/alertRoutes.ts`), and it — alone — consults the day's remaining quota
  * before spending. This endpoint does not, and must not: nobody needs protecting
  * from a call they deliberately asked for. See `docs/ALERTS.md`.
  *

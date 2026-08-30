@@ -115,7 +115,7 @@ app.route("/", quota);
 
 // The other two chips in that same cluster: what today's D1 row allowance
 // stands at. Its own mount and its own poll because it waits on Cloudflare
-// rather than on D1 — see the docblock in endpoints/d1Usage.ts.
+// rather than on D1 — see the docblock in features/usage/d1UsageEndpoints.ts.
 app.route("/", d1Usage);
 
 // Searching a tracked route against seats.aero, streamed. Also after `identity`:

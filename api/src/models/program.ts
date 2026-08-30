@@ -285,3 +285,17 @@ export const CURRENCIES: CurrencyInfo[] = [
   { code: "amex_mr", name: "Amex Membership Rewards" },
   { code: "direct", name: "Airline/hotel miles (direct)" },
 ];
+
+/** The stored `programs` row, before `transfer_partners` is parsed out of its
+ *  JSON column. That parse is what makes `ProgramInfo` — the wire type — a
+ *  different shape from this, and is why annotating the mapped result at the
+ *  call site is a real check rather than a restatement of the SELECT.
+ *  Produced by `selectActivePrograms`. */
+export interface ProgramRow {
+  code: string;
+  name: string;
+  kind: ProgramKind;
+  alliance: string | null;
+  transfer_partners: string;
+  is_active: number;
+}

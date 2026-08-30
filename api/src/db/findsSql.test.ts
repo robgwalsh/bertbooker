@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 /**
  * The ingest statements, run against a real SQLite engine.
  *
- * Everything else in `ingest/apply.test.ts` goes through `stubDb`, which records SQL
+ * Everything else in `features/search/apply.test.ts` goes through `stubDb`, which records SQL
  * and never executes it — so every assertion there is a string match. That is
  * the right tool for "did this bind the pairs it touched", and the wrong one for
  * "does this UPSERT reproduce a fresh row", which is a claim about what SQLite

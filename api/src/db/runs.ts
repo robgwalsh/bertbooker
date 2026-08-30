@@ -1,5 +1,6 @@
 import type { ChangeSummary } from "../models/change.js";
 import type { Run } from "../../../shared/src/wire/index.js";
+import type { SearchTotals } from "../models/run.js";
 
 /**
  * The `runs` table — a gathering run's bookkeeping.
@@ -23,16 +24,6 @@ import type { Run } from "../../../shared/src/wire/index.js";
  *  record is `finds`. One cap, in one place: a second would mean two answers to
  *  "how much of a run's diff survives". */
 export const MAX_STORED_CHANGES = 200;
-
-/** What a pass accumulated, written onto the `runs` row by {@link finishRun}. */
-export interface SearchTotals {
-  ok: number;
-  failed: number;
-  offers: number;
-  written: number;
-  pruned: number;
-  calls: number;
-}
 
 /**
  * Mint the run row.

@@ -1,14 +1,23 @@
 import type { TrackedRoute } from "../../../shared/src/wire/index.js";
-import type { ScopedRoute } from "./finds.js";
+import type {
+  AlertRouteRow,
+  EditedTrackedRoute,
+  NewTrackedRoute,
+  ReachRouteRow,
+  RouteWindowRow,
+  ScopedRoute,
+  SearchRouteRow,
+} from "../models/trackedRoute.js";
 
 /**
  * The `tracked_routes` table — the saved searches everything else hangs off.
  *
  * One module for one table, so the several surfaces that read it cannot grow two
  * versions of the same projection. They legitimately project DIFFERENT column
- * lists, and each has its own function and its own row type here: the Routes
- * page needs every settable column, the search planner needs nine, the sweep
- * needs the alert clocks, and the reach report needs six.
+ * lists — the Routes page needs every settable column, the search planner needs
+ * nine, the sweep needs the alert clocks, the reach report needs six — and each
+ * has its own function here and its own row type in `models/trackedRoute.ts`.
+ * A statement and its type are edited together.
  *
  * **`tracked_routes` carries no index at all, and should not grow one.** Seven
  * rows, and "which route is most overdue" is not SQL — `dueRoutes` is a pure
@@ -40,41 +49,6 @@ export async function selectTrackedRouteRow(
     .prepare("SELECT * FROM tracked_routes WHERE id = ?")
     .bind(id)
     .first<Record<string, unknown>>();
-}
-
-/** A route as it is written on create. Every value here has already been
- *  validated, normalized and clamped by the caller. */
-export interface NewTrackedRoute {
-  /** The PRIMARY airport of each side. NOT NULL, and `runs` records them the
-   *  same way, so a run can be read back against the route it was of. */
-  origin: string;
-  destination: string;
-  /** The authoritative sets, as JSON. */
-  origins: string;
-  destinations: string;
-  /** JSON, or null for no hubs — null rather than `"[]"` so the column reads the
-   *  way `cabins` and `currencies` do. */
-  via: string | null;
-  dateStart: string;
-  dateEnd: string;
-  /** NULL (not `"[]"`) when there is no filter, so downstream "no filter" checks
-   *  treat an empty selection as "any cabin". Same rule for `currencies`. */
-  cabins: string | null;
-  minSeats: number;
-  currencies: string | null;
-  directOnly: number;
-  /** NULL = no limit, which is what a route with no opinion gets. */
-  pointLimit: number | null;
-  /** Unlike every other flag here, this one changes what a search GATHERS: both
-   *  directions in the one call. */
-  roundTrip: number;
-  /** ...and so does this one: it enrolls the route in the cron sweep. */
-  alertsEnabled: number;
-  alertEmail: string | null;
-  /** NULL means the default set. `[]` is refused at the handler rather than
-   *  stored as "never fire". */
-  alertOn: string | null;
-  alertMinDropPct: number;
 }
 
 export async function insertTrackedRoute(
@@ -111,13 +85,6 @@ export async function insertTrackedRoute(
     )
     .first<{ id: number }>();
   return res?.id;
-}
-
-/** A route as it is written on edit: the whole row, already merged. */
-export interface EditedTrackedRoute extends NewTrackedRoute {
-  /** What `alert_last_digest_at` becomes IF alerts are turning ON. Only consulted
-   *  by the CASE below, i.e. only on an OFF -> ON transition. */
-  baselineDigestAt: number | null;
 }
 
 /**
@@ -256,14 +223,6 @@ export async function selectScopedRoutes(db: D1Database): Promise<ScopedRoute[]>
   return results ?? [];
 }
 
-export interface RouteWindowRow {
-  id: number;
-  origin: string;
-  destination: string;
-  date_start: string;
-  date_end: string;
-}
-
 /** One route's primary pair and window — what a bulk enrich sweeps over. */
 export async function selectRouteWindow(
   db: D1Database,
@@ -273,16 +232,6 @@ export async function selectRouteWindow(
     .prepare("SELECT id, origin, destination, date_start, date_end FROM tracked_routes WHERE id = ?")
     .bind(id)
     .first<RouteWindowRow>();
-}
-
-export interface ReachRouteRow {
-  id: number;
-  origin: string;
-  destination: string;
-  origins: string | null;
-  destinations: string | null;
-  round_trip: number;
-  programs: string | null;
 }
 
 /** Every route, for the reach report. */
@@ -310,23 +259,6 @@ export async function countRoutesUsingRecipient(db: D1Database, email: string): 
 
 // ---- what a search reads and writes ---------------------------------------
 
-export interface SearchRouteRow {
-  id: number;
-  origin: string;
-  destination: string;
-  origins: string | null;
-  destinations: string | null;
-  date_start: string;
-  date_end: string;
-  /** 1 = search BOTH directions. Unlike every other per-route flag this one
-   *  changes what is gathered, not what is shown. */
-  round_trip: number;
-  /** JSON array of hub IATA codes, or null. The OTHER gathering setting, and
-   *  the only one that changes what a search COSTS: hubs are separate markets,
-   *  so they plan a second query per date chunk. Ignored on a round trip. */
-  via: string | null;
-}
-
 export async function selectSearchRoute(
   db: D1Database,
   id: number,
@@ -352,40 +284,6 @@ export async function stampLastChecked(db: D1Database, id: number, at: number): 
 }
 
 // ---- what the sweep reads and writes --------------------------------------
-
-export interface AlertRouteRow {
-  id: number;
-  origin: string;
-  destination: string;
-  origins: string | null;
-  destinations: string | null;
-  date_start: string;
-  date_end: string;
-  cabins: string | null;
-  /** Read by `routeMatcher`, and absent from this row until the match moved out
-   *  of SQL. While the predicate was a join against `tracked_routes tr` these
-   *  two came off `tr` and nothing here had to carry them; a matcher fed a row
-   *  without them silently reads "no currency filter, connections allowed" and
-   *  fires alerts on finds the route's own pane hides. */
-  currencies: string | null;
-  direct_only: number;
-  min_seats: number;
-  /** The route's points ceiling, or null. Read for the `gone` branch of
-   *  `selectAlertable`, and by `routeMatcher` for every other change type. */
-  point_limit: number | null;
-  round_trip: number;
-  /** Hubs, which double the queries per chunk — see `routeSweepCost`. */
-  via: string | null;
-  alert_email: string | null;
-  alert_on: string | null;
-  alert_min_drop_pct: number;
-  alert_last_attempt_at: number | null;
-  alert_last_digest_at: number | null;
-  alert_consecutive_failures: number;
-  last_checked_at: number | null;
-  /** What this route's last completed sweep actually spent. */
-  observed_calls: number | null;
-}
 
 /**
  * Every alert-enabled route, with the two things pacing needs alongside it: how

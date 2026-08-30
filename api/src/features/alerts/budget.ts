@@ -13,7 +13,7 @@ import { selectBudgetRows } from "../../db/sourceQuota.js";
  *
  * A person pressing Search does not need protecting from a call they chose to
  * spend, and a guard in that path turns a deliberate action into a baffling
- * refusal — `endpoints/search.ts` and `endpoints/enrich.ts` spend first and
+ * refusal — `features/search/endpoints.ts` and `features/enrich/endpoints.ts` spend first and
  * report after. The cron sweeping alert routes spends without anyone watching,
  * which is exactly what a budget is for. Nothing else may import this module.
  *

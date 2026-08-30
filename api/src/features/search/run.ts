@@ -10,14 +10,18 @@ import {
   makeTransport,
 } from "../../providers/transport.js";
 import { todayISO } from "../../util/dates.js";
-import { failRun, finishRun, insertRun, selectRunForResume, type SearchTotals } from "../../db/runs.js";
+import { failRun, finishRun, insertRun, selectRunForResume } from "../../db/runs.js";
 import { recordQuota } from "../../db/sourceQuota.js";
-import { selectSearchRoute, stampLastChecked, type SearchRouteRow } from "../../db/trackedRoutes.js";
+import { selectSearchRoute, stampLastChecked } from "../../db/trackedRoutes.js";
+import type { SearchTotals } from "../../models/run.js";
+import type { SearchRouteRow } from "../../models/trackedRoute.js";
 
-/** Declared in `../db/runs.ts`, beside the `runs` writer that consumes
- *  them, and re-exported here so this module reads as the search API it is. */
+/** `MAX_STORED_CHANGES` is declared in `db/runs.ts`, beside the writer that
+ *  applies it; `SearchTotals` is declared in `models/run.ts` with the rest of a
+ *  run's bookkeeping. Both are re-exported here so this module reads as the
+ *  search API it is. */
 export { MAX_STORED_CHANGES } from "../../db/runs.js";
-export type { SearchTotals } from "../../db/runs.js";
+export type { SearchTotals } from "../../models/run.js";
 
 
 /**
@@ -33,15 +37,16 @@ export type { SearchTotals } from "../../db/runs.js";
  * are adding a `fetch` to an airline in this worker, stop.
  *
  * It lives here rather than inside the Hono handler because it now has **two
- * callers and one behaviour** — the same idiom `applyTask` has. `endpoints/search.ts`
- * streams it to a person who pressed Search; `alerts/sweep.ts` runs it
- * unattended on a cron and reads the changes it returns. Two implementations of
+ * callers and one behaviour** — the same idiom `applyTask` has.
+ * `./endpoints.ts` streams it to a person who pressed Search;
+ * `features/alerts/tick.ts` runs it unattended on a cron and reads the changes
+ * it returns. Two implementations of
  * "search a route and ingest the result" would eventually disagree about
  * coverage, which is the one thing in this pipeline that silently destroys data.
  *
  * ## Three functions, not one, and the split is the safety property
  *
- * `endpoints/search.ts` holds a rule that a single entry point cannot keep: **everything
+ * `./endpoints.ts` holds a rule that a single entry point cannot keep: **everything
  * fallible happens before the stream opens**, because once the first byte is
  * written the response is committed to 200 and an `error` frame is all that is
  * left. A missing `SEATS_AERO_API_KEY` must be a 503, never an empty result that
@@ -62,7 +67,7 @@ export type { SearchTotals } from "../../db/runs.js";
 /** What the SPA sees. Newline-delimited JSON, one object per line.
  *
  *  DEFINED IN `shared/src/wire/search.ts` and re-exported here for this
- *  module's consumers (`endpoints/search.ts` re-exports it again). */
+ *  module's consumers (`features/search/endpoints.ts` re-exports it again). */
 export type { SearchEvent } from "../../../../shared/src/wire/search.js";
 // Again as a plain import: `export … from` re-exports without binding the name
 // in this module, and the run loop below is typed in terms of it.
@@ -101,7 +106,7 @@ export const MAX_CALLS_PER_REQUEST = 25;
 /** Every way a search can be refused before it spends anything.
  *
  *  A CODE rather than a status or a message, because the two callers report it
- *  differently and neither should be parsing the other's prose: `endpoints/search.ts` maps
+ *  differently and neither should be parsing the other's prose: `features/search/endpoints.ts` maps
  *  it to an HTTP status, the scheduler maps it to a named skip reason that lands
  *  in the Alerts tab. */
 export type PlanFailure =
@@ -130,7 +135,7 @@ export interface SearchPlan {
    * rather than a pair of cursors.
    *
    * **Chunk-major, and the order is load-bearing.** `from` is a bare integer
-   * index into this array, and `alerts/sweep.ts` resumes from
+   * index into this array, and `features/alerts/tick.ts` resumes from
    * `tasks_ok + tasks_failed` — a count. Reordering between passes would make a
    * resumed sweep re-run some tasks and skip others, silently.
    */
@@ -147,7 +152,7 @@ export interface SearchPassResult {
   nextIndex: number;
   total: number;
   totals: SearchTotals;
-  /** What changed, for the caller that cares. `endpoints/search.ts` ignores these (they
+  /** What changed, for the caller that cares. `features/search/endpoints.ts` ignores these (they
    *  are persisted to `runs.changes_json` either way); the alert sweep
    *  is the reason they are returned rather than only stored. */
   changes: ChangeSummary[];

@@ -1,5 +1,6 @@
 import type { SourceQuota } from "../../../shared/src/wire/index.js";
 import type { SourceQuotaObservation } from "../models/task.js";
+import type { BudgetRows } from "../models/run.js";
 import { spentSinceStatement } from "./runs.js";
 
 /**
@@ -60,13 +61,6 @@ export async function selectQuotaSince(db: D1Database, sinceDay: string): Promis
     .bind(sinceDay)
     .all<SourceQuota>();
   return results;
-}
-
-/** The stored row for one (source, day), plus what today's runs report spending.
- *  Raw: what the two numbers MEAN is `decideSweep`'s question, not this one's. */
-export interface BudgetRows {
-  quota?: { remaining: number; limit_calls: number | null; observed_at: number };
-  spent: number;
 }
 
 /**

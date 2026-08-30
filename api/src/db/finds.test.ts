@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import type { FilteredRoute, FindsScope, ScopedRoute } from "./finds.js";
+import type { FindsScope } from "../models/find.js";
+import type { FilteredRoute, ScopedRoute } from "../models/trackedRoute.js";
 import { findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
 import type { MatchableRoute } from "../../../shared/src/match/routeMatch.js";
 import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
@@ -26,7 +27,7 @@ import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
  * array whose shape it had memorised. That worked while the shape was three
  * fixed clauses and became a liar the moment it was a disjunction — it read the
  * cabin binds as destinations and still passed. `node:sqlite` costs nothing here
- * and cannot be fooled that way; see `ingest/applySql.test.ts`, which uses it
+ * and cannot be fooled that way; see `db/findsSql.test.ts`, which uses it
  * for the same reason.
  */
 

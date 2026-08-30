@@ -2,7 +2,8 @@ import type { AlertRouteCost } from "./pace.js";
 import { planSeatsAeroChunks } from "../../providers/seatsaero.js";
 import { queryGroupCount } from "../../models/route.js";
 import type { Env } from "../../bindings.js";
-import { selectAlertRoutes, type AlertRouteRow } from "../../db/trackedRoutes.js";
+import { selectAlertRoutes } from "../../db/trackedRoutes.js";
+import type { AlertRouteRow } from "../../models/trackedRoute.js";
 
 /**
  * An alert route as the two surfaces that list them see it: its row, what it
@@ -14,9 +15,9 @@ import { selectAlertRoutes, type AlertRouteRow } from "../../db/trackedRoutes.js
  * than no number at all, so the cost model has to be one implementation.
  */
 
-/** Declared in `db/trackedRoutes.ts`, beside the SELECT that produces it, and
+/** Declared in `models/trackedRoute.ts` with the table's other projections, and
  *  re-exported here because this module is what both surfaces read it through. */
-export type { AlertRouteRow } from "../../db/trackedRoutes.js";
+export type { AlertRouteRow } from "../../models/trackedRoute.js";
 
 /** A JSON list column, with the scalar fallback. Mirrors `codeList` in
  *  `db/finds.ts`. */

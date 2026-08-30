@@ -66,7 +66,7 @@ describe("the built-in catalogue", () => {
   });
 
   it("is descriptor-only — the Worker drives it through its own runner", () => {
-    // Not an oversight: `search/run.ts` streams, meters a subrequest budget and
+    // Not an oversight: `features/search/run.ts` streams, meters a subrequest budget and
     // resumes across requests, none of which fits a plain `run(task)`.
     expect(isRunnable(seatsAeroSource)).toBe(false);
   });

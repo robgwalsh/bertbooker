@@ -30,7 +30,7 @@ vi.mock("../search/run.js", () => ({
   runSearchPass: (...args: unknown[]) => runSearchPass(...args),
 }));
 
-const { runAlertTick } = await import("./sweep.js");
+const { runAlertTick } = await import("./tick.js");
 
 /** Dates inside seats.aero's horizon — `planSeatsAeroChunks` returns nothing
  *  for a window past it, and a zero-chunk route is never due. */

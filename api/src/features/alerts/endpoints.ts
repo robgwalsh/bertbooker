@@ -1,15 +1,16 @@
 import { Hono } from "hono";
-import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "../alerts/pace.js";
-import { parseAlertTypes } from "../alerts/select.js";
+import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "./pace.js";
+import { parseAlertTypes } from "./select.js";
 import { todayISO } from "../../domain/window.js";
 import type { Env, Vars } from "../../bindings.js";
 import type { AlertSchedule } from "../../../../shared/src/wire/index.js";
 import { selectAlertRuns } from "../../db/runs.js";
 import { selectDeliveries } from "../../db/alertDeliveries.js";
-import { allowedRecipients } from "../alerts/email.js";
+import { allowedRecipients } from "./recipients.js";
 import { isLocalRequest } from "../../middleware/security.js";
-import { ALERT_DEFAULTS, alertRouteRows, routeLabel, runAlertTick, alertRouteCosts } from "../alerts/sweep.js";
-import { decideSweep, readBudgetState } from "../alerts/budget.js";
+import { ALERT_DEFAULTS, runAlertTick } from "./tick.js";
+import { alertRouteCosts, alertRouteRows, routeLabel } from "./alertRoutes.js";
+import { decideSweep, readBudgetState } from "./budget.js";
 
 /**
  * What the Alerts tab reads, and — in local dev only — the one control it has.

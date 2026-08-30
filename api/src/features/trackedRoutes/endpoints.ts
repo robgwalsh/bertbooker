@@ -4,7 +4,7 @@ import { baselineOnEnable } from "../alerts/pace.js";
 import { MAX_VIA, normalizeSpec, searchPairs } from "../../domain/routing.js";
 import { fetchedSources, graphRowsForPairs, readFetchRecords } from "../../db/routeGraph.js";
 import { searchGraphPaths } from "../graph/pathSearch.js";
-import { isRecipientAllowed } from "../alerts/email.js";
+import { isRecipientAllowed } from "../alerts/recipients.js";
 import { isIsoDate } from "../../domain/window.js";
 import { CABIN_ORDER } from "../../domain/types.js";
 import { CURRENCIES } from "../../domain/programs.js";

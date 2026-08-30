@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedRecipients, isRecipientAllowed } from "./email.js";
+import { allowedRecipients, isRecipientAllowed } from "./recipients.js";
 import type { Env } from "../../bindings.js";
 
 // The allowlist is what stops one shared password turning this Worker into an

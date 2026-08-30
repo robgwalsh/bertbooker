@@ -20,7 +20,7 @@ import {
   csrfOrigin,
   isEdgeRequest,
 } from "./middleware/security.js";
-import { runAlertTick } from "./features/alerts/sweep.js";
+import { runAlertTick } from "./features/alerts/tick.js";
 // The endpoint modules, each a `Hono` sub-app mounted below. THE ORDER OF THESE
 // MOUNTS IS THE ROUTING TABLE — see the block comment above them.
 import { quota } from "./features/usage/quotaEndpoints.js";

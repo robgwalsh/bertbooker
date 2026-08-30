@@ -115,8 +115,6 @@ export async function insertTrackedRoute(
 
 /** A route as it is written on edit: the whole row, already merged. */
 export interface EditedTrackedRoute extends NewTrackedRoute {
-  /** Representative value for any `SELECT *` reader; `cabins` is the filter. */
-  cabin: string;
   /** What `alert_last_digest_at` becomes IF alerts are turning ON. Only consulted
    *  by the CASE below, i.e. only on an OFF -> ON transition. */
   baselineDigestAt: number | null;
@@ -143,7 +141,7 @@ export async function updateTrackedRoute(
       `UPDATE tracked_routes
           SET origin = ?, destination = ?, origins = ?, destinations = ?, via = ?,
               date_start = ?, date_end = ?,
-              cabin = ?, cabins = ?, currencies = ?, min_seats = ?, direct_only = ?,
+              cabins = ?, currencies = ?, min_seats = ?, direct_only = ?,
               point_limit = ?,
               round_trip = ?,
               alerts_enabled = ?, alert_email = ?, alert_on = ?, alert_min_drop_pct = ?,
@@ -171,7 +169,6 @@ export async function updateTrackedRoute(
       v.via,
       v.dateStart,
       v.dateEnd,
-      v.cabin,
       v.cabins,
       v.currencies,
       v.minSeats,

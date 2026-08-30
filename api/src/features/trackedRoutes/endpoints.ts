@@ -250,8 +250,6 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
     via: viaColumn(via),
     dateStart,
     dateEnd,
-    // Representative value for any `SELECT *` reader; `cabins` is the filter.
-    cabin: cabins ? (storedList(cabins).length === 1 ? storedList(cabins)[0]! : "any") : "any",
     cabins,
     currencies,
     minSeats: clampMinSeats(b.minSeats, clampMinSeats(row.min_seats, 1)),

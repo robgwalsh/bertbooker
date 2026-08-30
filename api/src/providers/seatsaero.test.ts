@@ -19,7 +19,7 @@ import {
   type SeatsAeroSearchResponse,
 } from "./seatsaero.js";
 import { makeTransport } from "./transport.js";
-import { PROGRAM_SEEDS, currenciesForProgram } from "../domain/programs.js";
+import { PROGRAM_SEEDS, currenciesForProgram } from "../models/program.js";
 
 // The fixture is hand-authored from the documented Cached Search shape and the
 // cases that matter (cabin fan-out, an unreported seat count, an unmapped

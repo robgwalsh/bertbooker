@@ -1,7 +1,7 @@
 import { type DigestRoute, groupForRecipients, renderDigest } from "./digest.js";
 import { routeLabel, type AlertRouteRow } from "./alertRoutes.js";
 import { idempotencyKey, sendEmail } from "./email.js";
-import type { ChangeSummary } from "../../domain/diff.js";
+import type { ChangeSummary } from "../../models/change.js";
 import type { Env } from "../../bindings.js";
 import { selectQuietAlertRoutes, stampAlertDigestForRoutes } from "../../db/trackedRoutes.js";
 import { deleteOldRuns, selectCycleCounts } from "../../db/runs.js";

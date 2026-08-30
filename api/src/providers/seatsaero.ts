@@ -1,9 +1,9 @@
-import type { AvailabilityResult, Cabin, Segment } from "../domain/types.js";
-import type { SourceQuotaObservation } from "../domain/tasks.js";
-import { currenciesForProgram } from "../domain/programs.js";
-import { collapseBy, type Collapsible } from "../domain/collapse.js";
+import type { AvailabilityResult, Cabin, Segment } from "../models/availability.js";
+import type { SourceQuotaObservation } from "../models/task.js";
+import { currenciesForProgram } from "../models/program.js";
+import { collapseBy, type Collapsible } from "../models/offer.js";
 import { BlockedError, makeTransport, type FetchLike } from "./transport.js";
-import { addDaysISO, chunkDateRange, effectiveSearchWindow } from "../domain/window.js";
+import { addDaysISO, chunkDateRange, effectiveSearchWindow } from "../util/dates.js";
 // Re-exported at the bottom of this file as well; imported here because
 // `export *` does not bind these names in local scope, and the loop below uses
 // nearly all of them.

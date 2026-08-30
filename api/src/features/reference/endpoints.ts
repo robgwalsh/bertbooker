@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { AIRLINE_DIRECTORY } from "./airlines.js";
-import { CURRENCIES } from "../../domain/programs.js";
+import { AIRLINE_DIRECTORY } from "../../models/airline.js";
+import { CURRENCIES } from "../../models/program.js";
 import { selectActivePrograms } from "../../db/programs.js";
 import type { Env, Vars } from "../../bindings.js";
 import type { ProgramInfo } from "../../../../shared/src/wire/index.js";

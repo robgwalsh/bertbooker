@@ -1,10 +1,17 @@
-import type { AvailabilityResult } from "./types.js";
-import { routeKey } from "./types.js";
+import type { AvailabilityResult } from "./availability.js";
+import { routeKey } from "./availability.js";
 import type { ChangeSummary, ChangeType } from "../../../shared/src/wire/domain.js";
 
-// `ChangeType` and `ChangeSummary` are declared in `./wire/domain.ts` — the SPA
-// renders both, so the wire contract owns them and this module re-exports them.
-// `diffAvailability` below, which produces them, is Worker-only.
+// WHAT MOVED between two observations of the same slot, and the rule that
+// decides it.
+//
+// The shape and the rule live together because the rule IS the definition: a
+// `price_drop` is whatever `diffAvailability` calls one, and the Routes page, the
+// run summary and the alert digest all have to mean the same thing by it.
+//
+// `ChangeType` and `ChangeSummary` are declared in `shared/src/wire/domain.ts` —
+// the SPA renders both, so the wire contract owns them and this module
+// re-exports them. `diffAvailability`, which produces them, is Worker-only.
 export type { ChangeSummary, ChangeType } from "../../../shared/src/wire/domain.js";
 
 export interface AvailabilityChange {

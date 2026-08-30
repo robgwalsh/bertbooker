@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeSummary, ChangeType } from "../../domain/diff.js";
+import type { ChangeSummary, ChangeType } from "../../models/change.js";
 import {
   describeChange,
   digestSubject,

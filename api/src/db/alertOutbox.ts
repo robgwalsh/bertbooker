@@ -1,4 +1,4 @@
-import type { ChangeSummary } from "../domain/diff.js";
+import type { ChangeSummary } from "../models/change.js";
 
 /**
  * The `alert_outbox` table — changes waiting for the next digest.

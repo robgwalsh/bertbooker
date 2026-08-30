@@ -1,4 +1,4 @@
-import type { ChangeSummary } from "../domain/diff.js";
+import type { ChangeSummary } from "../models/change.js";
 import type { Run } from "../../../shared/src/wire/index.js";
 
 /**

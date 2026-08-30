@@ -1,5 +1,5 @@
-import { addDaysISO } from "../domain/window.js";
-import type { AvailabilityResult } from "../domain/types.js";
+import { addDaysISO } from "../util/dates.js";
+import type { AvailabilityResult } from "../models/availability.js";
 import type { Find } from "../../../shared/src/wire/index.js";
 import type { MatchableFind } from "../../../shared/src/match/routeMatch.js";
 

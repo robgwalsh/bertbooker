@@ -1,5 +1,5 @@
 import type { SourceQuota } from "../../../shared/src/wire/index.js";
-import type { SourceQuotaObservation } from "../domain/tasks.js";
+import type { SourceQuotaObservation } from "../models/task.js";
 import { spentSinceStatement } from "./runs.js";
 
 /**

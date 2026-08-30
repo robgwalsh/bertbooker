@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AvailabilityResult } from "../../domain/types.js";
+import type { AvailabilityResult } from "../../models/availability.js";
 import {
   applyTask,
   collapseOffers,
@@ -8,7 +8,7 @@ import {
   prunable,
   routesTouched,
 } from "./apply.js";
-import { claimsCoverage, type SourceTaskReport, type SourceTaskStatus } from "../../domain/tasks.js";
+import { claimsCoverage, type SourceTaskReport, type SourceTaskStatus } from "../../models/task.js";
 
 const offer = (o: Partial<AvailabilityResult> = {}): AvailabilityResult => ({
   origin: "SEA",

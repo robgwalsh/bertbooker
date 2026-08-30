@@ -20,9 +20,15 @@ import { SEATSAERO_MAX_PAGES } from "../../../shared/src/wire/seatsaero.js";
  *
  * Everything here is pure and offline-testable. Nothing in this file knows about
  * D1, the Worker, or fetch.
+ *
+ * It is a MODEL rather than a util because every function is an opinion about
+ * award search: what a route expands to, which of those pairs a coverage claim
+ * may cover, how a hub splits one route into two queries, and what the whole
+ * thing costs in metered calls. Four slices read it and none owns it.
  */
 
-// `RoutePair`, `RouteSpec` and the two caps are declared in `./wire/routing.ts`
+// `RoutePair`, `RouteSpec` and the two caps are declared in
+// `shared/src/wire/routing.ts`
 // and re-exported here, so every consumer of this module sees them in one
 // place. The SPA reads all four; the caps are VALUES rather than types, so
 // they carry runtime code, not just type information.

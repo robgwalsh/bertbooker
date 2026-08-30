@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "./pace.js";
 import { parseAlertTypes } from "./select.js";
-import { todayISO } from "../../domain/window.js";
+import { todayISO } from "../../util/dates.js";
 import type { Env, Vars } from "../../bindings.js";
 import type { AlertSchedule } from "../../../../shared/src/wire/index.js";
 import { selectAlertRuns } from "../../db/runs.js";

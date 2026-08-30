@@ -1,4 +1,4 @@
-import { searchPairs } from "../../domain/routing.js";
+import { searchPairs } from "../../models/route.js";
 import type { GraphPair } from "../../db/routeGraph.js";
 import type {
   GraphPath,

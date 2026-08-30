@@ -1,4 +1,4 @@
-import type { Cabin } from "../../domain/types.js";
+import type { Cabin } from "../../models/availability.js";
 import {
   runSeatsAeroTrips,
   type SeatsAeroTripDetail,

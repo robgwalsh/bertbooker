@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { AIRLINE_DIRECTORY, AIRLINE_SEEDS, programsForAirline } from "./airlines.js";
-import { PROGRAM_SEEDS } from "../../domain/programs.js";
+import { AIRLINE_DIRECTORY, AIRLINE_SEEDS, programsForAirline } from "./airline.js";
+import { PROGRAM_SEEDS } from "./program.js";
 
 const AIRLINE_PROGRAMS = new Set(PROGRAM_SEEDS.filter((p) => p.kind === "airline").map((p) => p.code));
 

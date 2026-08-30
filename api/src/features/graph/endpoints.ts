@@ -16,9 +16,9 @@ import {
   SEATSAERO_ZERO_ROUTE_NAMES,
   runSeatsAeroRoutes,
 } from "../../providers/seatsaero.js";
-import { searchPairs } from "../../domain/routing.js";
+import { searchPairs } from "../../models/route.js";
 import { classifyError, clientMessage, makeTransport } from "../../providers/transport.js";
-import { PROGRAM_SEEDS, currenciesForProgram } from "../../domain/programs.js";
+import { PROGRAM_SEEDS, currenciesForProgram } from "../../models/program.js";
 import { assessGraphReach, type ReachRouteInput } from "./reach.js";
 import {
   ROUTE_HARD_MAX,

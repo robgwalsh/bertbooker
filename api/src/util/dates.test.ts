@@ -8,7 +8,7 @@ import {
   isIsoDate,
   planStrideDates,
   todayISO,
-} from "./window.js";
+} from "./dates.js";
 
 // chunkDateRange / effectiveSearchWindow live here rather than beside one
 // provider, because the horizon-clamp-then-tile shape is the same for all of

@@ -1,4 +1,4 @@
-import { PROGRAM_SEEDS } from "../domain/programs.js";
+import { PROGRAM_SEEDS } from "../models/program.js";
 import type { SourceDescriptor } from "./types.js";
 
 /**

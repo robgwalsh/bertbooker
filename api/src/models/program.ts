@@ -1,5 +1,14 @@
-import type { Alliance, Currency, ProgramKind } from "./types.js";
-// `CurrencyInfo` is declared in `../wire/reference.ts`, because
+// WHAT THE COUPLE CAN PAY WITH, and what each loyalty program takes. Seed data
+// and the one lookup over it: `currenciesForProgram` is the inverse index of
+// `transferPartners`, and belongs beside the array it reads rather than in a
+// util, because it is only meaningful about THIS array.
+//
+// `seed/programs.sql` mirrors `PROGRAM_SEEDS` — keep them in step when adding or
+// editing a program. The seed lives outside `migrations/` so it stays
+// re-runnable, and `sources/registry.ts` validates every program a source
+// declares against this array at boot.
+import type { Alliance, Currency } from "./availability.js";
+// `CurrencyInfo` is declared in `shared/src/wire/reference.ts`, because
 // `GET /api/currencies` answers `c.json(CURRENCIES)` verbatim — the wire type IS
 // the element type of `CURRENCIES` below, and annotating that array against it
 // is what keeps the served shape and the declared one in step.
@@ -12,6 +21,10 @@ export interface TransferPartner {
   /** Transfer ratio, points-out : miles-in, e.g. "1:1", "2:1.5". */
   ratio: string;
 }
+
+/** A program is an airline's or a hotel's. Nothing SEARCHES a hotel program —
+ *  the Library page is what renders them. */
+export type ProgramKind = "airline" | "hotel";
 
 export interface ProgramSeed {
   code: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ALERT_TYPES, dropPercent, parseAlertTypes, selectAlertable } from "./select.js";
-import type { ChangeSummary, ChangeType } from "../../domain/diff.js";
+import type { ChangeSummary, ChangeType } from "../../models/change.js";
 
 /**
  * Which of a sweep's changes are worth an email.

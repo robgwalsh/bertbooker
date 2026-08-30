@@ -1,13 +1,17 @@
-// Normalized domain model for award availability.
-// Every data source (an aggregator, an airline's own site, seats.aero) must
-// produce `AvailabilityResult`s, and every consumer (D1 snapshots, the API, the
-// SPA) reads from this shape. Keep this file provider-agnostic.
+// AWARD AVAILABILITY — the normalized shape every source must produce and every
+// consumer reads. Provider-agnostic on purpose: nothing here knows what
+// seats.aero's payload looks like.
 //
 // `Cabin`, `Segment`, `Currency` and `Alliance` are DECLARED in
-// `./wire/domain.ts` and re-exported here — the SPA reads all four, and the wire
-// contract is where the shared half of this vocabulary lives. Importing them
-// from here goes on working exactly as before; see the banner in that file for
-// why the direction is that way round and not this one.
+// `shared/src/wire/domain.ts` and re-exported here — the SPA reads all four, and
+// the wire contract is where the shared half of this vocabulary lives. That is
+// the rule for this whole directory: **a model here is Worker-only. If the SPA
+// renders it, it is a wire type and it lives in `shared/src/wire/`.** Which is
+// why there is no `airport.ts` — `AirportInfo`, `AirportName` and `AirportGeo`
+// are all rendered, so all three are wire types.
+//
+// `routeKey` is here rather than in a util because it is this shape's identity,
+// not a string helper: it names the slot a find occupies.
 
 import type { Cabin, Currency, Segment } from "../../../shared/src/wire/domain.js";
 
@@ -15,10 +19,6 @@ export type { Alliance, Cabin, Currency, Segment } from "../../../shared/src/wir
 
 /** The four cabins in ascending value order — useful for "best cabin" logic. */
 export const CABIN_ORDER: readonly Cabin[] = ["economy", "premium", "business", "first"];
-
-/** A program is an airline's or a hotel's. Nothing SEARCHES a hotel program —
- *  the Library page is what renders them. */
-export type ProgramKind = "airline" | "hotel";
 
 /** A normalized search request, independent of any provider's query format. */
 export interface SearchParams {

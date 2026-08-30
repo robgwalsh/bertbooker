@@ -1,8 +1,8 @@
 import { ALL_ALERT_TYPES } from "../alerts/select.js";
 import { isRecipientAllowed } from "../alerts/recipients.js";
-import { MAX_VIA } from "../../domain/routing.js";
-import { CABIN_ORDER } from "../../domain/types.js";
-import { CURRENCIES } from "../../domain/programs.js";
+import { MAX_VIA } from "../../models/route.js";
+import { CABIN_ORDER } from "../../models/availability.js";
+import { CURRENCIES } from "../../models/program.js";
 import type { Env } from "../../bindings.js";
 import type { RouteInput } from "../../../../shared/src/wire/index.js";
 

@@ -1,7 +1,7 @@
-import type { ChangeSummary } from "../../domain/diff.js";
-import { planRoute, type RouteLegGroup, type RoutePair } from "../../domain/routing.js";
+import type { ChangeSummary } from "../../models/change.js";
+import { planRoute, type RouteLegGroup, type RoutePair } from "../../models/route.js";
 import { applyTask } from "./apply.js";
-import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../../domain/tasks.js";
+import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../../models/task.js";
 import { datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk } from "../../providers/seatsaero.js";
 import {
   classifyError,
@@ -9,7 +9,7 @@ import {
   type FetchLike,
   makeTransport,
 } from "../../providers/transport.js";
-import { todayISO } from "../../domain/window.js";
+import { todayISO } from "../../util/dates.js";
 import { failRun, finishRun, insertRun, selectRunForResume, type SearchTotals } from "../../db/runs.js";
 import { recordQuota } from "../../db/sourceQuota.js";
 import { selectSearchRoute, stampLastChecked, type SearchRouteRow } from "../../db/trackedRoutes.js";

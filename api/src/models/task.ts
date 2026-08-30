@@ -1,14 +1,18 @@
-import type { AvailabilityResult } from "./types.js";
+import type { AvailabilityResult } from "./availability.js";
 
-// What a completed unit of gathering work looks like on its way into the
-// database. One producer — the Worker's own seats.aero search — hands these to
-// `applyTask` in-process. The properties it encodes are about honesty rather
-// than transport: a task that was refused must be distinguishable from one
-// that looked and found nothing.
+// A COMPLETED UNIT OF GATHERING WORK, on its way into the database. One
+// producer — the Worker's own seats.aero search — hands these to `applyTask`
+// in-process. The properties it encodes are about honesty rather than transport:
+// a task that was refused must be distinguishable from one that looked and found
+// nothing.
 //
-// The display half of this IS part of the wire contract: `SourceTaskStatus` and
-// `RunStatus` are DECLARED in `../wire/domain.ts`, which the SPA imports, and
-// re-exported below so every consumer here is unchanged. The invariant that
+// The two rules that read this shape live here with it, because they ARE its
+// meaning: `claimsCoverage` says which statuses may delete stored rows, and
+// `runStatus` says when a run of them counts as clean.
+//
+// The display half IS part of the wire contract: `SourceTaskStatus` and
+// `RunStatus` are DECLARED in `shared/src/wire/domain.ts`, which the SPA imports,
+// and re-exported below so every consumer here is unchanged. The invariant that
 // pairs with the first of them — `COVERAGE_CLAIMING_STATUSES` — is a runtime
 // value and stays on this side.
 

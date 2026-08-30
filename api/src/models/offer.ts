@@ -1,7 +1,16 @@
-import type { AvailabilityResult } from "./types.js";
+import type { AvailabilityResult } from "./availability.js";
 
 /**
- * The subset of fields the "which of these two offers is better" rule reads.
+ * WHICH OF TWO OFFERS IS BETTER — a decision about award value, and the fields
+ * it reads.
+ *
+ * A model rather than a util: "cheapest miles, then more seats, then fewer
+ * stops, then shorter" is an opinion about award travel, not a sort helper. It
+ * is also load-bearing rather than cosmetic — see `collapseBy`.
+ */
+
+/**
+ * The subset of fields the rule reads.
  * Both `AirlineOffer` (carrier-shaped, pre-normalization) and
  * `AvailabilityResult` (normalized) satisfy it, which is the point: the rule is
  * a domain decision about award value, not a detail of either shape.

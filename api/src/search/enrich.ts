@@ -4,7 +4,7 @@ import {
   type SeatsAeroTripDetail,
 } from "../providers/seatsaero.js";
 import { classifyError, type FetchLike, makeTransport } from "../providers/transport.js";
-import { recordQuota } from "../db/runs.js";
+import { recordQuota } from "../db/sourceQuota.js";
 
 /**
  * Buying the itinerary behind a summary find — the engine half.

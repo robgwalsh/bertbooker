@@ -10,7 +10,9 @@ import {
   makeTransport,
 } from "../providers/transport.js";
 import { todayISO } from "../domain/window.js";
-import { finishRun, recordQuota, type SearchTotals } from "../db/runs.js";
+import { failRun, finishRun, insertRun, selectRunForResume, type SearchTotals } from "../db/runs.js";
+import { recordQuota } from "../db/sourceQuota.js";
+import { selectSearchRoute, stampLastChecked, type SearchRouteRow } from "../db/trackedRoutes.js";
 
 /** Declared in `../db/runs.ts`, beside the `runs` writer that consumes
  *  them, and re-exported here so this module reads as the search API it is. */
@@ -96,23 +98,6 @@ export const CAPTURE_BUDGET_BYTES = 6_000_000;
  */
 export const MAX_CALLS_PER_REQUEST = 25;
 
-export interface TrackedRouteRow {
-  id: number;
-  origin: string;
-  destination: string;
-  origins: string | null;
-  destinations: string | null;
-  date_start: string;
-  date_end: string;
-  /** 1 = search BOTH directions. Unlike every other per-route flag this one
-   *  changes what is gathered, not what is shown. */
-  round_trip: number;
-  /** JSON array of hub IATA codes, or null. The OTHER gathering setting, and
-   *  the only one that changes what a search COSTS: hubs are separate markets,
-   *  so they plan a second query per date chunk. Ignored on a round trip. */
-  via: string | null;
-}
-
 /** Every way a search can be refused before it spends anything.
  *
  *  A CODE rather than a status or a message, because the two callers report it
@@ -128,7 +113,7 @@ export type PlanFailure =
   | { code: "run_not_found" };
 
 export interface SearchPlan {
-  route: TrackedRouteRow;
+  route: SearchRouteRow;
   apiKey: string;
   email: string;
   /** The route's own airports. The QUERIES' airports live on each group, and a
@@ -217,14 +202,7 @@ export async function planSearchPass(
     today?: string;
   },
 ): Promise<{ ok: true; plan: SearchPlan } | { ok: false; failure: PlanFailure }> {
-  const route = await db
-    .prepare(
-      `SELECT id, origin, destination, origins, destinations, date_start, date_end,
-              round_trip, via
-         FROM tracked_routes WHERE id = ?`,
-    )
-    .bind(opts.routeId)
-    .first<TrackedRouteRow>();
+  const route = await selectSearchRoute(db, opts.routeId);
   if (!route) return { ok: false, failure: { code: "not_found" } };
 
   // "We have no key" and "there is no award space" are the same absence and
@@ -314,41 +292,21 @@ export async function openSearchRun(
   const startedAt = opts.startedAt ?? Date.now();
 
   if (opts.resumeRunId) {
-    const existing = await db
-      .prepare("SELECT id FROM runs WHERE id = ? AND trigger = ?")
-      .bind(opts.resumeRunId, opts.trigger)
-      .first<{ id: string }>();
+    const existing = await selectRunForResume(db, opts.resumeRunId, opts.trigger);
     if (!existing) return { ok: false, failure: { code: "run_not_found" } };
     return { ok: true, runId: existing.id, startedAt };
   }
 
   const runId = crypto.randomUUID();
-  // `trigger` deliberately has no CHECK constraint, which is how 'alert' joined
-  // 'search' for free.
-  //
-  // `origin`/`destination` are NOT NULL scalars here and stay the route's
-  // primary airports. The full pair list lives on each task's report, never in
-  // a comma-joined column — see `SourceTaskReport.routes`.
-  await db
-    .prepare(
-      `INSERT INTO runs
-         (id, trigger, route_id, origin, destination, status, started_at,
-          tasks_planned)
-       VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`,
-    )
-    .bind(
-      runId,
-      opts.trigger,
-      // The route this run is OF. `origin`/`destination` below are only its
-      // primary airports, so two routes sharing a pair are otherwise
-      // indistinguishable.
-      opts.routeId ?? plan.route.id,
-      plan.route.origin,
-      plan.route.destination,
-      startedAt,
-      plan.tasks.length,
-    )
-    .run();
+  await insertRun(db, {
+    runId,
+    trigger: opts.trigger,
+    routeId: opts.routeId ?? plan.route.id,
+    origin: plan.route.origin,
+    destination: plan.route.destination,
+    startedAt,
+    tasksPlanned: plan.tasks.length,
+  });
 
   return { ok: true, runId, startedAt };
 }
@@ -575,12 +533,7 @@ export async function runSearchPass(
     // Only a run that actually claimed coverage may say the route was checked.
     // A wholly-failed search leaves `last_checked_at` alone, so the route keeps
     // reading as never searched — which is the truth.
-    if (totals.ok > 0) {
-      await db
-        .prepare("UPDATE tracked_routes SET last_checked_at = ? WHERE id = ?")
-        .bind(finishedAt, route.id)
-        .run();
-    }
+    if (totals.ok > 0) await stampLastChecked(db, route.id, finishedAt);
 
     if (paused) {
       await emit({
@@ -624,13 +577,7 @@ export async function runSearchPass(
     // exactly what happened. The stream is read by a browser, where a raw D1
     // error is internal schema disclosure wearing a status message's clothes.
     const message = err instanceof Error ? err.message : String(err);
-    await db
-      .prepare(
-        "UPDATE runs SET status = 'failed', finished_at = ?, error = ? WHERE id = ?",
-      )
-      .bind(Date.now(), message, runId)
-      .run()
-      .catch(() => {});
+    await failRun(db, runId, Date.now(), message).catch(() => {});
     await emit({ type: "error", message: clientMessage(err) }).catch(() => {});
     return {
       runId,

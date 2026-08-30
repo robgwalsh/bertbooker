@@ -1,4 +1,5 @@
 import { SEATSAERO_SOURCE_ID } from "../providers/seatsaero.js";
+import { selectBudgetRows } from "../db/sourceQuota.js";
 
 /**
  * The budget guard — scoped to the scheduler alone.
@@ -102,35 +103,34 @@ export function utcDayStart(now: number): number {
 /**
  * Read what the guard needs out of D1.
  *
+ * **This is the read the invariant is about.** `selectBudgetRows` owns the two
+ * statements and their batch, as every statement in this Worker does; what stays
+ * here is the thing that must stay in one place — the only read of a quota that
+ * happens BEFORE a call is spent. That db/ function has one caller and says so.
+ *
  * A row from a previous UTC day is simply not selected — `source_quota`'s key is
  * (source, day), so yesterday's exhausted count can never be mistaken for
- * today's, and the caller falls back to self-accounting exactly as it would on a
- * day with no row at all.
+ * today's, and this falls back to self-accounting exactly as it would on a day
+ * with no row at all.
  */
 export async function readBudgetState(
   db: D1Database,
   now: number,
 ): Promise<{ observation?: QuotaObservation; selfSpentToday: number }> {
-  const day = utcDay(now);
-  const [quotaRes, spentRes] = await db.batch([
-    db
-      .prepare(
-        "SELECT remaining, limit_calls, observed_at FROM source_quota WHERE source = ? AND day = ?",
-      )
-      .bind(SEATSAERO_SOURCE_ID, day),
-    db
-      .prepare("SELECT COALESCE(SUM(calls), 0) AS spent FROM runs WHERE started_at >= ?")
-      .bind(utcDayStart(now)),
-  ]);
-
-  const q = quotaRes?.results?.[0] as
-    | { remaining: number; limit_calls: number | null; observed_at: number }
-    | undefined;
-  const spent = (spentRes?.results?.[0] as { spent: number } | undefined)?.spent ?? 0;
+  const { quota, spent } = await selectBudgetRows(
+    db,
+    SEATSAERO_SOURCE_ID,
+    utcDay(now),
+    utcDayStart(now),
+  );
 
   return {
-    observation: q
-      ? { remaining: Number(q.remaining), limitCalls: q.limit_calls == null ? null : Number(q.limit_calls), observedAt: Number(q.observed_at) }
+    observation: quota
+      ? {
+          remaining: Number(quota.remaining),
+          limitCalls: quota.limit_calls == null ? null : Number(quota.limit_calls),
+          observedAt: Number(quota.observed_at),
+        }
       : undefined,
     selfSpentToday: Number(spent),
   };

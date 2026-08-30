@@ -3,11 +3,9 @@ import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "../
 import { parseAlertTypes } from "../alerts/select.js";
 import { todayISO } from "../domain/window.js";
 import type { Env, Vars } from "../bindings.js";
-import type {
-  AlertDelivery,
-  AlertSchedule,
-  Run,
-} from "../../../shared/src/wire/index.js";
+import type { AlertSchedule } from "../../../shared/src/wire/index.js";
+import { selectAlertRuns } from "../db/runs.js";
+import { selectDeliveries } from "../db/alertDeliveries.js";
 import { allowedRecipients } from "../alerts/email.js";
 import { isLocalRequest } from "../middleware/security.js";
 import { ALERT_DEFAULTS, alertRouteRows, routeLabel, runAlertTick, alertRouteCosts } from "../alerts/sweep.js";
@@ -166,14 +164,7 @@ function pageLimit(raw: string | undefined): number {
  *  by its trigger. */
 alerts.get("/api/alerts/runs", async (c) => {
   const limit = pageLimit(c.req.query("limit"));
-  const { results } = await c.env.DB.prepare(
-    `SELECT * FROM runs
-      WHERE trigger = 'alert'
-      ORDER BY started_at DESC LIMIT ?`,
-  )
-    .bind(limit)
-    .all<Run>();
-  return c.json(results ?? []);
+  return c.json(await selectAlertRuns(c.env.DB, limit));
 });
 
 /**
@@ -215,10 +206,5 @@ alerts.post("/api/alerts/run", async (c) => {
  *  no failure email, this table is the only trace a dropped digest leaves. */
 alerts.get("/api/alerts/deliveries", async (c) => {
   const limit = pageLimit(c.req.query("limit"));
-  const { results } = await c.env.DB.prepare(
-    "SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT ?",
-  )
-    .bind(limit)
-    .all<AlertDelivery>();
-  return c.json(results ?? []);
+  return c.json(await selectDeliveries(c.env.DB, limit));
 });

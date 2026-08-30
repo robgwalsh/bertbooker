@@ -1,17 +1,22 @@
 import type { ChangeSummary } from "../domain/diff.js";
-import type { SourceQuotaObservation } from "../domain/tasks.js";
+import type { Run } from "../../../shared/src/wire/index.js";
 
 /**
- * The writers for a gathering run's bookkeeping — `runs` and `source_quota`.
+ * The `runs` table — a gathering run's bookkeeping.
  *
- * They live here rather than in `search/run.ts` because they are not search
- * logic: they take a run id and a report and write a row. Keeping them there
- * meant the enrichment path had to import the whole search engine to record a
- * quota observation it read off a `/trips/{id}` response header.
+ * A run row is written by both callers of the search engine and read by the
+ * Alerts tab, the pacing model and the budget guard. It is the only table in
+ * this app that grows on a CLOCK rather than with the data, which is why
+ * `deleteOldRuns` exists at the bottom.
  *
- * `recordQuota` is worth stating plainly: **it is a display writer, not a
- * guard.** Nothing here reads the quota back before spending. The one reader
- * that consults it before a call is `alerts/budget.ts`, the scheduled sweep.
+ * These statements live here rather than in the search engine because they are
+ * not search logic: they take a run id and a report and write a row. Keeping
+ * them there meant the enrichment path had to import the whole search engine to
+ * record a quota observation it read off a `/trips/{id}` response header.
+ *
+ * `source_quota` used to live in this file too. It is `db/sourceQuota.ts` now —
+ * one module per table — and the one statement the two still share is
+ * `spentSinceStatement`, which the budget guard batches against a quota read.
  */
 
 /** How many change summaries a run keeps. Display only — the authoritative
@@ -27,6 +32,71 @@ export interface SearchTotals {
   written: number;
   pruned: number;
   calls: number;
+}
+
+/**
+ * Mint the run row.
+ *
+ * `trigger` deliberately has no CHECK constraint, which is how 'alert' joined
+ * 'search' for free.
+ *
+ * `origin`/`destination` are NOT NULL scalars and stay the route's primary
+ * airports. The full pair list lives on each task's report, never in a
+ * comma-joined column — see `SourceTaskReport.routes`.
+ */
+export async function insertRun(
+  db: D1Database,
+  v: {
+    runId: string;
+    trigger: string;
+    /** The route this run is OF. `origin`/`destination` are only its primary
+     *  airports, so two routes sharing a pair are otherwise indistinguishable. */
+    routeId: number;
+    origin: string;
+    destination: string;
+    startedAt: number;
+    tasksPlanned: number;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO runs
+         (id, trigger, route_id, origin, destination, status, started_at,
+          tasks_planned)
+       VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`,
+    )
+    .bind(v.runId, v.trigger, v.routeId, v.origin, v.destination, v.startedAt, v.tasksPlanned)
+    .run();
+}
+
+/** Validate a resume id against its trigger, so one caller cannot reopen the
+ *  other's run. */
+export async function selectRunForResume(
+  db: D1Database,
+  runId: string,
+  trigger: string,
+): Promise<{ id: string } | null> {
+  return await db
+    .prepare("SELECT id FROM runs WHERE id = ? AND trigger = ?")
+    .bind(runId, trigger)
+    .first<{ id: string }>();
+}
+
+/** A paused sweep left a run to resume; picking it up is what keeps one route's
+ *  coverage on one run row. The counters are where the resumed pass finds its
+ *  place in the plan: `tasks_ok + tasks_failed` is the index to start from. */
+export async function selectResumableAlertRun(
+  db: D1Database,
+  routeId: number,
+): Promise<{ id: string; tasks_planned: number; tasks_ok: number; tasks_failed: number } | null> {
+  return await db
+    .prepare(
+      `SELECT id, tasks_planned, tasks_ok, tasks_failed FROM runs
+        WHERE route_id = ? AND trigger = 'alert' AND status = 'running'
+        ORDER BY started_at DESC LIMIT 1`,
+    )
+    .bind(routeId)
+    .first<{ id: string; tasks_planned: number; tasks_ok: number; tasks_failed: number }>();
 }
 
 /**
@@ -95,42 +165,94 @@ export async function finishRun(
     .run();
 }
 
-/**
- * Record what a metered source has left in its daily allowance.
- *
- * The day bucket is derived in **UTC** from the observer's `observedAt`, because
- * that is when seats.aero's allowance resets. Deriving it here rather than
- * trusting a `day` field off the wire keeps one clock in charge of the
- * bucketing.
- *
- * The `WHERE` on the upsert is the interesting part: an older observation
- * arriving late must not roll `remaining` back up to a number that has since
- * been spent.
- *
- * For every INTERACTIVE path this is a **display, not a guard**: search and
- * enrich spend first and report after, because nobody needs protecting from a
- * call they deliberately asked for. It has exactly ONE reader that consults it
- * before spending, and that is `alerts/budget.ts` — the scheduled sweep, which
- * spends with nobody watching.
- */
-export async function recordQuota(
+/** The pass died rather than completed. The RAW message is recorded — this row
+ *  is read by whoever is debugging and by `GET /api/alerts/runs`, and it should
+ *  say exactly what happened. What reaches a browser is sanitised separately;
+ *  see `clientMessage`. */
+export async function failRun(
   db: D1Database,
-  quota: SourceQuotaObservation[],
+  runId: string,
+  finishedAt: number,
+  error: string,
 ): Promise<void> {
-  for (const q of quota) {
-    if (!q?.source || !Number.isFinite(q.remaining) || !Number.isFinite(q.observedAt)) continue;
-    const day = new Date(q.observedAt).toISOString().slice(0, 10);
-    await db
-      .prepare(
-        `INSERT INTO source_quota (source, day, remaining, limit_calls, observed_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (source, day) DO UPDATE SET
-           remaining   = excluded.remaining,
-           limit_calls = COALESCE(excluded.limit_calls, source_quota.limit_calls),
-           observed_at = excluded.observed_at
-         WHERE excluded.observed_at >= source_quota.observed_at`,
-      )
-      .bind(q.source, day, q.remaining, q.limit ?? null, q.observedAt)
-      .run();
-  }
+  await db
+    .prepare("UPDATE runs SET status = 'failed', finished_at = ?, error = ? WHERE id = ?")
+    .bind(finishedAt, error, runId)
+    .run();
+}
+
+/** Recent sweeps. A sweep is a `runs` row like any other, told apart only by its
+ *  trigger. */
+export async function selectAlertRuns(db: D1Database, limit: number): Promise<Run[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM runs
+        WHERE trigger = 'alert'
+        ORDER BY started_at DESC LIMIT ?`,
+    )
+    .bind(limit)
+    .all<Run>();
+  return results ?? [];
+}
+
+/**
+ * Is the sweep cycle over — nothing due, nothing mid-run?
+ *
+ * Two scalar subqueries in one row, so this is one query rather than two. It
+ * reads `tracked_routes` as well as `runs`, and lives here because "no alert run
+ * is still `running`" is the half with the status column.
+ *
+ * A gap worth knowing about: the `due` count has no notion of chunks, while
+ * `dueRoutes` skips any route whose window has expired. So an expired-window
+ * alert route is never swept, never stamped, counts as due forever, and no
+ * digest flushes for any route while it is enabled. If that is ever tightened,
+ * the honest fix is to give this subquery the same window test the planner
+ * applies rather than to loosen the flush condition.
+ */
+export async function selectCycleCounts(
+  db: D1Database,
+  attemptedBefore: number,
+): Promise<{ due: number; running: number }> {
+  const row = await db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM tracked_routes
+           WHERE alerts_enabled = 1
+             AND (alert_last_attempt_at IS NULL OR alert_last_attempt_at <= ?)) AS due,
+         (SELECT COUNT(*) FROM runs
+           WHERE trigger = 'alert' AND status = 'running') AS running`,
+    )
+    .bind(attemptedBefore)
+    .first<{ due: number; running: number }>();
+  return { due: row?.due ?? 0, running: row?.running ?? 0 };
+}
+
+/**
+ * What today's runs report spending, as a STATEMENT rather than a result.
+ *
+ * A builder because its one caller batches it against a `source_quota` read, and
+ * that pairing is the budget guard's single round trip. A covering seek on
+ * `idx_runs_spend`, the one index on this table that exists for this query
+ * alone. See `selectBudgetRows` in `db/sourceQuota.ts`, its only composer.
+ */
+export function spentSinceStatement(db: D1Database, since: number): D1PreparedStatement {
+  return db
+    .prepare("SELECT COALESCE(SUM(calls), 0) AS spent FROM runs WHERE started_at >= ?")
+    .bind(since);
+}
+
+/**
+ * Delete run rows older than the retention window.
+ *
+ * Deliberately unbounded by a LIMIT: at ~50 rows a day the steady-state delete
+ * is a handful, and a first run after a long gap should get it over with rather
+ * than leave a backlog that never drains. A run still `running` is spared
+ * whatever its age — that is a paused search waiting to resume, and deleting it
+ * would strand the sweep that owns it.
+ */
+export async function deleteOldRuns(db: D1Database, startedBefore: number): Promise<void> {
+  await db
+    .prepare(`DELETE FROM runs WHERE started_at < ? AND status <> 'running'`)
+    .bind(startedBefore)
+    .run();
 }

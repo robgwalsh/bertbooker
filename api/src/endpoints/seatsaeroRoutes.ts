@@ -30,7 +30,7 @@ import {
   recordRouteFetch,
   replaceSourceRoutes,
 } from "../db/routeGraph.js";
-import { recordQuota } from "../db/runs.js";
+import { recordQuota } from "../db/sourceQuota.js";
 import {
   REACH_DEEP_PAIRS,
   pairKeyOf,

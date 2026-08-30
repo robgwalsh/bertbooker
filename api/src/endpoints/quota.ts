@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Vars } from "../bindings.js";
-import type { QuotaPage, SourceQuota } from "../../../shared/src/wire/index.js";
+import type { QuotaPage } from "../../../shared/src/wire/index.js";
+import { selectQuotaSince } from "../db/sourceQuota.js";
 
 /**
  * What's left of each metered source's daily API allowance.
@@ -19,13 +20,7 @@ export const quota = new Hono<{ Bindings: Env; Variables: Vars }>();
 quota.get("/api/quota", async (c) => {
   const days = Math.min(Math.max(Number(c.req.query("days")) || 7, 1), 90);
   const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
-  const { results } = await c.env.DB.prepare(
-    `SELECT source, day, remaining, limit_calls, observed_at
-       FROM source_quota WHERE day >= ?
-      ORDER BY day DESC, source`,
-  )
-    .bind(since)
-    .all<SourceQuota>();
+  const results = await selectQuotaSince(c.env.DB, since);
   // `today` travels with the payload so the SPA doesn't have to agree with the
   // server about what UTC day it is before it can pick out today's row.
   const body: QuotaPage = { today: new Date().toISOString().slice(0, 10), quota: results };

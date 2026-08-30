@@ -1,7 +1,15 @@
 import { Hono } from "hono";
 import { rowIdParam } from "../http/params.js";
+import {
+  deleteRecipient,
+  insertRecipient,
+  selectRecipientEmailById,
+  selectRecipientIdByEmail,
+  selectRecipients,
+} from "../db/alertRecipients.js";
+import { countRoutesUsingRecipient } from "../db/trackedRoutes.js";
 import type { Env, Vars } from "../bindings.js";
-import type { AlertRecipient, AlertRecipients } from "../../../shared/src/wire/index.js";
+import type { AlertRecipients } from "../../../shared/src/wire/index.js";
 
 /**
  * The deployment's own settings, as opposed to a route's.
@@ -46,13 +54,9 @@ const accountAddress = (env: Env): string | null =>
   env.APP_USER_EMAIL ? normalizeEmail(env.APP_USER_EMAIL) : null;
 
 settings.get("/api/settings/recipients", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    "SELECT id, email, created_at FROM alert_recipients ORDER BY email",
-  ).all<AlertRecipient>();
-
   const body: AlertRecipients = {
     accountAddress: accountAddress(c.env),
-    recipients: results,
+    recipients: await selectRecipients(c.env.DB),
   };
   return c.json(body);
 });
@@ -79,22 +83,15 @@ settings.post("/api/settings/recipients", async (c) => {
     );
   }
 
-  const existing = await c.env.DB.prepare("SELECT id FROM alert_recipients WHERE email = ?")
-    .bind(email)
-    .first<{ id: number }>();
-  if (existing) {
+  const existing = await selectRecipientIdByEmail(c.env.DB, email);
+  if (existing !== null) {
     return c.json(
       { error: "duplicate_recipient", message: `${email} is already allowed.` },
       400,
     );
   }
 
-  const res = await c.env.DB.prepare(
-    "INSERT INTO alert_recipients (email) VALUES (?) RETURNING id",
-  )
-    .bind(email)
-    .first<{ id: number }>();
-  return c.json({ id: res?.id }, 201);
+  return c.json({ id: await insertRecipient(c.env.DB, email) }, 201);
 });
 
 /**
@@ -114,22 +111,15 @@ settings.delete("/api/settings/recipients/:id", async (c) => {
   const id = rowIdParam(c.req.param("id"));
   if (id === null) return c.json({ error: "bad_id" }, 400);
 
-  const row = await c.env.DB.prepare("SELECT email FROM alert_recipients WHERE id = ?")
-    .bind(id)
-    .first<{ email: string }>();
-  if (!row) return c.json({ error: "not_found" }, 404);
+  const stored = await selectRecipientEmailById(c.env.DB, id);
+  if (stored === null) return c.json({ error: "not_found" }, 404);
 
-  const inUse = await c.env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM tracked_routes WHERE lower(trim(alert_email)) = ?",
-  )
-    .bind(row.email)
-    .first<{ n: number }>();
-  const n = Number(inUse?.n ?? 0);
+  const n = await countRoutesUsingRecipient(c.env.DB, stored);
   if (n > 0) {
     return c.json(
       {
         error: "recipient_in_use",
-        message: `${row.email} is where ${n} route${n === 1 ? "" : "s"} send${
+        message: `${stored} is where ${n} route${n === 1 ? "" : "s"} send${
           n === 1 ? "s" : ""
         } alerts. Point ${n === 1 ? "it" : "them"} elsewhere first.`,
       },
@@ -137,6 +127,6 @@ settings.delete("/api/settings/recipients/:id", async (c) => {
     );
   }
 
-  await c.env.DB.prepare("DELETE FROM alert_recipients WHERE id = ?").bind(id).run();
+  await deleteRecipient(c.env.DB, id);
   return c.json({ ok: true });
 });

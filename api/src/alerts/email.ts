@@ -1,4 +1,5 @@
 import type { Env } from "../bindings.js";
+import { selectRecipientEmails } from "../db/alertRecipients.js";
 
 /**
  * Sending mail, via Resend.
@@ -47,14 +48,12 @@ export type SendResult =
  *  a route with a NULL `alert_email` resolves to it, and both the System tab and
  *  the route form render this order. */
 export async function allowedRecipients(env: Env): Promise<string[]> {
-  const { results } = await env.DB.prepare(
-    "SELECT email FROM alert_recipients ORDER BY email",
-  ).all<{ email: string }>();
+  const stored = await selectRecipientEmails(env.DB);
 
   const self = env.APP_USER_EMAIL?.trim().toLowerCase();
   const list = self ? [self] : [];
-  for (const row of results) {
-    const email = row.email.trim().toLowerCase();
+  for (const raw of stored) {
+    const email = raw.trim().toLowerCase();
     if (email && !list.includes(email)) list.push(email);
   }
   return list;

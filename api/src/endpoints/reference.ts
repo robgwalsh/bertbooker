@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { AIRLINE_DIRECTORY } from "../domain/airlines.js";
 import { CURRENCIES } from "../domain/programs.js";
+import { selectActivePrograms } from "../db/programs.js";
 import type { Env, Vars } from "../bindings.js";
 import type { ProgramInfo } from "../../../shared/src/wire/index.js";
 
@@ -12,10 +13,11 @@ import type { ProgramInfo } from "../../../shared/src/wire/index.js";
  * than beside the arrays — the wire type IS the element type of what these
  * handlers hand back, so there is no second shape to drift.
  *
- * `/api/programs` is the odd one out and the reason this file has any SQL in it:
- * the `programs` table is the EDITABLE truth for names and transfer partners
- * (`seed/programs.sql` only seeds it), so that one is a read rather than a
- * constant.
+ * `/api/programs` is the odd one out: the `programs` table is the EDITABLE truth
+ * for names and transfer partners (`seed/programs.sql` only seeds it), so that
+ * one is a database read rather than a constant. The read itself lives in
+ * `db/programs.ts`; what stays here is the JSON parse that turns a stored row
+ * into the wire shape.
  */
 export const reference = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -27,23 +29,8 @@ reference.get("/api/currencies", (c) => c.json(CURRENCIES));
 // program codes come from /api/programs, which is the editable D1 truth.
 reference.get("/api/airlines", (c) => c.json(AIRLINE_DIRECTORY));
 
-/** The stored row, before `transfer_partners` is parsed out of its JSON column.
- *  That parse is what makes `ProgramInfo` a different shape from this, and is
- *  why annotating the mapped result below is a real check rather than a
- *  restatement of the SELECT. */
-interface ProgramRow {
-  code: string;
-  name: string;
-  kind: "airline" | "hotel";
-  alliance: string | null;
-  transfer_partners: string;
-  is_active: number;
-}
-
 reference.get("/api/programs", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    "SELECT code, name, kind, alliance, transfer_partners, is_active FROM programs WHERE is_active = 1 ORDER BY kind, name",
-  ).all<ProgramRow>();
+  const results = await selectActivePrograms(c.env.DB);
   const body: ProgramInfo[] = results.map((r) => ({
     ...r,
     transfer_partners: JSON.parse(String(r.transfer_partners)) as ProgramInfo["transfer_partners"],

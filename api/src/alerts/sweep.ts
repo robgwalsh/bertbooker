@@ -7,8 +7,30 @@ import { queryGroupCount } from "../domain/routing.js";
 import { todayISO } from "../domain/window.js";
 import type { Cabin } from "../domain/types.js";
 import type { Env } from "../bindings.js";
-import { findsFrom, routeFindsScope } from "../db/finds.js";
-import { type MatchableFind, routeMatcher } from "../../../shared/src/match/routeMatch.js";
+import { selectMatchableFinds } from "../db/finds.js";
+import {
+  bumpAlertFailures,
+  clearAlertFailures,
+  selectAlertRoutes,
+  selectQuietAlertRoutes,
+  stampAlertAttempt,
+  stampAlertDigest,
+  stampAlertDigestForRoutes,
+  type AlertRouteRow,
+} from "../db/trackedRoutes.js";
+import { deleteOldRuns, selectCycleCounts, selectResumableAlertRun } from "../db/runs.js";
+import {
+  deleteOutboxForRoutes,
+  insertOutboxChanges,
+  selectOutboxForDigest,
+} from "../db/alertOutbox.js";
+import { insertDelivery } from "../db/alertDeliveries.js";
+
+/** Declared in `../db/trackedRoutes.ts`, beside the SELECT that produces it,
+ *  and re-exported here because this module is what the Alerts tab reads it
+ *  through. */
+export type { AlertRouteRow } from "../db/trackedRoutes.js";
+import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 import { idempotencyKey, sendEmail } from "./email.js";
 import { openSearchRun, planSearchPass, runSearchPass } from "../search/run.js";
 import { decideSweep, readBudgetState } from "./budget.js";
@@ -78,40 +100,6 @@ export const ALERT_DEFAULTS = (env: Env) => ({
   maxCallsPerTick: num(env.ALERT_MAX_CALLS_PER_TICK, DEFAULT_MAX_CALLS_PER_TICK),
 });
 
-export interface AlertRouteRow {
-  id: number;
-  origin: string;
-  destination: string;
-  origins: string | null;
-  destinations: string | null;
-  date_start: string;
-  date_end: string;
-  cabins: string | null;
-  /** Read by `routeMatcher`, and absent from this row until the match moved out
-   *  of SQL. While the predicate was a join against `tracked_routes tr` these
-   *  two came off `tr` and nothing here had to carry them; a matcher fed a row
-   *  without them silently reads "no currency filter, connections allowed" and
-   *  fires alerts on finds the route's own pane hides. */
-  currencies: string | null;
-  direct_only: number;
-  min_seats: number;
-  /** The route's points ceiling, or null. Read for the `gone` branch of
-   *  `selectAlertable`, and by `routeMatcher` for every other change type. */
-  point_limit: number | null;
-  round_trip: number;
-  /** Hubs, which double the queries per chunk — see `routeSweepCost`. */
-  via: string | null;
-  alert_email: string | null;
-  alert_on: string | null;
-  alert_min_drop_pct: number;
-  alert_last_attempt_at: number | null;
-  alert_last_digest_at: number | null;
-  alert_consecutive_failures: number;
-  last_checked_at: number | null;
-  /** What this route's last completed sweep actually spent. */
-  observed_calls: number | null;
-}
-
 function parseList(json: string | null, fallback?: string): string[] {
   if (json) {
     try {
@@ -134,25 +122,7 @@ function parseList(json: string | null, fallback?: string): string[] {
  * priced off each other's measurements).
  */
 export async function alertRouteRows(env: Env): Promise<AlertRouteRow[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT tr.id, tr.origin, tr.destination, tr.origins, tr.destinations,
-            tr.date_start, tr.date_end, tr.cabins, tr.currencies, tr.direct_only,
-            tr.min_seats, tr.point_limit,
-            tr.round_trip,
-            tr.via,
-            tr.alert_email, tr.alert_on, tr.alert_min_drop_pct,
-            tr.alert_last_attempt_at, tr.alert_last_digest_at,
-            tr.alert_consecutive_failures, tr.last_checked_at,
-            (SELECT hr.calls FROM runs hr
-              WHERE hr.route_id = tr.id AND hr.trigger = 'alert'
-                AND hr.finished_at IS NOT NULL
-              ORDER BY hr.started_at DESC LIMIT 1) AS observed_calls
-       FROM tracked_routes tr
-      WHERE tr.alerts_enabled = 1
-      ORDER BY tr.id`,
-  )
-    .all<AlertRouteRow>();
-  return results ?? [];
+  return await selectAlertRoutes(env.DB);
 }
 
 /**
@@ -385,19 +355,11 @@ async function sweepRoute(
   // The pacing clock is stamped on every ATTEMPT, before anything can fail.
   // Stamping it only on success would let a permanently-failing route be due on
   // every single tick and spend the day rediscovering the same failure.
-  await env.DB.prepare("UPDATE tracked_routes SET alert_last_attempt_at = ? WHERE id = ?")
-    .bind(opts.now, route.id)
-    .run();
+  await stampAlertAttempt(env.DB, route.id, opts.now);
 
   // A paused sweep left a run to resume; picking it up is what keeps one route's
   // coverage on one run row.
-  const open = await env.DB.prepare(
-    `SELECT id, tasks_planned, tasks_ok, tasks_failed FROM runs
-      WHERE route_id = ? AND trigger = 'alert' AND status = 'running'
-      ORDER BY started_at DESC LIMIT 1`,
-  )
-    .bind(route.id)
-    .first<{ id: string; tasks_planned: number; tasks_ok: number; tasks_failed: number }>();
+  const open = await selectResumableAlertRun(env.DB, route.id);
 
   const planned = await planSearchPass(env.DB, {
     email,
@@ -432,9 +394,7 @@ async function sweepRoute(
     await noteFailure(env, route.id);
     return pass.totals.calls;
   }
-  await env.DB.prepare("UPDATE tracked_routes SET alert_consecutive_failures = 0 WHERE id = ?")
-    .bind(route.id)
-    .run();
+  await clearAlertFailures(env.DB, route.id);
 
   // A paused route is only half-searched. Filing its changes now would let the
   // flush describe half a route as though it were the whole answer.
@@ -442,9 +402,7 @@ async function sweepRoute(
 
   if (route.alert_last_digest_at == null) {
     // Baseline. Ingest kept, nothing filed, clock stamped.
-    await env.DB.prepare("UPDATE tracked_routes SET alert_last_digest_at = ? WHERE id = ?")
-      .bind(opts.now, route.id)
-      .run();
+    await stampAlertDigest(env.DB, route.id, opts.now);
     return pass.totals.calls;
   }
 
@@ -466,11 +424,7 @@ async function sweepRoute(
 }
 
 async function noteFailure(env: Env, routeId: number): Promise<void> {
-  await env.DB.prepare(
-    "UPDATE tracked_routes SET alert_consecutive_failures = alert_consecutive_failures + 1 WHERE id = ?",
-  )
-    .bind(routeId)
-    .run();
+  await bumpAlertFailures(env.DB, routeId);
 }
 
 /**
@@ -490,23 +444,17 @@ async function noteFailure(env: Env, routeId: number): Promise<void> {
  * carries every column `routeFindsScope` AND `routeMatcher` need, so this costs
  * no extra query.
  *
- * Eight columns, not the twenty-seven `FIND_COLUMNS` projects and not the
- * `best_miles_ever` seek: the answer is a membership set, and everything else
- * this used to compute was thrown away.
+ * Nine columns, not the twenty-one the Routes page projects: the answer is a
+ * membership set, and everything else this used to compute was thrown away.
+ * Which nine is `selectMatchableFinds`' business now; what stays here is the
+ * matcher and the key-building it feeds.
  */
 async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string>> {
-  const from = findsFrom(routeFindsScope([route]));
-  const { results } = await env.DB.prepare(
-    `SELECT f.program, f.cabin, f.origin, f.destination, f.flight_date,
-            f.transfer_currencies, f.is_direct, f.miles_cost, f.seats_available
-       ${from.sql}`,
-  )
-    .bind(...from.binds)
-    .all<MatchableFind & { program: string }>();
+  const results = await selectMatchableFinds(env.DB, route);
 
   const matcher = routeMatcher(route);
   const keys = new Set<string>();
-  for (const f of results ?? []) {
+  for (const f of results) {
     if (!matcher.matches(f)) continue;
     // `changeKey` itself, not a copy of its format: this set is intersected
     // against keys the diff produced, so the two spellings must be one.
@@ -531,32 +479,7 @@ async function fileOutbox(
   routeId: number,
   changes: ChangeSummary[],
 ): Promise<void> {
-  const stmts = changes.map((c) =>
-    env.DB.prepare(
-      `INSERT INTO alert_outbox
-         (route_id, change_key, type, origin, destination, flight_date, program,
-          cabin, miles_cost, seats, prev_miles, prev_seats)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (route_id, change_key) DO UPDATE SET
-         type = excluded.type, miles_cost = excluded.miles_cost,
-         seats = excluded.seats, prev_miles = excluded.prev_miles,
-         prev_seats = excluded.prev_seats`,
-    ).bind(
-      routeId,
-      c.key,
-      c.type,
-      c.origin ?? "",
-      c.destination ?? "",
-      c.flightDate,
-      c.program,
-      c.cabin,
-      c.milesCost ?? null,
-      c.seatsAvailable ?? null,
-      c.previousMilesCost ?? null,
-      c.previousSeats ?? null,
-    ),
-  );
-  for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
+  await insertOutboxChanges(env.DB, routeId, changes);
 }
 
 /** Is the cycle over — nothing due, nothing mid-run? Only then does a digest
@@ -575,11 +498,7 @@ const RUN_RETENTION_DAYS = 30;
  *  whatever its age — that is a paused search waiting to resume, and deleting it
  *  would strand the sweep that owns it. */
 async function pruneOldRuns(env: Env, now: number): Promise<void> {
-  await env.DB.prepare(
-    `DELETE FROM runs WHERE started_at < ? AND status <> 'running'`,
-  )
-    .bind(now - RUN_RETENTION_DAYS * 86_400_000)
-    .run();
+  await deleteOldRuns(env.DB, now - RUN_RETENTION_DAYS * 86_400_000);
 }
 
 async function cycleComplete(
@@ -587,17 +506,8 @@ async function cycleComplete(
   intervalMinutes: number,
   now: number,
 ): Promise<boolean> {
-  const row = await env.DB.prepare(
-    `SELECT
-       (SELECT COUNT(*) FROM tracked_routes
-         WHERE alerts_enabled = 1
-           AND (alert_last_attempt_at IS NULL OR alert_last_attempt_at <= ?)) AS due,
-       (SELECT COUNT(*) FROM runs
-         WHERE trigger = 'alert' AND status = 'running') AS running`,
-  )
-    .bind(now - intervalMinutes * 60_000)
-    .first<{ due: number; running: number }>();
-  return (row?.due ?? 0) === 0 && (row?.running ?? 0) === 0;
+  const { due, running } = await selectCycleCounts(env.DB, now - intervalMinutes * 60_000);
+  return due === 0 && running === 0;
 }
 
 /**
@@ -609,21 +519,8 @@ async function cycleComplete(
  * refused".
  */
 async function flushOutbox(env: Env, email: string, now: number): Promise<number> {
-  const { results } = await env.DB.prepare(
-    // The aliases are load-bearing. `o.*` already yields `origin` and
-    // `destination` — the CHANGE's — and SQLite keeps the LAST column of a
-    // repeated name, so selecting `tr.origin` unaliased overwrote them with the
-    // route's primary pair and every line of every digest named the wrong city
-    // pair on any multi-airport, hub or round-trip route.
-    `SELECT o.*, tr.alert_email,
-            tr.origin AS route_origin, tr.destination AS route_destination,
-            tr.origins, tr.destinations, tr.round_trip
-       FROM alert_outbox o
-       JOIN tracked_routes tr ON tr.id = o.route_id
-      ORDER BY o.route_id, o.flight_date`,
-  )
-    .all<Record<string, unknown>>();
-  if (!results?.length) return 0;
+  const results = await selectOutboxForDigest(env.DB);
+  if (!results.length) return 0;
 
   const perRoute = new Map<number, DigestRoute>();
   for (const row of results) {
@@ -660,17 +557,11 @@ async function flushOutbox(env: Env, email: string, now: number): Promise<number
   // Routes swept this cycle with nothing to say are named in the digest rather
   // than omitted — "three checked, two quiet" and "only one ran" are different
   // facts and no failure email exists to tell them apart.
-  const quiet = await env.DB.prepare(
-    `SELECT tr.* FROM tracked_routes tr
-      WHERE tr.alerts_enabled = 1
-        AND tr.alert_last_digest_at IS NOT NULL
-        AND tr.id NOT IN (SELECT route_id FROM alert_outbox)`,
-  )
-    .all<AlertRouteRow>();
+  const quiet = await selectQuietAlertRoutes(env.DB);
 
   const digestRoutes: DigestRoute[] = [
     ...perRoute.values(),
-    ...(quiet.results ?? []).map((r) => ({
+    ...quiet.map((r) => ({
       routeId: r.id,
       label: routeLabel(r),
       recipient: r.alert_email ?? email,
@@ -691,43 +582,23 @@ async function flushOutbox(env: Env, email: string, now: number): Promise<number
       text: rendered.text,
       idempotencyKey: await idempotencyKey(sweepId, recipient),
     });
-    const changeCount = input.groups.reduce((n, g) => n + g.changes.length, 0);
-    await env.DB.prepare(
-      `INSERT INTO alert_deliveries
-         (sweep_id, to_email, status, subject, change_count,
-          provider_message_id, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (sweep_id, to_email) DO NOTHING`,
-    )
-      .bind(
-        sweepId,
-        recipient,
-        outcome.status,
-        rendered.subject,
-        changeCount,
-        outcome.status === "sent" ? (outcome.providerMessageId ?? null) : null,
-        outcome.status === "sent" ? null : outcome.error,
-      )
-      .run();
+    await insertDelivery(env.DB, {
+      sweepId,
+      recipient,
+      status: outcome.status,
+      subject: rendered.subject,
+      changeCount: input.groups.reduce((n, g) => n + g.changes.length, 0),
+      providerMessageId: outcome.status === "sent" ? (outcome.providerMessageId ?? null) : null,
+      error: outcome.status === "sent" ? null : outcome.error,
+    });
 
     if (outcome.status === "sent") {
       sent += 1;
       // Only clear what we actually told someone about. A refused send leaves
       // the outbox intact so the next cycle tries again rather than losing it.
       const ids = input.groups.map((g) => g.routeId);
-      if (ids.length) {
-        await env.DB.prepare(
-          `DELETE FROM alert_outbox WHERE route_id IN (${ids.map(() => "?").join(",")})`,
-        )
-          .bind(...ids)
-          .run();
-        await env.DB.prepare(
-          `UPDATE tracked_routes SET alert_last_digest_at = ?
-            WHERE id IN (${ids.map(() => "?").join(",")})`,
-        )
-          .bind(now, ...ids)
-          .run();
-      }
+      await deleteOutboxForRoutes(env.DB, ids);
+      await stampAlertDigestForRoutes(env.DB, ids, now);
     }
   }
   return sent;

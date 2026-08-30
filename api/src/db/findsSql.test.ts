@@ -5,14 +5,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 /**
  * The ingest statements, run against a real SQLite engine.
  *
- * Everything else in `apply.test.ts` goes through `stubDb`, which records SQL
+ * Everything else in `ingest/apply.test.ts` goes through `stubDb`, which records SQL
  * and never executes it — so every assertion there is a string match. That is
  * the right tool for "did this bind the pairs it touched", and the wrong one for
  * "does this UPSERT reproduce a fresh row", which is a claim about what SQLite
  * DOES. A string match on the SET list passes forever while the semantics rot.
  *
  * This is the one place the semantics themselves are pinned. It reads the real
- * migration and the real statements out of `apply.ts` rather than a copy, so an
+ * migration and the real statements out of `db/finds.ts` rather than a copy, so an
  * edit to either is exercised here rather than drifting from it.
  *
  * `node:sqlite` needs Node >= 22.5 and this repo's `engines` says >= 20, so the
@@ -30,9 +30,9 @@ function findsDdl(): string {
     .replace(/program\s+TEXT\s+NOT NULL REFERENCES programs\(code\)/, "program TEXT NOT NULL");
 }
 
-/** A statement out of `apply.ts` itself, so this cannot pin a stale copy. */
+/** A statement out of `db/finds.ts` itself, so this cannot pin a stale copy. */
 function statementFrom(marker: string): string {
-  const src = readFileSync("api/src/ingest/apply.ts", "utf8");
+  const src = readFileSync("api/src/db/finds.ts", "utf8");
   const start = src.indexOf("`" + marker);
   expect(start).toBeGreaterThan(-1);
   return src.slice(start + 1, src.indexOf("`", start + 1));

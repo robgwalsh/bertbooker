@@ -1,15 +1,15 @@
 import { Hono } from "hono";
 import type { Env, Vars } from "../bindings.js";
 import type { Find, RoutesData, TrackedRoute } from "../../../shared/src/wire/index.js";
-import type { ScopedRoute } from "../db/finds.js";
-import { FIND_COLUMNS, findsFrom, routeFindsScope } from "../db/finds.js";
+import { selectRouteFinds } from "../db/finds.js";
+import { selectRoutesForPage } from "../db/trackedRoutes.js";
 import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 
 /**
  * The Routes page's whole payload: the user's monitors, and the current best
  * finds tied to each.
  *
- * One of two readers of `findsFrom`; the alert sweep is the other. See
+ * One of two readers of the scoped find query; the alert sweep is the other. See
  * `db/finds.ts`.
  *
  * **This file is the PAGE; `trackedRoutes.ts` is the ROUTES themselves.** The
@@ -41,40 +41,7 @@ routes.get("/api/routes", async (c) => {
   // that used to need a fourteen-line comment here to guard — `batch<T>()` is
   // homogeneous by signature, so nothing in the type system ever checked that
   // element 0 was the routes and element 1 the finds.
-  const routeRows = await c.env.DB.prepare(
-      // The route-SET columns must be in this list. They are
-      // what the Routes page draws the route's shape from, and an explicit
-      // column list is exactly the kind that gets forgotten when a schema
-      // change adds one: omitting them doesn't fail, it silently renders every
-      // multi-airport route as a plain single-pair route.
-      //
-      // Since the header edits the route in place, this list is ALSO what the
-      // edit form is seeded from — every settable column has to be here or its
-      // field opens showing a default the row does not hold. `PATCH` merges
-      // against the stored row, so the damage stops at the form; but a switch
-      // that renders "off" for a route that is on is its own bug.
-      //
-      // The alert columns are exactly the case that warning was written about,
-      // and they were missing from it. The edit dialog sends `alertsEnabled` on
-      // every save rather than omitting it, so a form seeded from an absent
-      // column sent `false` and QUIETLY UNENROLLED the route — and re-enabling
-      // it afterwards re-ran `baselineOnEnable`, moving the digest clock too.
-      // The last three are state rather than settings, and are here because the
-      // Routes page draws a route's alert health beside it (see app/src/lib/alerts.ts).
-      "SELECT id, origin, destination, origins, destinations, via," +
-        " date_start, date_end, cabins, currencies, min_seats, direct_only, point_limit," +
-        " round_trip," +
-        " last_checked_at," +
-        " alerts_enabled, alert_email, alert_on, alert_min_drop_pct," +
-        " alert_last_attempt_at, alert_last_digest_at, alert_consecutive_failures" +
-        " FROM tracked_routes ORDER BY created_at DESC",
-  )
-    .all<TrackedRoute & ScopedRoute>();
-
-  // The route-set and date columns the scope needs are already in the list
-  // above — they are what the Routes page draws a route's shape from — so this
-  // adds no columns and the warning up there still names the same list.
-  const pageFinds = findsFrom(routeFindsScope(routeRows.results ?? []));
+  const routeRows = await selectRoutesForPage(c.env.DB);
 
   // Current finds. The scope predicate bounds this to a provable superset of
   // what any of the user's routes could show (see `routeFindsScope`); the
@@ -84,18 +51,14 @@ routes.get("/api/routes", async (c) => {
   // predicate is all json_each, so no index could serve it and the plan was a
   // nested loop — cost O(routes x finds), measured at 49,512 rows, 57% of the
   // whole query, and the only term that grew when a route was added.
-  const findRows = await c.env.DB.prepare(
-    `SELECT ${FIND_COLUMNS} ${pageFinds.sql}`,
-  )
-    .bind(...pageFinds.binds)
-    .all<Find>();
+  const findRows = await selectRouteFinds(c.env.DB, routeRows);
 
   // Reproduces the ORDER BY this query used to carry. Its SORT is dead —
   // FindsTable re-sorts the whole set client-side — but its DETERMINISM is not:
   // `findKey` (app/src/pages/routes/findKey.ts) builds React keys from the
   // paginated index, so an unordered read lets a refetch reshuffle which find
   // sits at which index.
-  const found = [...(findRows.results ?? [])].sort(
+  const found = [...findRows].sort(
     (a, b) =>
       a.flight_date.localeCompare(b.flight_date) ||
       b.seats_available - a.seats_available ||
@@ -108,7 +71,7 @@ routes.get("/api/routes", async (c) => {
   // `tracked_route_id`. Routes are the outer loop so the payload stays grouped
   // by route, which is the order the join produced.
   const bestFinds: Find[] = [];
-  for (const route of routeRows.results ?? []) {
+  for (const route of routeRows) {
     const matcher = routeMatcher(route);
     for (const f of found) {
       if (matcher.matches(f)) bestFinds.push({ ...f, tracked_route_id: route.id });
@@ -119,9 +82,8 @@ routes.get("/api/routes", async (c) => {
   // error here rather than an empty pane in the SPA. `.all<T>()` is an unchecked
   // assertion either way — see the note on `wire/rows.ts` in CLAUDE.md.
   const body: RoutesData = {
-    trackedRoutes: (routeRows.results ?? []) as TrackedRoute[],
+    trackedRoutes: routeRows as TrackedRoute[],
     bestFinds,
   };
   return c.json(body);
 });
-

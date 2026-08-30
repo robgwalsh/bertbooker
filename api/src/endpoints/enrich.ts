@@ -8,8 +8,9 @@ import {
 } from "../providers/transport.js";
 import type { Env, Vars } from "../bindings.js";
 import { rowIdParam } from "../http/params.js";
-import { type ScopedRoute, withinRouteScope } from "../db/finds.js";
-import { currentRows, enrichAvailability } from "../search/enrich.js";
+import { selectEnrichableRows, selectEnrichTargets, withinRouteScope } from "../db/finds.js";
+import { selectRouteWindow, selectScopedRoutes } from "../db/trackedRoutes.js";
+import { enrichAvailability } from "../search/enrich.js";
 import { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";
 
 /**
@@ -71,18 +72,14 @@ enrich.post("/api/finds/enrich", async (c) => {
   //
   // Note what this is NOT: `search`'s deliberate no-budget rule is untouched.
   // Spending is still first-come; this only says whose rows you may spend it on.
-  const { results: scopeRows } = await c.env.DB.prepare(
-    `SELECT origin, destination, origins, destinations, via, date_start, date_end, round_trip
-       FROM tracked_routes`,
-  )
-    .all<ScopedRoute>();
-  if (!withinRouteScope(scopeRows ?? [], origin, destination, flightDate)) {
+  const scopeRows = await selectScopedRoutes(c.env.DB);
+  if (!withinRouteScope(scopeRows, origin, destination, flightDate)) {
     // The same 404 an unknown row gets, deliberately: whether a row exists that
     // this account may not touch is not something the answer should reveal.
     return c.json({ error: "not_found" }, 404);
   }
 
-  const rows = await currentRows(c.env.DB, origin, destination, flightDate, program);
+  const rows = await selectEnrichableRows(c.env.DB, origin, destination, flightDate, program);
   if (rows.length === 0) return c.json({ error: "not_found" }, 404);
   if (!rows.some((r) => r.source_record_id)) {
     // The source exposed no id for this record, so there is no handle to buy an
@@ -114,14 +111,6 @@ enrich.post("/api/finds/enrich", async (c) => {
 /** Defined in `shared/src/wire/enrich.ts`, re-exported here for this module's
  *  consumers. */
 
-interface TargetRow {
-  origin: string;
-  destination: string;
-  flight_date: string;
-  program: string;
-  source_record_id: string;
-}
-
 enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
   const email = c.get("userEmail");
   const id = rowIdParam(c.req.param("id"));
@@ -130,63 +119,22 @@ enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
   // Same rule as search: everything that can fail with a status code fails
   // BEFORE the stream opens, because after the first byte the response is
   // committed to 200 and an `error` frame is all that is left.
-  const route = await c.env.DB.prepare(
-    "SELECT id, origin, destination, date_start, date_end FROM tracked_routes WHERE id = ?",
-  )
-    .bind(id)
-    .first<{ id: number; origin: string; destination: string; date_start: string; date_end: string }>();
+  const route = await selectRouteWindow(c.env.DB, id);
   if (!route) return c.json({ error: "not_found" }, 404);
 
   const apiKey = c.env.SEATS_AERO_API_KEY;
   if (!apiKey) return c.json({ error: "no_seats_aero_key" }, 503);
 
-  // One row per availability id, not per find: four summary cabins share an id
-  // and cost one call between them. Ordered by date so a capped run enriches the
-  // near dates first, which are the ones being booked.
-  //
-  // `enriched_at IS NULL` is what stops a sweep re-buying nothing. A cabin
-  // seats.aero had no itinerary for stays `summary` forever, so without this it
-  // would be a target on every run — the same call, the same empty answer, out
-  // of the same 1000. The per-row button still offers a deliberate retry; a bulk
-  // sweep should not spend the day's allowance on a known miss.
-  //
-  // Two kinds of row are worth a call, and the second only exists since the
-  // search started asking for `include_trips`:
-  //
-  //   1. a `summary` — no itinerary at all;
-  //   2. an `itinerary` MISSING ITS PER-LEG TIMES. A trip embedded in a search
-  //      response carries only the whole trip's endpoints, so a connecting award
-  //      arrives knowing which aeroplanes and via where, but not when it lands
-  //      between them. `/trips/{id}` is still the only source of that, and it is
-  //      what turns an unknown connection into a measured layover.
-  //
-  // Detected as "leg two exists and has no departure", which is exactly the
-  // shape a chain-rebuilt itinerary has. A nonstop is fully timed already and is
-  // never a target.
-  //
-  // `enriched_at IS NULL` means what it says: one row per slot, so there is no
-  // superseded copy of it carrying a stale NULL and inviting a second metered
-  // call for a slot that has already been expanded.
-  //
-  // Still open, and unrelated to any of that: the pair test uses the route's
-  // PRIMARY airports only, so a multi-airport or hub route never bulk-enriches
-  // its other pairs. That is a coverage gap, not a cost one.
-  const { results: targets } = await c.env.DB.prepare(
-    `SELECT origin, destination, flight_date, program, source_record_id
-       FROM finds
-      WHERE origin = ? AND destination = ? AND flight_date BETWEEN ? AND ?
-        AND source_record_id IS NOT NULL
-        AND enriched_at IS NULL
-        AND (
-          detail_level = 'summary'
-          OR (json_array_length(segments_json) > 1
-              AND json_extract(segments_json, '$[1].departsAt') IS NULL)
-        )
-      GROUP BY source_record_id
-      ORDER BY flight_date ASC, program ASC`,
-  )
-    .bind(route.origin, route.destination, route.date_start, route.date_end)
-    .all<TargetRow>();
+  // Which rows are worth a metered call is `selectEnrichTargets`' question, and
+  // its docblock is where the answer is written down. What stays here is the
+  // CAP: how many of them one request may spend.
+  const targets = await selectEnrichTargets(
+    c.env.DB,
+    route.origin,
+    route.destination,
+    route.date_start,
+    route.date_end,
+  );
 
   if (targets.length === 0) return c.json({ error: "nothing_to_enrich" }, 400);
 
@@ -214,7 +162,7 @@ enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
 
       for (let i = 0; i < batch.length; i++) {
         const t = batch[i]!;
-        const rows = await currentRows(
+        const rows = await selectEnrichableRows(
           c.env.DB,
           t.origin,
           t.destination,

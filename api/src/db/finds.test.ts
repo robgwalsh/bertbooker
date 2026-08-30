@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { FilteredRoute, FindsScope, ScopedRoute } from "./finds.js";
-import { FIND_COLUMNS, findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
+import { findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
 import type { MatchableRoute } from "../../../shared/src/match/routeMatch.js";
 import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 

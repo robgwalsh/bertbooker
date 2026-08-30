@@ -2,6 +2,7 @@ import { changeKey, diffAvailability, summarizeChange, type ChangeSummary } from
 import { collapseBy } from "../domain/collapse.js";
 import type { AvailabilityResult } from "../domain/types.js";
 import { claimsCoverage, type ApplyTaskResult, type SourceTaskReport } from "../domain/tasks.js";
+import { deleteFinds, selectBaselineFinds, upsertFinds } from "../db/finds.js";
 
 // The write side of the pivot: one completed unit of gathering becomes rows in
 // `finds`, plus a diff for the run summary and the alert digest.
@@ -113,13 +114,6 @@ export function prunable(
   );
 }
 
-const FIND_COLUMNS = `s.origin, s.destination, s.flight_date, s.program, s.cabin,
-       s.seats_available, s.miles_cost, s.cash_fees_cents, s.fees_currency,
-       s.is_direct, s.segments_json, s.source_fetched_at,
-       s.transfer_currencies, s.duration_minutes, s.booking_url, s.raw_hash,
-       s.source_record_id, s.detail_level,
-       s.stop_count, s.airlines, s.direct_airlines, s.direct_miles_cost`;
-
 /** Parse a JSON-array column, tolerating NULL and anything malformed. These
  *  columns are informational; a bad value must not break a baseline read. */
 function jsonArray(v: unknown): string[] | undefined {
@@ -202,22 +196,22 @@ export function routesTouched(
   return [...seen.values()];
 }
 
-/** The stored rows over the span this task touched. Deliberately a date RANGE
- *  rather than an IN-list: a stride plan can name 300 dates, and over-selecting
- *  is free because the slice test happens in `prunable`.
+/**
+ * The baseline for this task: the stored rows over the span it touched, each
+ * with the hash the SOURCE's claim had when it was written.
  *
- *  The route list matters for write-on-change, not just for pruning: leave a
- *  substituted airport out of the baseline and every one of its rows looks new on
- *  every run, so "a re-run writes zero rows" — the cheapest smoke test this
- *  pipeline has — would quietly stop being true.
+ * The stored `raw_hash` is returned rather than recomputed, and that is the
+ * point. Recomputing asks "what would this row hash to now", which stops being
+ * the right question the moment anything augments a row after it was written: an
+ * enrichment replaces `segments_json` with the real legs, and `hashResult` folds
+ * segments in, so a recomputed baseline would differ from the unchanged summary
+ * arriving next and rewrite the row — discarding the enrichment on every search,
+ * forever.
  *
- *  Returns the STORED `raw_hash` alongside each row rather than leaving the
- *  caller to recompute it. Recomputing asks "what would this row hash to now",
- *  which stops being the right question the moment anything augments a row after
- *  it was written: an enrichment replaces `segments_json` with the real legs, and
- *  `hashResult` folds segments in, so a recomputed baseline would differ from the
- *  unchanged summary arriving next and rewrite the row — discarding the
- *  enrichment on every search, forever. */
+ * The empty-input guard is HERE and only here. `selectBaselineFinds` builds a
+ * statement whose pair test is an `IN` list, and an empty one is a syntax error;
+ * this is the one place that decision is made.
+ */
 async function loadPrevious(
   db: D1Database,
   slices: CoverageSlice[],
@@ -228,47 +222,7 @@ async function loadPrevious(
   const lo = dates[0]!;
   const hi = dates[dates.length - 1]!;
 
-  const pairs = routes.map((r) => `${r.origin}-${r.destination}`);
-  const placeholders = pairs.map(() => "?").join(", ");
-
-  // NARROWING clauses, in front of the exact pair test below.
-  //
-  // `(origin || '-' || destination)` is a COMPUTED expression that no index can
-  // serve, so without these this query scans the whole table once per ingest
-  // task. These two `IN` lists and the date range are an exact prefix of the
-  // primary key, which turns the scan into a seek.
-  //
-  // **They narrow, they do not decide.** The pair test stays exactly as it is,
-  // and it must: `prunable` filters on (flightDate, program) ONLY — it has no
-  // route-pair test at all — so this list is the one thing standing between a
-  // task and pruning a pair it never touched. The cross product of these two sets
-  // contains pairs that are not in `routes` (touch SFO->NRT, OAK->NRT and
-  // SFO->HND and the product hands you OAK->HND), and a row returned for one of
-  // those would be handed to `prunable` and DELETED. Narrow with these; decide
-  // with the pair list.
-  const origins = [...new Set(routes.map((r) => r.origin))];
-  const destinations = [...new Set(routes.map((r) => r.destination))];
-  // D1 allows 100 bound parameters. Over budget, drop the narrowing rather than
-  // the correctness below it: slow and right beats refused.
-  const narrowBinds = origins.length + destinations.length + 2;
-  const narrow = pairs.length + narrowBinds <= 100;
-  const near = narrow
-    ? `s.origin IN (${origins.map(() => "?").join(", ")})
-          AND s.destination IN (${destinations.map(() => "?").join(", ")})
-          AND s.flight_date BETWEEN ? AND ?
-          AND `
-    : "";
-  const nearBinds = narrow ? [...origins, ...destinations, lo, hi] : [];
-
-  const { results } = await db
-    .prepare(
-      `SELECT ${FIND_COLUMNS}
-         FROM finds s
-        WHERE ${near}(s.origin || '-' || s.destination) IN (${placeholders})`,
-    )
-    .bind(...nearBinds, ...pairs)
-    .all();
-
+  const results = await selectBaselineFinds(db, routes, lo, hi);
   return results.map((r) => ({ result: rowToResult(r), rawHash: String(r.raw_hash ?? "") }));
 }
 
@@ -312,95 +266,13 @@ export async function applyTask(
   // `loadPrevious`: a row that has been enriched since it was written would
   // recompute to something else and be rewritten every single search.
   const prevHash = new Map(stored.map((p) => [changeKey(p.result), p.rawHash] as const));
-  const inserts: D1PreparedStatement[] = [];
-  for (const r of kept) {
-    const h = hashResult(r);
-    if (prevHash.get(changeKey(r)) === h) continue; // unchanged — skip the write
-    inserts.push(
-      db
-        .prepare(
-          `INSERT INTO finds
-             (origin, destination, flight_date, program, cabin,
-              seats_available, miles_cost, cash_fees_cents, fees_currency,
-              is_direct, segments_json, source_fetched_at, raw_hash,
-              transfer_currencies, duration_minutes, booking_url,
-              source_record_id, detail_level,
-              stop_count, airlines, direct_airlines, direct_miles_cost)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (origin, destination, flight_date, program, cabin) DO UPDATE SET
-             seats_available = excluded.seats_available,
-             miles_cost = excluded.miles_cost,
-             cash_fees_cents = excluded.cash_fees_cents,
-             fees_currency = excluded.fees_currency,
-             is_direct = excluded.is_direct,
-             segments_json = excluded.segments_json,
-             source_fetched_at = excluded.source_fetched_at,
-             raw_hash = excluded.raw_hash,
-             transfer_currencies = excluded.transfer_currencies,
-             duration_minutes = excluded.duration_minutes,
-             booking_url = excluded.booking_url,
-             source_record_id = excluded.source_record_id,
-             detail_level = excluded.detail_level,
-             stop_count = excluded.stop_count,
-             airlines = excluded.airlines,
-             direct_airlines = excluded.direct_airlines,
-             direct_miles_cost = excluded.direct_miles_cost,
-             -- The SET list must reproduce A BRAND NEW ROW, not patch the old
-             -- one. This came free while this was an INSERT — the column is not
-             -- in the list above, so a fresh row took its default — and it is
-             -- what reverts an enriched find to the source's own summary when
-             -- the price moves. Omitting it would leave last week's itinerary
-             -- attached to this week's price, and the detail_level line above is
-             -- the other half of the same revert. Pinned by apply.test.ts.
-             enriched_at = NULL`,
-        )
-        .bind(
-          r.origin,
-          r.destination,
-          r.flightDate,
-          r.program,
-          r.cabin,
-          r.seatsAvailable,
-          r.milesCost,
-          r.cashFeesCents,
-          r.feesCurrency,
-          r.isDirect ? 1 : 0,
-          JSON.stringify(r.segments),
-          r.sourceFetchedAt,
-          h,
-          JSON.stringify(r.bookableWith ?? []),
-          r.durationMinutes ?? null,
-          r.bookingUrl ?? null,
-          r.sourceRecordId ?? null,
-          // Absent means the source produced real legs — which is every source
-          // except seats.aero's Cached Search asked without `include_trips`.
-          r.detailLevel ?? "itinerary",
-          // NULL is a real answer and the whole reason this column is nullable.
-          r.stops ?? null,
-          r.airlines?.length ? JSON.stringify(r.airlines) : null,
-          r.directAirlines?.length ? JSON.stringify(r.directAirlines) : null,
-          r.directMilesCost ?? null,
-        ),
-    );
-  }
-  if (inserts.length) await db.batch(inserts);
+  const changed = kept
+    .map((result) => ({ result, rawHash: hashResult(result) }))
+    .filter(({ result, rawHash }) => prevHash.get(changeKey(result)) !== rawHash);
+  const snapshotsWritten = await upsertFinds(db, changed);
 
   // --- prune what this task's own coverage licenses deleting ------------------
-  const gone = prunable(previous, kept, slices);
-  let snapshotsPruned = 0;
-  if (gone.length) {
-    const deletes = gone.map((r) =>
-      db
-        .prepare(
-          `DELETE FROM finds
-            WHERE origin = ? AND destination = ? AND flight_date = ?
-              AND program = ? AND cabin = ?`,
-        )
-        .bind(r.origin, r.destination, r.flightDate, r.program, r.cabin),
-    );
-    const results = await db.batch(deletes);
-    for (const res of results) snapshotsPruned += res.meta.changes ?? 0;
-  }
+  const snapshotsPruned = await deleteFinds(db, prunable(previous, kept, slices));
 
   // --- diff, for the run summary and the digest ------------------------------
   const tally = { new: 0, more_seats: 0, price_drop: 0, gone: 0 };
@@ -412,7 +284,7 @@ export async function applyTask(
 
   return {
     offersKept: kept.length,
-    snapshotsWritten: inserts.length,
+    snapshotsWritten,
     snapshotsPruned,
     changeCounts: tally,
     changes,

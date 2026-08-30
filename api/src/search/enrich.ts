@@ -5,6 +5,13 @@ import {
 } from "../providers/seatsaero.js";
 import { classifyError, type FetchLike, makeTransport } from "../providers/transport.js";
 import { recordQuota } from "../db/sourceQuota.js";
+import {
+  enrichItineraryStatement,
+  stampEnrichAttemptStatement,
+  type EnrichableRow,
+} from "../db/finds.js";
+
+export type { EnrichableRow } from "../db/finds.js";
 
 /**
  * Buying the itinerary behind a summary find — the engine half.
@@ -41,48 +48,6 @@ import { recordQuota } from "../db/sourceQuota.js";
  *  quotes the same constant in its confirm dialog instead of holding a second
  *  copy of the number. */
 export { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";
-
-/** One `finds` row that could be enriched. */
-export interface EnrichableRow {
-  origin: string;
-  destination: string;
-  flight_date: string;
-  program: string;
-  cabin: string;
-  miles_cost: number;
-  source_record_id: string | null;
-  detail_level: string;
-  /** The stored hash of the SOURCE's claim, carried so the writes below can
-   *  check the row still holds the price the itinerary was chosen against. */
-  raw_hash: string;
-}
-
-/**
- * The seats.aero snapshot per cabin for one (route, date, program).
- *
- * A four-column prefix of the primary key, which leaves only `cabin` free — so
- * this is at most one row per cabin by construction rather than by a filter.
- *
- * `raw_hash` rides along for the guard on the UPDATEs below.
- */
-export async function currentRows(
-  db: D1Database,
-  origin: string,
-  destination: string,
-  flightDate: string,
-  program: string,
-): Promise<EnrichableRow[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT s.origin, s.destination, s.flight_date, s.program, s.cabin,
-              s.miles_cost, s.source_record_id, s.detail_level, s.raw_hash
-         FROM finds s
-        WHERE s.origin = ? AND s.destination = ? AND s.flight_date = ? AND s.program = ?`,
-    )
-    .bind(origin, destination, flightDate, program)
-    .all<EnrichableRow>();
-  return results;
-}
 
 export type { EnrichOutcome } from "../../../shared/src/wire/enrich.js";
 import type { EnrichOutcome } from "../../../shared/src/wire/enrich.js";
@@ -138,55 +103,27 @@ export async function enrichAvailability(
       // seats.aero had no itinerary at this price" is the difference between an
       // inviting button and one that says so — without it the UI would offer the
       // same wasted call forever.
-      writes.push(
-        db
-          .prepare(
-            `UPDATE finds SET enriched_at = ?
-              WHERE origin = ? AND destination = ? AND flight_date = ?
-                AND program = ? AND cabin = ? AND raw_hash = ?`,
-          )
-          .bind(
-            now,
-            row.origin,
-            row.destination,
-            row.flight_date,
-            row.program,
-            row.cabin,
-            row.raw_hash,
-          ),
-      );
+      writes.push(stampEnrichAttemptStatement(db, row, now));
       writeCabin.push(null);
       skipped.push({ cabin: row.cabin, reason: "no trip at the stored price" });
       continue;
     }
 
     writes.push(
-      db
-        .prepare(
-          `UPDATE finds SET
-             segments_json = ?, stop_count = ?, duration_minutes = ?,
-             booking_url = COALESCE(?, booking_url), is_direct = ?,
-             detail_level = 'itinerary', enriched_at = ?
-           WHERE origin = ? AND destination = ? AND flight_date = ?
-             AND program = ? AND cabin = ? AND raw_hash = ?`,
-        )
-        .bind(
-          JSON.stringify(detail.segments),
+      enrichItineraryStatement(
+        db,
+        row,
+        {
+          segmentsJson: JSON.stringify(detail.segments),
           // An enriched row's stop count is never a guess — it came off the
-          // itinerary — so leaving stop_count NULL here would downgrade a fact
-          // to "unknown" the moment the detail arrived.
-          detail.stops,
-          detail.durationMinutes ?? null,
-          detail.bookingUrl ?? null,
-          detail.stops === 0 ? 1 : 0,
-          now,
-          row.origin,
-          row.destination,
-          row.flight_date,
-          row.program,
-          row.cabin,
-          row.raw_hash,
-        ),
+          // itinerary — so leaving stop_count NULL would downgrade a fact to
+          // "unknown" the moment the detail arrived.
+          stops: detail.stops,
+          durationMinutes: detail.durationMinutes ?? null,
+          bookingUrl: detail.bookingUrl ?? null,
+        },
+        now,
+      ),
     );
     writeCabin.push(row.cabin);
     enriched.push({

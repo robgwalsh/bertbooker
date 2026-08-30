@@ -1,4 +1,4 @@
-import type { Cabin } from "../domain/types.js";
+import { routeKey, type Cabin } from "../domain/types.js";
 import {
   runSeatsAeroTrips,
   SEATSAERO_SOURCE_ID,
@@ -54,15 +54,21 @@ export interface EnrichableRow {
   miles_cost: number;
   source_record_id: string | null;
   detail_level: string;
+  /** The stored hash of the SOURCE's claim, carried so the writes below can
+   *  check the row still holds the price the itinerary was chosen against. */
+  raw_hash: string;
 }
 
 /**
- * The latest seats.aero snapshot per cabin for one (route, date, program).
+ * The seats.aero snapshot per cabin for one (route, date, program).
  *
- * Latest-per-cabin rather than "all rows": the table is append-on-change
- * history, and enriching a superseded row would decorate something no read path
- * will ever return. Mirrors the `MAX(captured_at)` join `loadPreviousForSource`
- * and `findsCte` both use, so all three agree on which row is current.
+ * A two-column prefix of `idx_snap_slot` (0014), which is UNIQUE — so this is at
+ * most one row per cabin by construction. It used to be a MAX(captured_at)
+ * self-join, the third hand-rolled copy of that collapse, because the table was
+ * append-on-change history and enriching a superseded row would have decorated
+ * something no read path would ever return. There is no superseded row now.
+ *
+ * `raw_hash` rides along for the guard on the UPDATEs below.
  */
 export async function currentRows(
   db: D1Database,
@@ -74,30 +80,11 @@ export async function currentRows(
   const { results } = await db
     .prepare(
       `SELECT s.id, s.origin, s.destination, s.flight_date, s.program, s.cabin,
-              s.miles_cost, s.source_record_id, s.detail_level
+              s.miles_cost, s.source_record_id, s.detail_level, s.raw_hash
          FROM availability_snapshots s
-         JOIN (
-           SELECT cabin, MAX(captured_at) AS mx
-             FROM availability_snapshots
-            WHERE origin = ? AND destination = ? AND flight_date = ?
-              AND program = ? AND source = ?
-            GROUP BY cabin
-         ) latest ON latest.cabin = s.cabin AND latest.mx = s.captured_at
-        WHERE s.origin = ? AND s.destination = ? AND s.flight_date = ?
-          AND s.program = ? AND s.source = ?`,
+        WHERE s.route_key = ? AND s.program = ? AND s.source = ?`,
     )
-    .bind(
-      origin,
-      destination,
-      flightDate,
-      program,
-      SEATSAERO_SOURCE_ID,
-      origin,
-      destination,
-      flightDate,
-      program,
-      SEATSAERO_SOURCE_ID,
-    )
+    .bind(routeKey(origin, destination, flightDate), program, SEATSAERO_SOURCE_ID)
     .all<EnrichableRow>();
   return results;
 }
@@ -144,6 +131,10 @@ export async function enrichAvailability(
   const enriched: EnrichOutcome["enriched"] = [];
   const skipped: EnrichOutcome["skipped"] = [];
   const writes: D1PreparedStatement[] = [];
+  // Which cabin each write is for, index-aligned with `writes`, so a write the
+  // raw_hash guard rejects can be reported instead of silently claimed. Null is
+  // the "tried, nothing at this price" stamp, which nothing promised the user.
+  const writeCabin: (string | null)[] = [];
 
   for (const row of rows) {
     const detail = byCabin.get(row.cabin);
@@ -154,9 +145,12 @@ export async function enrichAvailability(
       // same wasted call forever.
       writes.push(
         db
-          .prepare("UPDATE availability_snapshots SET enriched_at = ? WHERE id = ?")
-          .bind(now, row.id),
+          .prepare(
+            "UPDATE availability_snapshots SET enriched_at = ? WHERE id = ? AND raw_hash = ?",
+          )
+          .bind(now, row.id, row.raw_hash),
       );
+      writeCabin.push(null);
       skipped.push({ cabin: row.cabin, reason: "no trip at the stored price" });
       continue;
     }
@@ -168,7 +162,7 @@ export async function enrichAvailability(
              segments_json = ?, stop_count = ?, duration_minutes = ?,
              booking_url = COALESCE(?, booking_url), is_direct = ?,
              detail_level = 'itinerary', enriched_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND raw_hash = ?`,
         )
         .bind(
           JSON.stringify(detail.segments),
@@ -181,8 +175,10 @@ export async function enrichAvailability(
           detail.stops === 0 ? 1 : 0,
           now,
           row.id,
+          row.raw_hash,
         ),
     );
+    writeCabin.push(row.cabin);
     enriched.push({
       cabin: row.cabin,
       stops: detail.stops,
@@ -191,7 +187,28 @@ export async function enrichAvailability(
     });
   }
 
-  if (writes.length) await db.batch(writes);
+  if (writes.length) {
+    // The raw_hash guard makes a write conditional, so a landed batch is no
+    // longer proof the row was decorated. A search can upsert a new price into
+    // this exact row while the metered call is in flight; the itinerary we got
+    // back was chosen against the OLD price (see `pickDetail`), so the guard
+    // correctly refuses it — and reporting an enrichment that did not happen
+    // would leave the UI showing legs the row does not carry.
+    const results = await db.batch(writes);
+    const lost = new Set<string>();
+    results.forEach((res, i) => {
+      const cabin = writeCabin[i];
+      if (cabin != null && (res.meta.changes ?? 0) === 0) lost.add(cabin);
+    });
+    if (lost.size) {
+      for (let i = enriched.length - 1; i >= 0; i--) {
+        if (lost.has(enriched[i]!.cabin)) enriched.splice(i, 1);
+      }
+      for (const cabin of lost) {
+        skipped.push({ cabin, reason: "the price changed while we were fetching" });
+      }
+    }
+  }
   return { enriched, skipped, notes: out.notes, quotaRemaining: out.quota?.remaining };
 }
 

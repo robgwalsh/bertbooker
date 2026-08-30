@@ -257,47 +257,37 @@ async function loadPreviousForSource(
   // those would be handed to `prunable` and DELETED. Narrow with these; decide
   // with the pair list.
   //
-  // The date range rides along on the OUTER half only — the inner already has
-  // one of its own further down, and `idx_snap_route_date` wants the three
-  // columns together to seek rather than filter afterwards. On the outer it is
-  // implied rather than new: `latest` is already restricted to [lo, hi], and
-  // route_key IS origin-destination-flight_date, so `latest.route_key =
-  // s.route_key` already pins s.flight_date inside the range. Stating it is
-  // what lets the index do the work.
+  // The date range and the two sets are stated together because
+  // `idx_snap_route_date` wants the three columns adjacent to seek rather than
+  // filter afterwards.
   const origins = [...new Set(routes.map((r) => r.origin))];
   const destinations = [...new Set(routes.map((r) => r.destination))];
-  // D1 allows 100 bound parameters. Both halves carry the full sets, so the
-  // narrowing costs `2 * (origins + destinations) + 2` on top of what was
-  // already there. Over budget, drop the narrowing rather than the correctness
-  // below it — slow and right beats refused.
-  const narrowBinds = 2 * (origins.length + destinations.length) + 2;
-  const narrow = pairs.length * 2 + 4 + narrowBinds <= 100;
-  const sets = (alias: string) =>
-    `${alias}origin IN (${origins.map(() => "?").join(", ")})
-              AND ${alias}destination IN (${destinations.map(() => "?").join(", ")})
-              AND `;
-  const nearIn = narrow ? sets("") : "";
-  const nearOut = narrow ? `${sets("s.")}s.flight_date BETWEEN ? AND ?
-          AND ` : "";
-  const inBinds = narrow ? [...origins, ...destinations] : [];
-  const outBinds = narrow ? [...origins, ...destinations, lo, hi] : [];
+  // D1 allows 100 bound parameters. The sets are carried ONCE now that there is
+  // no self-join, so the narrowing costs `origins + destinations + 2` — half
+  // what it did, and the narrowing therefore survives for route sets twice as
+  // wide before falling back. Over budget, drop the narrowing rather than the
+  // correctness below it: slow and right beats refused.
+  const narrowBinds = origins.length + destinations.length + 2;
+  const narrow = pairs.length + 1 + narrowBinds <= 100;
+  const near = narrow
+    ? `s.origin IN (${origins.map(() => "?").join(", ")})
+          AND s.destination IN (${destinations.map(() => "?").join(", ")})
+          AND s.flight_date BETWEEN ? AND ?
+          AND `
+    : "";
+  const nearBinds = narrow ? [...origins, ...destinations, lo, hi] : [];
 
+  // One row per slot since 0014, so there is nothing to collapse: this was a
+  // MAX(captured_at) self-join, the write path's scaled-down copy of the same
+  // groupwise-maximum the read path paid for.
   const { results } = await db
     .prepare(
       `SELECT ${SNAPSHOT_COLUMNS}
          FROM availability_snapshots s
-         JOIN (
-           SELECT route_key, program, cabin, MAX(captured_at) AS mx
-             FROM availability_snapshots
-            WHERE ${nearIn}(origin || '-' || destination) IN (${placeholders}) AND source = ?
-              AND flight_date BETWEEN ? AND ?
-            GROUP BY route_key, program, cabin
-         ) latest
-           ON latest.route_key = s.route_key AND latest.program = s.program
-          AND latest.cabin = s.cabin AND latest.mx = s.captured_at
-        WHERE ${nearOut}(s.origin || '-' || s.destination) IN (${placeholders}) AND s.source = ?`,
+        WHERE ${near}(s.origin || '-' || s.destination) IN (${placeholders})
+          AND s.source = ?`,
     )
-    .bind(...inBinds, ...pairs, task.source, lo, hi, ...outBinds, ...pairs, task.source)
+    .bind(...nearBinds, ...pairs, task.source)
     .all();
 
   return results.map((r) => ({ result: rowToResult(r), rawHash: String(r.raw_hash ?? "") }));
@@ -365,7 +355,41 @@ export async function applyTask(
               transfer_currencies, duration_minutes, booking_url, search_run_id,
               source_record_id, detail_level,
               stop_count, airlines, direct_airlines, direct_miles_cost)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (route_key, program, cabin) DO UPDATE SET
+             origin = excluded.origin,
+             destination = excluded.destination,
+             flight_date = excluded.flight_date,
+             seats_available = excluded.seats_available,
+             miles_cost = excluded.miles_cost,
+             cash_fees_cents = excluded.cash_fees_cents,
+             fees_currency = excluded.fees_currency,
+             is_direct = excluded.is_direct,
+             segments_json = excluded.segments_json,
+             source = excluded.source,
+             source_fetched_at = excluded.source_fetched_at,
+             raw_hash = excluded.raw_hash,
+             transfer_currencies = excluded.transfer_currencies,
+             duration_minutes = excluded.duration_minutes,
+             booking_url = excluded.booking_url,
+             search_run_id = excluded.search_run_id,
+             source_record_id = excluded.source_record_id,
+             detail_level = excluded.detail_level,
+             stop_count = excluded.stop_count,
+             airlines = excluded.airlines,
+             direct_airlines = excluded.direct_airlines,
+             direct_miles_cost = excluded.direct_miles_cost,
+             -- The SET list must reproduce A BRAND NEW ROW, not patch the old
+             -- one. These two came free while this was an INSERT — the columns
+             -- are not in the list above, so a fresh row took their defaults —
+             -- and they are what reverts an enriched find to the source's own
+             -- summary when the price moves. Omitting enriched_at would leave
+             -- last week's itinerary attached to this week's price, and the
+             -- detail_level line above is the other half of the same revert.
+             -- Pinned by apply.test.ts. (No backticks in here — this is a
+             -- template literal.)
+             enriched_at = NULL,
+             captured_at = unixepoch() * 1000`,
         )
         .bind(
           routeKey(r.origin, r.destination, r.flightDate),
@@ -410,11 +434,19 @@ export async function applyTask(
     const deletes = gone.map((r) =>
       db
         .prepare(
+          // Three columns, not six: (route_key, program, cabin) is the slot, and
+          // since 0014 it is a UNIQUE index — so this is an exact one-row hit
+          // rather than a six-column prefix range over a slot's history. There
+          // is no `captured_at` predicate for the same reason there never was:
+          // a prune removes the slot, and after 0013 the slot is one row.
+          //
+          // `source` is gone from the key and so from here. `prunable` still
+          // decides WHAT to delete from this task's own coverage, which is what
+          // keeps the deletion scoped to what the task actually looked at.
           `DELETE FROM availability_snapshots
-            WHERE origin = ? AND destination = ? AND flight_date = ?
-              AND program = ? AND cabin = ? AND source = ?`,
+            WHERE route_key = ? AND program = ? AND cabin = ?`,
         )
-        .bind(r.origin, r.destination, r.flightDate, r.program, r.cabin, r.source),
+        .bind(routeKey(r.origin, r.destination, r.flightDate), r.program, r.cabin),
     );
     // Counted off the DELETES ONLY. The history writes ride in the same
     // transaction — for the same reason the inserts do — and their inserted-row

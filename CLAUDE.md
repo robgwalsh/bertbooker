@@ -113,7 +113,7 @@ npm run db:seed:airports:local  # loads the table AND rebuilds what is derived
 npm run build:world             # regenerates app/src/data/worldGeometry.ts, the
                                 # basemap the route maps draw (needs internet)
 
-npm test                    # ONE vitest run over api/ and app/ (vitest.config.ts)
+npm test                    # ONE vitest run over shared/, api/ and app/ (vitest.config.ts)
                             # — offline, no servers, no browser
 npm run typecheck           # five tsc projects: shared, shared/wire, api, app, e2e
 
@@ -150,7 +150,9 @@ shared identity everyone who knows the password signs in as.
 wrangler's esbuild, Vite and vitest — which is why no alias is configured
 anywhere.
 
-- **`shared/`** — `src/wire/` and nothing else. **Not a package** — no
+- **`shared/`** — `src/wire/` (the API contract) and `src/match/` (the one
+  route-matching predicate, run by BOTH the Worker and the SPA, and the only
+  runtime code here). **Not a package** — no
   `package.json`, no `exports` map, nothing emitted.
 - **`api/`** — the only worker, and its `wrangler.toml`. Identity is
   `APP_USER_EMAIL`; it *deliberately ignores*
@@ -289,14 +291,22 @@ else lives at its point of use — see *Where the depth lives*.
   over-claiming hard-deletes real finds while under-claiming costs a stale row.
   When unsure, narrow it. `ingest/apply.ts` explains each clause;
   `docs/SOURCES.md` is the contract.
-- **Snapshots are per-source, so a prune is scoped to the source that claimed the
-  slice** — one source's failure can't destroy another's data, and reads collapse
-  across sources at query time by freshest `source_fetched_at`. With one source
-  that collapse resolves trivially and is kept anyway, because it is what makes
-  **retiring** a source a data question with a right answer.
+- **`availability_snapshots` holds ONE ROW PER SLOT** — `UNIQUE (route_key,
+  program, cabin)` since `0014`, written by UPSERT and pruned by that same key.
+  It was append-on-change history until then, and nothing ever read it as a
+  series: every reader collapsed it away with `MAX(captured_at)`, which cost 57%
+  of the Routes page query. `price_history` is the series, and holds strictly
+  more — it survives the prune, so it records the disappearances snapshots
+  cannot express. **`source` is no longer part of the key**, so a second source
+  is a schema change rather than a config change; that trade is argued in `0014`.
 - **`findsCte` is the one read of a stored find**, so no two surfaces can
-  disagree about what a current find is. Its scope binds are consumed **twice**
-  (inner grouping and outer filter); a scope may constrain **`origin`,
+  disagree about what a current find is, and **`shared/src/match/routeMatch.ts`
+  is the one answer to "does this find belong to this route"** — the Routes page
+  and the alert sweep run the same predicate, because an alert that fires on a
+  find the route's pane hides is indistinguishable from a bug in either half,
+  and the sweep sends no mail when it finds nothing so the other direction
+  reports itself to nobody. That predicate was SQL until its `json_each` join
+  became 57% of the page query. A scope may constrain **`origin`,
   `destination` and `flight_date` and nothing else**, because those three *are*
   `route_key` and so include or exclude each group whole — one naming `program`,
   `cabin`, `source` or `captured_at` splits a collapse group, changes which row
@@ -327,12 +337,17 @@ else lives at its point of use — see *Where the depth lives*.
   per source, so deleting a source's code leaves nothing with the authority to
   clean up its rows and they read as current forever.
   `migrations/0002_drop_pointsyeah.sql` is that cleanup, already applied.
-- **`wrangler d1 export` does not work on this database**, and that is a known,
-  accepted cost rather than a bug: D1 refuses to export a database containing
-  virtual tables, and `airports_fts` is one. To export, drop it, export, then
-  re-create it from `0006` and re-run `db:seed:airports:derived:*`. Nothing in
-  the repo exports today and the table is derived from generated reference data,
-  so nothing is at risk — but this is why the export fails.
+- **A WHOLE-DATABASE `wrangler d1 export` does not work here** — D1 refuses to
+  export a database containing virtual tables and `airports_fts` is one. **A
+  table-scoped one does**, and it is the backup to take before any destructive
+  migration:
+
+      npx wrangler d1 export bertbooker_db --remote --config api/wrangler.toml         --table availability_snapshots --output ./backup.sql
+
+  `wrangler d1 time-travel info` prints a bookmark that restores the whole
+  database, and is the other half of the same insurance. To export EVERYTHING,
+  drop `airports_fts`, export, then re-create it from `0006` and re-run
+  `db:seed:airports:derived:*`.
 - **Three paths spend real money** — search, enrich, and
   `POST /api/seatsaero/sources/:source/fetch`. All three are listed in
   `METERED_PATTERNS` (`e2e/fixtures.ts`) so a UI test that reaches one fails
@@ -427,6 +442,8 @@ constrains. When you touch the file, read it there.
 | write-on-change, the stored-vs-recomputed baseline hash, why `collapseBy` is required, co-terminal answers and `routesTouched` | `api/src/ingest/apply.ts` |
 | what claims coverage, and what a task may report | `api/src/ingest/types.ts`, `api/src/sources/types.ts` |
 | the `findsCte` shape, and why a scope may constrain only the three columns that *are* `route_key` | `api/src/db/finds.ts` |
+| what makes a find belong to a route, and the three places it differs from the SQL it replaced | `shared/src/match/routeMatch.ts` |
+| why the snapshot table is current-only, and what the unique key costs | `migrations/0013`, `migrations/0014` |
 | hub routes planning two seats.aero queries per date chunk, chunk-major task order, `autoVia`, `splitDirectAndLegs` | `api/src/domain/routing.ts` |
 | a connection is LEGS, not a trip; the depth ladder and why the mixed tier stops at one stop | `api/src/domain/graphPaths.ts` |
 | `empty` is a SUCCESS — why the fetch itself is recorded, and why rendering it as an error destroys the signal | `api/src/endpoints/seatsaeroRoutes.ts`, `docs/SEATS-AERO.md` §12 |

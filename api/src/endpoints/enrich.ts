@@ -165,6 +165,18 @@ enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
   // Detected as "leg two exists and has no departure", which is exactly the
   // shape a chain-rebuilt itinerary has. A nonstop is fully timed already and is
   // never a target.
+  //
+  // `enriched_at IS NULL` MEANS WHAT IT SAYS SINCE 0014, and did not before.
+  // This scan has no latest-row logic, so while the table was append-on-change
+  // it read superseded rows too — and a superseded summary (enriched_at NULL)
+  // for a slot whose current row was already enriched still matched, so a bulk
+  // run could spend a metered call re-expanding a slot that had nothing to
+  // learn. One row per slot makes that unrepresentable rather than merely
+  // unlikely.
+  //
+  // Still open, and unrelated to any of that: the pair test uses the route's
+  // PRIMARY airports only, so a multi-airport or hub route never bulk-enriches
+  // its other pairs. That is a coverage gap, not a cost one.
   const { results: targets } = await c.env.DB.prepare(
     `SELECT origin, destination, flight_date, program, source_record_id
        FROM availability_snapshots

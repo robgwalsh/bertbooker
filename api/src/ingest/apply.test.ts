@@ -413,15 +413,17 @@ describe("applyTask — write-on-change", () => {
     );
     const baseline = reads.find((r) => r.sql.includes("FROM availability_snapshots"));
     expect(baseline).toBeDefined();
-    expect(baseline!.sql).toContain("(origin || '-' || destination) IN");
+    // Once, not twice: the MAX(captured_at) self-join that carried a second
+    // copy of this test went with 0014, so there is one qualified pair test.
     expect(baseline!.sql).toContain("(s.origin || '-' || s.destination) IN");
+    expect(baseline!.sql).not.toContain("MAX(captured_at)");
     // And the pairs bound are the touched ones, never their cross product.
     expect(baseline!.args).toContain("SFO-NRT");
     expect(baseline!.args).toContain("SFO-HND");
     expect(baseline!.args).toContain("OAK-NRT");
     expect(baseline!.args).not.toContain("OAK-HND");
-    // D1 refuses a query over 100 bound parameters, and this one binds its sets
-    // twice. The narrowing is dropped rather than the correctness above it.
+    // D1 refuses a query over 100 bound parameters. The narrowing is dropped
+    // rather than the correctness above it.
     expect(baseline!.args.length).toBeLessThanOrEqual(100);
   });
 

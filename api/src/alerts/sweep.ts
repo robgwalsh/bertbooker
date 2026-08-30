@@ -6,7 +6,8 @@ import { planSeatsAeroChunks } from "../providers/seatsaero.js";
 import { queryGroupCount } from "../domain/routing.js";
 import { todayISO } from "../providers/window.js";
 import type { Env } from "../bindings.js";
-import { ROUTE_FINDS_MATCH, ROUTE_FINDS_SEATS, findsCte, routeFindsScope } from "../db/finds.js";
+import { findsFrom, routeFindsScope } from "../db/finds.js";
+import { type MatchableFind, routeMatcher } from "../../../shared/src/match/routeMatch.js";
 import { idempotencyKey, sendEmail } from "./email.js";
 import { openSearchRun, planSearchPass, runSearchPass } from "../search/run.js";
 import { decideSweep, readBudgetState } from "./budget.js";
@@ -87,10 +88,16 @@ export interface AlertRouteRow {
   date_start: string;
   date_end: string;
   cabins: string | null;
+  /** Read by `routeMatcher`, and absent from this row until the match moved out
+   *  of SQL. While the predicate was a join against `tracked_routes tr` these
+   *  two came off `tr` and nothing here had to carry them; a matcher fed a row
+   *  without them silently reads "no currency filter, connections allowed" and
+   *  fires alerts on finds the route's own pane hides. */
+  currencies: string | null;
+  direct_only: number;
   min_seats: number;
   /** The route's points ceiling, or null. Read for the `gone` branch of
-   *  `selectAlertable` only — every other change type is intersected against
-   *  `ROUTE_FINDS_MATCH`, which applies the column itself. */
+   *  `selectAlertable`, and by `routeMatcher` for every other change type. */
   point_limit: number | null;
   round_trip: number;
   /** Hubs, which double the queries per chunk — see `routeSweepCost`. */
@@ -130,7 +137,8 @@ function parseList(json: string | null, fallback?: string): string[] {
 export async function alertRouteRows(env: Env, email: string): Promise<AlertRouteRow[]> {
   const { results } = await env.DB.prepare(
     `SELECT tr.id, tr.origin, tr.destination, tr.origins, tr.destinations,
-            tr.date_start, tr.date_end, tr.cabins, tr.min_seats, tr.point_limit,
+            tr.date_start, tr.date_end, tr.cabins, tr.currencies, tr.direct_only,
+            tr.min_seats, tr.point_limit,
             tr.round_trip,
             tr.via,
             tr.alert_email, tr.alert_on, tr.alert_min_drop_pct,
@@ -466,35 +474,41 @@ async function noteFailure(env: Env, routeId: number): Promise<void> {
 /**
  * The `changeKey`s that survive THIS route's own filters.
  *
- * One query, and it is the same SQL the Routes page's join uses
- * (`ROUTE_FINDS_MATCH`) — so an alert can never fire on a find the route's own
- * pane would hide. Re-implementing the cabin/currency/nonstop rules in
- * TypeScript would have been a fourth copy of a rule CLAUDE.md already warns is
- * duplicated, and the only copy blind to the cross-source collapse.
+ * The same predicate the Routes page applies — `routeMatcher`, out of
+ * `shared/src/match/routeMatch.ts` — so an alert can never fire on a find the
+ * route's own pane would hide. That sharing is the load-bearing part and it is
+ * why the predicate is one module rather than one copy each: the sweep sends no
+ * mail when it finds nothing, so a drift in that direction reports itself to
+ * nobody.
  *
  * **Scoped to this one route**, which is the whole reason this function stopped
  * being the most expensive statement in the app: it used to pass an empty
  * `FindsScope`, so it collapsed every snapshot of every route to answer about
  * one — 171,471 rows read for a route whose entire input was 23. `AlertRouteRow`
- * already carries every column `routeFindsScope` needs, so this costs no extra
- * query. See `routeFindsScope` for why the scope is a superset of
- * `ROUTE_FINDS_MATCH` rather than a second copy of it.
+ * carries every column `routeFindsScope` AND `routeMatcher` need, so this costs
+ * no extra query.
+ *
+ * Eight columns, not the twenty-seven `FIND_COLUMNS` projects and not the
+ * `best_miles_ever` seek: the answer is a membership set, and everything else
+ * this used to compute was thrown away.
  */
 async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string>> {
-  const cte = findsCte(routeFindsScope([route]));
+  const from = findsFrom(routeFindsScope([route]));
   const { results } = await env.DB.prepare(
-    `${cte.sql}
-     SELECT f.route_key, f.program, f.cabin
-       FROM finds f
-       JOIN tracked_routes tr ON tr.id = ?
-        AND ${ROUTE_FINDS_MATCH}
-      WHERE ${ROUTE_FINDS_SEATS}`,
+    `SELECT f.route_key, f.program, f.cabin, f.origin, f.destination, f.flight_date,
+            f.transfer_currencies, f.is_direct, f.miles_cost, f.seats_available
+       ${from.sql}`,
   )
-    .bind(...cte.binds, route.id)
-    .all<{ route_key: string; program: string; cabin: string }>();
+    .bind(...from.binds)
+    .all<MatchableFind & { route_key: string; program: string }>();
 
-  // Must match `changeKey` in api/src/domain/diff.ts exactly.
-  return new Set((results ?? []).map((r) => `${r.route_key}|${r.program}|${r.cabin}`));
+  const matcher = routeMatcher(route);
+  const keys = new Set<string>();
+  for (const f of results ?? []) {
+    // Must match `changeKey` in api/src/domain/diff.ts exactly.
+    if (matcher.matches(f)) keys.add(`${f.route_key}|${f.program}|${f.cabin}`);
+  }
+  return keys;
 }
 
 /** File changes for the next digest. Newest wins on conflict: a route swept

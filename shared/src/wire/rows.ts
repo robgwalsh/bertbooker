@@ -163,8 +163,6 @@ export interface Find {
    *  dollars is $24,029.90 instead of about $1,700. Format with money(). */
   fees_currency?: string | null;
   is_direct: number;
-  source: string;
-  source_fetched_at: number;
   transfer_currencies?: string; // JSON array string, e.g. '["chase_ur","bilt"]'
   /** How many stops, or null/absent for GENUINELY UNKNOWN.
    *  seats.aero's Cached Search, asked without trips, reports that a connecting
@@ -186,8 +184,6 @@ export interface Find {
   duration_minutes?: number | null;
   booking_url?: string | null;
   segments_json?: string; // JSON array of Segment (flight numbers, times, aircraft)
-  /** Which run wrote this row. Absent on rows predating the pivot. */
-  search_run_id?: string | null;
   /** `"summary"` means segments_json is one synthetic leg with no flight number
    *  — seats.aero said there is space at this price and nothing about which
    *  aeroplane. `"itinerary"` means the legs are real. Absent reads as an

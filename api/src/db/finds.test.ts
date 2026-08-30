@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { FindsScope, ScopedRoute } from "./finds.js";
-import { FIND_COLUMNS, findsCte, routeFindsScope, withinRouteScope } from "./finds.js";
+import { BEST_MILES_EVER, FIND_COLUMNS, findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
 
 /**
  * The scope is the one part of the read path that can lose data silently.
  *
- * `findsCte` used to collapse every snapshot in the database to answer about
+ * `findsFrom` used to collapse every snapshot in the database to answer about
  * one route — 171,471 rows read for a route whose entire input was 23. Narrowing
  * that is where nearly all of this app's D1 bill went, and the narrowing is only
  * safe while it stays a **superset** of everything `ROUTE_FINDS_MATCH` accepts.
@@ -172,7 +172,7 @@ describe("routeFindsScope — the bind budget", () => {
     const scope = routeFindsScope([
       route({ origins: '["SEA","PDX"]', destinations: '["NRT","HND"]' }),
     ]);
-    // `findsCte` interpolates where.join(" AND ") and spreads these binds in
+    // `findsFrom` interpolates where.join(" AND ") and spreads these binds in
     // order, so a mismatch here filters on the wrong values silently.
     expect(scope.binds).toEqual(["SEA", "PDX", "NRT", "HND", "2026-10-08", "2026-10-10"]);
     expect(scope.where.join(" AND ")).toBe(
@@ -192,15 +192,15 @@ describe("routeFindsScope — the bind budget", () => {
         round_trip: 1,
       }),
     ]);
-    // Consumed TWICE by findsCte, plus two binds of the caller's own.
-    expect(scope.binds.length * 2 + 2).toBeLessThanOrEqual(100);
+    // Consumed once by findsFrom, plus the caller's own.
+    expect(scope.binds.length + 1).toBeLessThanOrEqual(100);
     expect(scope.where.length).toBe(3);
   });
 
   it("falls back to UNSCOPED rather than emitting a statement D1 would refuse", () => {
     // Slow and right beats fast and refused. Far more routes than the UI makes
     // easy, but the failure mode is a runtime error, not a slow query.
-    const many = Array.from({ length: 30 }, (_, i) =>
+    const many = Array.from({ length: 60 }, (_, i) =>
       route({ origin: `O${i}`, destination: `D${i}` }),
     );
     const scope = routeFindsScope(many);
@@ -287,7 +287,7 @@ describe("withinRouteScope", () => {
   });
 });
 
-describe("findsCte — the best-ever seek", () => {
+describe("findsFrom — the best-ever seek", () => {
   const scope = routeFindsScope([
     {
       origin: "SEA",
@@ -302,19 +302,24 @@ describe("findsCte — the best-ever seek", () => {
   ]);
 
   it("adds no bind, so every caller's .bind() line is unchanged", () => {
-    // The scope's binds are consumed TWICE — once by the inner grouping and
-    // once by the outer filter — and a correlated subquery that took a bind of
-    // its own would land between them and shift every placeholder after it.
-    expect(findsCte(scope).binds).toEqual([...scope.binds, ...scope.binds]);
+    // The scope's binds are consumed exactly once, and a correlated subquery
+    // that took a bind of its own would land among them and shift every
+    // placeholder after it. Callers append their own binds after these.
+    expect(findsFrom(scope).binds).toEqual(scope.binds);
   });
 
-  it("projects best_miles_ever and correlates it on the whole group key", () => {
-    expect(FIND_COLUMNS).toContain("f.best_miles_ever");
-    const { sql } = findsCte(scope);
-    expect(sql).toContain("MIN(ph.miles_cost)");
-    // All three ARE the group key, which is what makes the value constant
-    // within the group and the bare-column SELECT safe.
-    for (const col of ["ph.route_key = p.route_key", "ph.program = p.program", "ph.cabin = p.cabin"])
-      expect(sql).toContain(col);
+  it("correlates best_miles_ever on the whole slot key", () => {
+    // It is computed rather than stored, so it is not in FIND_COLUMNS — a caller
+    // that wants it appends this expression.
+    expect(FIND_COLUMNS).not.toContain("best_miles_ever");
+    expect(BEST_MILES_EVER).toContain("MIN(ph.miles_cost)");
+    // All three ARE the slot key, and the table holds one row per slot, so the
+    // seek returns exactly one row per find.
+    for (const col of ["ph.route_key = f.route_key", "ph.program = f.program", "ph.cabin = f.cabin"])
+      expect(BEST_MILES_EVER).toContain(col);
+    // Load-bearing: idx_ph_best is PARTIAL, and SQLite only uses a partial index
+    // when the query WHERE implies the index WHERE. Without this the seek falls
+    // to idx_ph_slot and costs a row fetch each.
+    expect(BEST_MILES_EVER).toContain("ph.miles_cost IS NOT NULL");
   });
 });

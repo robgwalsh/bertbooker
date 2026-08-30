@@ -19,8 +19,6 @@ function find(p: Partial<Find> & Pick<Find, "origin" | "destination" | "flight_d
     miles_cost: 60_000,
     cash_fees_cents: 560,
     is_direct: 1,
-    source: "seatsaero",
-    source_fetched_at: 1_760_000_000_000,
     ...p,
   };
 }
@@ -397,13 +395,13 @@ describe("stitchJourneys — ordering, bounds and safety", () => {
     });
   });
 
-  it("collapses two sources' answers for one slot into the best leg", () => {
-    // `findsCte` collapses across sources at query time and can still hand back
-    // two rows for one slot; `collapseLegs` is what stops that becoming two
-    // identical journeys.
+  it("collapses two rows for one slot into the best leg", () => {
+    // A slot can arrive twice — two routes borrowing the same leg, or a source
+    // collapse handing back a second row; `collapseLegs` is what stops that
+    // becoming two identical journeys.
     const out = stitch([
-      first("2027-03-10", { source: "seatsaero", miles_cost: 35_000 }),
-      first("2027-03-10", { source: "other", miles_cost: 30_000 }),
+      first("2027-03-10", { miles_cost: 35_000 }),
+      first("2027-03-10", { miles_cost: 30_000 }),
       second("2027-03-10"),
     ]);
     expect(out.journeys).toHaveLength(1);

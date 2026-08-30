@@ -4,8 +4,13 @@
   "compilerOptions": {
     // DELIBERATELY THE NARROWEST PROJECT IN THE REPO: no DOM, no
     // @cloudflare/workers-types. It exists to check one thing that no other pass
-    // can — that nothing reachable from `src/wire` names an ambient the SPA
+    // can — that nothing reachable from `shared/src` names an ambient the SPA
     // cannot supply.
+    //
+    // It covers the whole of `src`, not just `src/wire`. `src/match` is the
+    // first thing here that is CODE rather than a type declaration — the SPA and
+    // the Worker both run it — so it needs this guarantee more than the wire
+    // types do, not less.
     //
     // Two distinct failures, and only this project catches both:
     //
@@ -28,5 +33,5 @@
     "lib": ["ES2022"],
     "types": []
   },
-  "include": ["src/wire/**/*.ts"]
+  "include": ["src/**/*.ts"]
 }

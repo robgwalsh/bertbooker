@@ -14,8 +14,6 @@ const find = (over: Partial<Find> = {}): Find => ({
   miles_cost: 60_000,
   cash_fees_cents: 1200,
   is_direct: 1,
-  source: "seatsaero",
-  source_fetched_at: 1_700_000_000_000,
   ...over,
 });
 

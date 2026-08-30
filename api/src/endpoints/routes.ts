@@ -2,20 +2,14 @@ import { Hono } from "hono";
 import type { Env, Vars } from "../bindings.js";
 import type { Find, RoutesData, TrackedRoute } from "../../../shared/src/wire/index.js";
 import type { ScopedRoute } from "../db/finds.js";
-import {
-  FIND_COLUMNS,
-  ROUTE_FINDS_MATCH,
-  ROUTE_FINDS_SEATS,
-  findsCte,
-  routeFindsScope,
-} from "../db/finds.js";
+import { BEST_MILES_EVER, FIND_COLUMNS, findsFrom, routeFindsScope } from "../db/finds.js";
+import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 
 /**
  * The Routes page's whole payload: the user's monitors, and the current best
  * finds tied to each.
  *
- * **The only reader of `findsCte`.** A change to that CTE is exercised by the
- * surface that matters rather than by an endpoint nobody is watching. See
+ * One of two readers of `findsFrom`; the alert sweep is the other. See
  * `db/finds.ts`.
  *
  * **This file is the PAGE; `trackedRoutes.ts` is the ROUTES themselves.** The
@@ -82,39 +76,53 @@ routes.get("/api/routes", async (c) => {
   // The route-set and date columns the scope needs are already in the list
   // above — they are what the Routes page draws a route's shape from — so this
   // adds no columns and the warning up there still names the same list.
-  const pageFinds = findsCte(routeFindsScope(routeRows.results ?? []));
+  const pageFinds = findsFrom(routeFindsScope(routeRows.results ?? []));
 
-  // Current finds, tied to the routes that monitor them. `findsCte` collapses
-  // the per-source snapshot history into one current row per
-  // (route_key, program, cabin) — see finds.ts for why that collapse now
-  // happens at read time — and this joins the result to the user's
-  // tracked_routes by origin + destination + date window, constrained to each
-  // route's own cabin and min-seats. Tagged with tracked_route_id so the UI
-  // can nest each find under its route; a find overlapping two routes'
-  // windows appears under both.
+  // Current finds. The scope predicate bounds this to a provable superset of
+  // what any of the user's routes could show (see `routeFindsScope`); the
+  // tagging below is what narrows it to the exact set.
+  //
+  // This used to JOIN tracked_routes and do the narrowing in SQL. That
+  // predicate is all json_each, so no index could serve it and the plan was a
+  // nested loop — cost O(routes x finds), measured at 49,512 rows, 57% of the
+  // whole query, and the only term that grew when a route was added.
   const findRows = await c.env.DB.prepare(
-    `${pageFinds.sql}
-       SELECT tr.id AS tracked_route_id, ${FIND_COLUMNS}
-         FROM finds f
-         JOIN tracked_routes tr
-           ON tr.user_email = ?
-          -- "Does this find belong to this route, and pass its filters?" —
-          -- shared verbatim with the alert sweep, which asks the identical
-          -- question about one route. See ROUTE_FINDS_MATCH in finds.ts for why
-          -- that sharing is load-bearing rather than tidy.
-          AND ${ROUTE_FINDS_MATCH}
-        WHERE ${ROUTE_FINDS_SEATS}
-        ORDER BY tr.id, f.flight_date ASC, f.seats_available DESC, f.miles_cost ASC`,
+    `SELECT ${FIND_COLUMNS}, ${BEST_MILES_EVER} ${pageFinds.sql}`,
   )
-    .bind(...pageFinds.binds, email)
+    .bind(...pageFinds.binds)
     .all<Find>();
+
+  // Reproduces the ORDER BY this query used to carry. Its SORT is dead —
+  // FindsTable re-sorts the whole set client-side — but its DETERMINISM is not:
+  // `findKey` (app/src/pages/routes/findKey.ts) builds React keys from the
+  // paginated index, so an unordered read lets a refetch reshuffle which find
+  // sits at which index.
+  const found = [...(findRows.results ?? [])].sort(
+    (a, b) =>
+      a.flight_date.localeCompare(b.flight_date) ||
+      b.seats_available - a.seats_available ||
+      a.miles_cost - b.miles_cost,
+  );
+
+  // Tag each find with every route that would show it. One row per
+  // (find, route) pair exactly as the join emitted — a find overlapping two
+  // routes' windows still appears under both, and the SPA still groups by
+  // `tracked_route_id`. Routes are the outer loop so the payload stays grouped
+  // by route, which is the order the join produced.
+  const bestFinds: Find[] = [];
+  for (const route of routeRows.results ?? []) {
+    const matcher = routeMatcher(route);
+    for (const f of found) {
+      if (matcher.matches(f)) bestFinds.push({ ...f, tracked_route_id: route.id });
+    }
+  }
 
   // The annotation buys the envelope: a renamed or dropped key is a compile
   // error here rather than an empty pane in the SPA. `.all<T>()` is an unchecked
   // assertion either way — see the note on `wire/rows.ts` in CLAUDE.md.
   const body: RoutesData = {
     trackedRoutes: (routeRows.results ?? []) as TrackedRoute[],
-    bestFinds: findRows.results ?? [],
+    bestFinds,
   };
   return c.json(body);
 });

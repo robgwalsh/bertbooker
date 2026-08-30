@@ -20,8 +20,6 @@ function find(p: Partial<Find> & Pick<Find, "origin" | "destination" | "flight_d
     miles_cost: 60_000,
     cash_fees_cents: 560,
     is_direct: 1,
-    source: "seatsaero",
-    source_fetched_at: 1_760_000_000_000,
     ...p,
   };
 }

@@ -306,13 +306,16 @@ else lives at its point of use — see *Where the depth lives*.
   find the route's pane hides is indistinguishable from a bug in either half,
   and the sweep sends no mail when it finds nothing so the other direction
   reports itself to nobody. That predicate was SQL until its `json_each` join
-  became 57% of the page query. A scope may constrain **`origin`,
-  `destination` and `flight_date` and nothing else**, because those three *are*
-  `route_key` and so include or exclude each group whole — one naming `program`,
-  `cabin`, `source` or `captured_at` splits a collapse group, changes which row
-  wins, and looks like it worked. `routeFindsScope` must stay a **superset** of
-  `ROUTE_FINDS_MATCH`. `db/finds.ts` has the why; `finds.test.ts` pins one
-  witness per branch.
+  became 57% of the page query. **`routeFindsScope` must stay a superset of
+  `routeMatcher`** — that is the whole contract, and the only way to break it is
+  to constrain a column here harder than the matcher constrains it. The scope is
+  **one OR-group per route**, carrying that route's own airports, window and read
+  filters, and it degrades in rungs when D1's 100-bind limit bites: per route,
+  then the union of every route (filters dropped), then unscoped. It was limited
+  to `origin`, `destination` and `flight_date` while a collapse ran underneath
+  it; `0014` removed the collapse and the limit went with it. `db/finds.ts` has
+  the why; `finds.test.ts` runs both engines against each other on `node:sqlite`
+  rather than re-implementing either.
 - **D1 bills rows READ, including temp b-tree and sort rows.** The only reliable
   lever is a `WHERE` that scans fewer base rows. **Measure, don't reason from the
   query's shape** — rewriting `per_source` as a `ROW_NUMBER()` window measured

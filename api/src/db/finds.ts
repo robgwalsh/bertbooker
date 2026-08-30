@@ -36,34 +36,38 @@ export const FIND_COLUMNS = `f.origin, f.destination, f.flight_date,
        f.stop_count, f.airlines, f.direct_airlines, f.direct_miles_cost`;
 
 /**
- * A predicate narrowing which snapshot rows enter the collapse at all. Keeping
- * this tight matters: without it every query group-bys the whole table.
+ * A predicate narrowing which snapshot rows the read returns.
  *
  * It went unused by both callers for long enough to become the app's largest
  * expense — `findsCte` was reading **168,280 rows to return 7,468**, on a table
  * of 7,900, and three variants of it were 88% of every row this database read.
  * `routeFindsScope` below is what fills it in.
  *
- * **A scope predicate may constrain `origin`, `destination` and `flight_date`,
- * and nothing else.** Those three *are* `route_key` (`routeKey()`,
- * `domain/types.ts`), and `route_key` is in every group key this CTE uses —
- * `per_source` groups by (route_key, program, cabin, source), `finds` by
- * (route_key, program, cabin). So a predicate that is a function of `route_key`
- * includes or excludes each group **whole**, and can never change which row wins
- * a collapse. A predicate naming `program`, `cabin`, `source`, `captured_at` or
- * `source_fetched_at` can do exactly that, and would look like it worked.
+ * **A scope may constrain any column `routeMatcher` reads.** It was limited to
+ * `origin`, `destination` and `flight_date` for as long as a collapse ran
+ * underneath it: `per_source` grouped by (route_key, program, cabin, source) and
+ * `finds` by (route_key, program, cabin), and only those three are a function of
+ * `route_key` (`routeKey()`, `domain/types.ts`), so only those three included or
+ * excluded a whole group. A predicate on `program` or `cabin` split a group,
+ * changed which row won the collapse, and looked like it worked.
+ *
+ * `0014` made the table one row per slot and `findsFrom` a bare range seek with
+ * no GROUP BY at all. There is no group left to split, and the restriction went
+ * with it — leaving the rule that was always the load-bearing one: **the scope
+ * must stay a superset of what `routeMatcher` accepts**. A column may be
+ * constrained here exactly as hard as the matcher constrains it, never harder.
  *
  * Column names go in UNQUALIFIED, and the text is interpolated once, into a
- * grouping query over the bare table.
+ * plain SELECT over the bare table.
  */
 export interface FindsScope {
   where: string[];
   binds: unknown[];
 }
 
-/** No narrowing — the whole table enters the collapse. What both callers used
- *  to pass, and what `routeFindsScope` falls back to when a route set is too
- *  wide to describe inside D1's bind limit. Slow and right. */
+/** No narrowing — the whole table is read. What both callers used to pass, and
+ *  the last rung of `routeFindsScope`'s ladder when a route set cannot be
+ *  described inside D1's bind limit at all. Slow and right. */
 const UNSCOPED: FindsScope = { where: [], binds: [] };
 
 /** The `tracked_routes` columns a scope is derived from — a subset of the ones
@@ -82,14 +86,44 @@ export interface ScopedRoute {
 }
 
 /**
+ * The route's READ FILTERS — what it shows out of what was gathered.
+ *
+ * Separate from `ScopedRoute` and every field optional, because the two answer
+ * different questions and only one of them may be pushed down. `ScopedRoute`
+ * says where a route REACHES, and `withinRouteScope` authorizes against it: it
+ * must never see a filter, or a points ceiling would start returning 404 on a
+ * row the Routes page is displaying.
+ *
+ * Optional because omitting one only ever WIDENS: each builds a conjunct inside
+ * one route's disjunct, so a caller that does not select `cabins` reads rows it
+ * did not need and still gets every find `routeMatcher` accepts. Wrong in the
+ * cheap direction. Pushing down a filter the matcher does NOT apply is the
+ * expensive one — it drops finds silently, out of the Routes page and out of
+ * digests that send no mail when they find nothing.
+ *
+ * `currencies` is deliberately absent; `pushFilters` says why.
+ */
+export interface RouteFilters {
+  cabins?: string | null;
+  min_seats?: number;
+  direct_only?: number;
+  point_limit?: number | null;
+}
+
+/** What `routeFindsScope` reads. Structurally satisfied by `AlertRouteRow` and
+ *  by the Routes page's route SELECT, both of which already carry all nine
+ *  columns. */
+export type FilteredRoute = ScopedRoute & RouteFilters;
+
+/**
  * D1 allows **100 bound parameters per query**. `scope.binds` is consumed ONCE
- * (see `findsCte`), and every caller appends one bind of its own, so the ceiling
+ * (see `findsFrom`), and every caller appends one bind of its own, so the ceiling
  * on a scope is 99. 90 leaves room for a caller that grows more.
  *
- * This was 45 while the scope text was interpolated twice. That halving is what
- * makes the O(n^2) `route_key` prefix-range form discussed below thinkable
- * again — 36 pairs is 72 binds, which now fits. It has NOT been adopted; the
- * O(n) sets below are still what ships.
+ * This is the budget the per-route form is measured against, and the reason
+ * there is a union form to fall back to at all: per-route is O(routes x route
+ * width) in binds where the union is O(total width), so a wide enough set of
+ * routes runs out and has to buy correctness back with rows.
  */
 const MAX_SCOPE_BINDS = 90;
 
@@ -120,9 +154,40 @@ function codeList(json: string | null, fallback?: string): string[] {
  * of alert digests, which send no mail when they find nothing and so cannot
  * tell you.
  *
- * The proof, branch by branch. Let `O` be the origin set built below, `D` the
- * destination set, and `[lo, hi]` the date range. For a find `f` that
- * `routeMatcher` accepts under route `tr`:
+ * **The shape is one OR-group per route**, each carrying that route's own
+ * airports, window and read filters. It is a ladder, and every rung is correct —
+ * they differ only in how many rows they make the database touch:
+ *
+ *  1. **per route.** The tight one. A find is read only if some route could
+ *     actually show it.
+ *  2. **the union** (`unionScope`), when the per-route form runs out of binds.
+ *     One clause over every route's airports and the widest window, filters
+ *     dropped.
+ *  3. **UNSCOPED**, when even that will not fit. The whole table.
+ *
+ * The union rung is the whole cost of the cross product it re-introduces: it
+ * reads every `PIT->HND` row on behalf of a `PIT->BOS` route, across a range
+ * wide enough for both. Measured on production at seven routes: 7,049 rows
+ * returned under the union, 1,591 under this, for 842 the page displays.
+ *
+ * **Rows RETURNED is not rows READ, and the filters only move the first.** The
+ * plan is a MULTI-INDEX OR, one `idx_snap_route_date` seek per group, and that
+ * index is `(origin, destination, flight_date, program, cabin, source)` — so
+ * `cabin`, `seats_available` and `miles_cost` all sit behind a range column and
+ * cannot narrow the seek. They stop a row being fetched from the table and being
+ * given a `best_miles_ever` seek; they do not stop its index entry being walked.
+ * The same seven routes measured 14,216 rows read before and 8,353 after: real,
+ * and roughly half of what the returned-row counts suggest.
+ *
+ * Closing the rest means an index leading `(origin, destination, cabin)`, which
+ * has to be a SECOND index rather than a reordering — `ingest/apply.ts` seeks
+ * the same one on `(origin, destination, flight_date)` adjacent, and every
+ * ingest prune depends on it. Measured ceiling for that trade: 8,353 -> ~4,000
+ * read, against an index written on every snapshot upsert. Not taken.
+ *
+ * The proof, branch by branch, applies to **one route's disjunct**. Let `O` be
+ * that route's origin set, `D` its destination set, and `[lo, hi]` its window.
+ * For a find `f` that `routeMatcher` accepts under route `tr`:
  *
  * | branch | requires | covered because |
  * | --- | --- | --- |
@@ -131,9 +196,15 @@ function codeList(json: string | null, fallback?: string): string[] {
  * | first hub leg | `f.origin ∈ origins`, `f.destination ∈ via` | `origins ⊆ O`; the hub loop adds `via → D` |
  * | second hub leg | `f.origin ∈ via`, `f.destination ∈ destinations`, date in `[date_start, date_end + 1 day]` | the hub loop adds `via → O`; `destinations ⊆ D`; `hi` is widened by a day |
  *
- * Everything else the matcher applies — cabins, currencies, `direct_only`,
- * `point_limit`, `min_seats` — only narrows further, so none of them can admit a
- * find this scope excludes.
+ * The five filters the matcher then applies — cabins, currencies,
+ * `direct_only`, `point_limit`, `min_seats` — are conjuncts, so each may be
+ * mirrored here without touching that proof: a find failing one is accepted by
+ * no branch. Four of them are (`pushFilters`); `currencies` stays in JS.
+ *
+ * A find matching TWO routes is read once, not twice, because this is a
+ * disjunction rather than a join — which is also why the endpoint's tagging loop
+ * over routes, not the scope, is what still emits one row per (find, route)
+ * pair.
  *
  * The `+1 day` is applied to EVERY route rather than only to hub routes. It is
  * trivially still a superset, it costs at most one extra day of rows, and it
@@ -150,10 +221,132 @@ function codeList(json: string | null, fallback?: string): string[] {
  * binds, for a route shape the UI will happily let you build. That fitted in no
  * budget at all while the scope was consumed twice, and fits the 100-bind limit
  * now that it is consumed once — but O(n^2) in a width the UI controls is still
- * the wrong shape to bet a page load on. The sets below are O(n): nine a side
- * worst case, twenty binds.
+ * the wrong shape to bet a page load on, and the per-route form spends that
+ * budget once PER ROUTE. The sets below are O(n): nine a side worst case, and a
+ * maximal route's whole disjunct is 26 binds including its filters.
  */
-export function routeFindsScope(routes: readonly ScopedRoute[]): FindsScope {
+export function routeFindsScope(routes: readonly FilteredRoute[]): FindsScope {
+  if (!routes.length) return UNSCOPED;
+
+  const disjuncts: string[] = [];
+  const binds: unknown[] = [];
+  for (const r of routes) {
+    const one = routeDisjunct(r);
+    if (!one) return unionScope(routes);
+    disjuncts.push(one.sql);
+    binds.push(...one.binds);
+  }
+  if (binds.length > MAX_SCOPE_BINDS) return unionScope(routes);
+
+  // One `where` entry, because `findsFrom` joins them with AND and this is a
+  // disjunction. Parenthesised even at length one so a conjunct added later
+  // cannot bind tighter than the OR.
+  return { where: [`(${disjuncts.join(" OR ")})`], binds };
+}
+
+/**
+ * One route's own clause — its airports, its window, and its read filters.
+ *
+ * The airport sets are still a cross product WITHIN the route (route 9's
+ * `origin IN (PIT, DTW, YYZ, MSP) AND destination IN (HND, DTW, YYZ, MSP)`
+ * admits DTW->YYZ, which no branch of the matcher accepts). That is the same
+ * looseness the union form has, kept because tightening it means the O(n^2) pair
+ * set argued against above. What is NOT loose any more is the cross product
+ * ACROSS routes: the union form read every PIT->HND row on behalf of a PIT->BOS
+ * route, and over a date range wide enough for both.
+ *
+ * `null` when the route has no usable airport set, which the caller answers by
+ * dropping to the union form rather than by dropping the route — a route missing
+ * from a disjunction contributes no rows, and silently losing its finds is the
+ * one outcome this file exists to prevent.
+ */
+function routeDisjunct(r: FilteredRoute): { sql: string; binds: unknown[] } | null {
+  const sets = scopeSets([r]);
+  if (!sets) return null;
+
+  const o = [...sets.origins];
+  const d = [...sets.destinations];
+  const parts = [
+    `origin IN (${o.map(() => "?").join(", ")})`,
+    `destination IN (${d.map(() => "?").join(", ")})`,
+    `flight_date BETWEEN ? AND ?`,
+  ];
+  const binds: unknown[] = [...o, ...d, sets.lo, sets.hi];
+  pushFilters(r, parts, binds);
+  return { sql: `(${parts.join(" AND ")})`, binds };
+}
+
+/**
+ * The route's read filters, as SQL, appended in place.
+ *
+ * Each mirrors one line of `routeMatcher` and may be **omitted but never
+ * tightened**. Omission is what every early return below is doing.
+ *
+ * All four columns are `NOT NULL` in `availability_snapshots` (0001), which is
+ * what makes each comparison agree with the matcher's on every stored row. A
+ * nullable one would not: SQL reads `NULL <= 100000` as excluded where the
+ * matcher's `null > 100000` keeps, so making one of these nullable means adding
+ * an `IS NULL OR` here, not just changing the schema.
+ *
+ * **`currencies` is deliberately not pushed down**, and not because it is
+ * unindexable — though `json_each` is. `routeMatch.ts` reads a malformed filter
+ * column as "no filter" precisely because blanking the Routes page over one bad
+ * column is worse than showing an unfiltered row; `json_each` on malformed JSON
+ * raises and fails the whole request, which is the behaviour that file's header
+ * records as having been chosen against.
+ */
+function pushFilters(r: RouteFilters, parts: string[], binds: unknown[]): void {
+  const cabins = filterList(r.cabins);
+  // An EMPTY list matches nothing at all in the matcher. Skipped rather than
+  // emitted as a false constant: the route shows no finds either way, and this
+  // keeps every clause here a mirror of a matcher line rather than a shortcut
+  // around one.
+  if (cabins?.length) {
+    parts.push(`cabin IN (${cabins.map(() => "?").join(", ")})`);
+    binds.push(...cabins);
+  }
+  // Only above 1. `seats_available >= 1` excludes the same nothing on real data
+  // and costs a bind out of a budget that decides whether this form is used.
+  if (r.min_seats != null && r.min_seats > 1) {
+    parts.push(`seats_available >= ?`);
+    binds.push(r.min_seats);
+  }
+  if (r.direct_only) parts.push(`is_direct = 1`);
+  if (r.point_limit != null) {
+    // Against `miles_cost`, never `direct_miles_cost` — the matcher compares the
+    // cheapest itinerary of any shape, and narrowing to the nonstop price here
+    // would drop rows it keeps.
+    parts.push(`miles_cost <= ?`);
+    binds.push(r.point_limit);
+  }
+}
+
+/**
+ * A FILTER column's list, or `null` for "no filter" — the distinction `codeList`
+ * throws away and this depends on. Mirrors `filterSet` in
+ * `shared/src/match/routeMatch.ts`, deliberately including its reading of
+ * malformed JSON as no filter.
+ */
+function filterList(json: string | null | undefined): string[] | null {
+  if (json == null) return null;
+  try {
+    const v: unknown = JSON.parse(json);
+    return Array.isArray(v) ? v.map(String) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The union of every route's airports and windows as ONE clause — what shipped
+ * before the per-route form, and now the middle rung of the ladder.
+ *
+ * O(total width) in binds where the per-route form is O(routes x width), so it
+ * still fits when that one does not. It pushes no filters: a filter is one
+ * route's, and the union of several routes' filters is only as narrow as the
+ * loosest of them, which on a real route set is no narrower than nothing.
+ */
+function unionScope(routes: readonly ScopedRoute[]): FindsScope {
   const sets = scopeSets(routes);
   if (!sets) return UNSCOPED;
 
@@ -266,7 +459,12 @@ export function withinRouteScope(
  *
  * There is no collapse left to do. `availability_snapshots` holds one row per
  * (route_key, program, cabin) — UNIQUE since 0014 — so a find IS a row, and this
- * is a range seek on `idx_snap_route_date` and nothing else.
+ * is index seeks on `idx_snap_route_date` and nothing else: one per OR-group,
+ * unioned by rowid, since `routeFindsScope` builds a disjunction. The filter
+ * columns in those groups do NOT narrow the seeks — they sit behind
+ * `flight_date`, which is a range — so they save a table fetch and a
+ * `best_miles_ever` seek per rejected row, not the index walk. See
+ * `routeFindsScope`.
  *
  * It was a two-stage CTE until then: `per_source` took MAX(captured_at) per
  * (slot, source) and `finds` took MAX(source_fetched_at) per slot, because the

@@ -1,6 +1,9 @@
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import type { FindsScope, ScopedRoute } from "./finds.js";
+import type { FilteredRoute, FindsScope, ScopedRoute } from "./finds.js";
 import { BEST_MILES_EVER, FIND_COLUMNS, findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
+import type { MatchableRoute } from "../../../shared/src/match/routeMatch.js";
+import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 
 /**
  * The scope is the one part of the read path that can lose data silently.
@@ -8,19 +11,64 @@ import { BEST_MILES_EVER, FIND_COLUMNS, findsFrom, routeFindsScope, withinRouteS
  * `findsFrom` used to collapse every snapshot in the database to answer about
  * one route — 171,471 rows read for a route whose entire input was 23. Narrowing
  * that is where nearly all of this app's D1 bill went, and the narrowing is only
- * safe while it stays a **superset** of everything `ROUTE_FINDS_MATCH` accepts.
- * A branch added there without a matching widening in `routeFindsScope` drops
+ * safe while it stays a **superset** of everything `routeMatcher` accepts. A
+ * branch added there without a matching widening in `routeFindsScope` drops
  * finds out of the Routes page and out of alert digests — and a digest that finds
  * nothing sends no mail, so nothing would report it.
  *
- * So these tests are witnesses, one per branch of `ROUTE_FINDS_MATCH`, checked
- * against the scope's own binds. They deliberately do NOT re-implement the match
- * rule in TypeScript: a second copy of it is exactly what `ROUTE_FINDS_MATCH`'s
- * docblock exists to prevent, and it would agree with itself while both drifted
- * from the SQL.
+ * So these tests RUN the scope, against a real SQLite engine, and check what it
+ * admits against what `routeMatcher` accepts. They deliberately do not
+ * re-implement either side: a second copy of the match rule is exactly what
+ * `routeMatch.ts`'s docblock exists to prevent, and it would agree with itself
+ * while both drifted from the thing that ships.
+ *
+ * This replaced a helper that split `scope.binds` by counting `?` in a `where`
+ * array whose shape it had memorised. That worked while the shape was three
+ * fixed clauses and became a liar the moment it was a disjunction — it read the
+ * cabin binds as destinations and still passed. `node:sqlite` costs nothing here
+ * and cannot be fooled that way; see `ingest/applySql.test.ts`, which uses it
+ * for the same reason.
  */
 
-const route = (o: Partial<ScopedRoute> = {}): ScopedRoute => ({
+/** Only the columns the scope constrains. Every one is NOT NULL in 0001, which
+ *  is the property `pushFilters` relies on to match the matcher's reading. */
+const DDL = `CREATE TABLE availability_snapshots (
+  origin              TEXT NOT NULL,
+  destination         TEXT NOT NULL,
+  flight_date         TEXT NOT NULL,
+  cabin               TEXT NOT NULL,
+  seats_available     INTEGER NOT NULL,
+  miles_cost          INTEGER NOT NULL,
+  is_direct           INTEGER NOT NULL,
+  transfer_currencies TEXT NOT NULL
+)`;
+
+interface Row {
+  origin: string;
+  destination: string;
+  flight_date: string;
+  cabin: string;
+  seats_available: number;
+  miles_cost: number;
+  is_direct: number;
+  transfer_currencies: string;
+}
+
+/** A find that passes every filter, so a test that says nothing about cabins is
+ *  asking only about airports and dates. */
+const find = (o: Partial<Row> = {}): Row => ({
+  origin: "PIT",
+  destination: "BOS",
+  flight_date: "2026-10-08",
+  cabin: "business",
+  seats_available: 4,
+  miles_cost: 25_000,
+  is_direct: 1,
+  transfer_currencies: '["chase_ur","amex_mr"]',
+  ...o,
+});
+
+const route = (o: Partial<FilteredRoute> = {}): FilteredRoute => ({
   origin: "PIT",
   destination: "BOS",
   origins: null,
@@ -32,28 +80,45 @@ const route = (o: Partial<ScopedRoute> = {}): ScopedRoute => ({
   ...o,
 });
 
-/** Read a scope's binds back the way the SQL does. The `where` shape is fixed —
- *  `origin IN (…)`, `destination IN (…)`, `flight_date BETWEEN ? AND ?` — so the
- *  binds split by the placeholder counts in that text. Parsing it rather than
- *  trusting a remembered layout is what makes `keeps binds in ? order` real. */
-function read(scope: FindsScope) {
-  const counts = scope.where.map((w) => (w.match(/\?/g) ?? []).length);
-  const [nOrigins = 0, nDests = 0] = counts;
-  return {
-    origins: new Set(scope.binds.slice(0, nOrigins) as string[]),
-    destinations: new Set(scope.binds.slice(nOrigins, nOrigins + nDests) as string[]),
-    lo: scope.binds[nOrigins + nDests] as string,
-    hi: scope.binds[nOrigins + nDests + 1] as string,
-  };
+/** Which of these rows does the scope's own SQL return? Runs the real text and
+ *  the real binds — an unscoped scope produces no WHERE and returns them all,
+ *  exactly as it does against D1. */
+function admitted(scope: FindsScope, rows: Row[]): Row[] {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(DDL);
+    const insert = db.prepare(
+      `INSERT INTO availability_snapshots
+         (origin, destination, flight_date, cabin, seats_available, miles_cost,
+          is_direct, transfer_currencies)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const r of rows) {
+      insert.run(
+        r.origin,
+        r.destination,
+        r.flight_date,
+        r.cabin,
+        r.seats_available,
+        r.miles_cost,
+        r.is_direct,
+        r.transfer_currencies,
+      );
+    }
+    const from = findsFrom(scope);
+    return db
+      .prepare(`SELECT origin, destination, flight_date, cabin, seats_available,
+                       miles_cost, is_direct, transfer_currencies ${from.sql}`)
+      .all(...(from.binds as (string | number)[])) as unknown as Row[];
+  } finally {
+    db.close();
+  }
 }
 
-/** Would this find survive the scope? The scope admits a find when its airports
- *  are in the two sets and its date is in the window — which is all the SQL
- *  asks. */
+/** Would the scope admit this one find? */
 function admits(scope: FindsScope, origin: string, destination: string, date: string): boolean {
-  if (!scope.where.length) return true; // unscoped admits everything, by definition
-  const { origins, destinations, lo, hi } = read(scope);
-  return origins.has(origin) && destinations.has(destination) && date >= lo && date <= hi;
+  const row = find({ origin, destination, flight_date: date });
+  return admitted(scope, [row]).length === 1;
 }
 
 describe("routeFindsScope — the superset property, one witness per branch", () => {
@@ -122,62 +187,225 @@ describe("routeFindsScope — the superset property, one witness per branch", ()
     expect(admits(scope, "PIT", "BOS", "2026-10-11")).toBe(false);
   });
 
-  it("unions across routes, taking the widest window", () => {
+  it("admits each route's own finds, and NOT the cross product of them", () => {
+    // What the union form could not express, and the whole reason for the
+    // per-route shape. Measured on production, this cross product was the
+    // difference between returning 7,049 rows and returning 1,591: a year-long
+    // PIT->HND route widened the window that a three-day PIT->BOS route was read
+    // through, and lent it its airports.
     const scope = routeFindsScope([
       route({ date_start: "2026-10-08", date_end: "2026-10-09" }),
       route({ origin: "SLC", destination: "PIT", date_start: "2027-03-05", date_end: "2027-03-07" }),
     ]);
     expect(admits(scope, "PIT", "BOS", "2026-10-08")).toBe(true);
     expect(admits(scope, "SLC", "PIT", "2027-03-07")).toBe(true);
-    const { lo, hi } = read(scope);
-    expect(lo).toBe("2026-10-08");
-    expect(hi).toBe("2027-03-08");
+    // Each route's airports, at the OTHER's dates.
+    expect(admits(scope, "PIT", "BOS", "2027-03-07")).toBe(false);
+    expect(admits(scope, "SLC", "PIT", "2026-10-08")).toBe(false);
+    // And a pair spliced out of one route's origins and the other's destinations.
+    expect(admits(scope, "SLC", "BOS", "2026-10-08")).toBe(false);
   });
 });
 
 describe("routeFindsScope — the JSON columns", () => {
   it("falls back to the scalar when a list column is absent", () => {
-    const { origins, destinations } = read(routeFindsScope([route()]));
-    expect([...origins]).toEqual(["PIT"]);
-    expect([...destinations]).toEqual(["BOS"]);
+    const scope = routeFindsScope([route()]);
+    expect(admits(scope, "PIT", "BOS", "2026-10-08")).toBe(true);
+    expect(admits(scope, "SEA", "BOS", "2026-10-08")).toBe(false);
   });
 
-  it("falls back to the scalar on an EMPTY list, matching the SQL", () => {
-    // json_each('[]') yields nothing, so the SQL branch would match nothing.
-    // The scalar is still a superset of that, and a superset is the contract.
-    const { origins } = read(routeFindsScope([route({ origins: "[]" })]));
-    expect([...origins]).toEqual(["PIT"]);
+  it("falls back to the scalar on an EMPTY list, matching the matcher", () => {
+    // `codeSet` reads an empty array as the scalar too, so the route still
+    // covers PIT. A superset is the contract either way.
+    const scope = routeFindsScope([route({ origins: "[]" })]);
+    expect(admits(scope, "PIT", "BOS", "2026-10-08")).toBe(true);
   });
 
   it("falls back to the scalar on malformed JSON rather than throwing", () => {
-    const { origins } = read(routeFindsScope([route({ origins: "{not json" })]));
-    expect([...origins]).toEqual(["PIT"]);
+    const scope = routeFindsScope([route({ origins: "{not json" })]);
+    expect(admits(scope, "PIT", "BOS", "2026-10-08")).toBe(true);
   });
 
-  it("adds nothing for an empty via, which is non-NULL and enters the SQL branch", () => {
-    const { origins, destinations } = read(routeFindsScope([route({ via: "[]" })]));
-    expect([...origins]).toEqual(["PIT"]);
-    expect([...destinations]).toEqual(["BOS"]);
+  it("adds nothing for an empty via", () => {
+    const scope = routeFindsScope([route({ via: "[]" })]);
+    expect(admits(scope, "PIT", "BOS", "2026-10-08")).toBe(true);
+    expect(admits(scope, "PIT", "DTW", "2026-10-08")).toBe(false);
   });
 
   it("dedupes an airport that is both an origin and a hub", () => {
+    // Two origins (PIT, DTW), not three. Binds are the budget that decides
+    // whether the per-route form is used at all.
     const scope = routeFindsScope([route({ via: '["PIT","DTW"]' })]);
-    const { origins } = read(scope);
-    expect([...origins].filter((x) => x === "PIT")).toHaveLength(1);
+    expect(scope.where[0]).toContain("origin IN (?, ?)");
+  });
+});
+
+/**
+ * The read filters, pushed down.
+ *
+ * These were applied only in JS until the collapse that forbade them was
+ * removed, and the cost was the whole gap between what the page reads and what
+ * it shows: 14,216 rows read to display 842, measured on production, most of it
+ * one year-long hub route whose points ceiling nothing in SQL knew about.
+ *
+ * Each `it` below is a pair: the scope must EXCLUDE what the matcher rejects
+ * (that is the saving) and must ADMIT what it accepts (that is the contract).
+ * Only the second direction can lose data, which is why `matches the matcher on
+ * every combination` exists underneath them.
+ */
+describe("routeFindsScope — the read filters", () => {
+  it("pushes the cabin filter", () => {
+    const scope = routeFindsScope([route({ cabins: '["business","first"]' })]);
+    expect(admitted(scope, [find({ cabin: "business" })])).toHaveLength(1);
+    expect(admitted(scope, [find({ cabin: "economy" })])).toHaveLength(0);
+  });
+
+  it("pushes min_seats", () => {
+    const scope = routeFindsScope([route({ min_seats: 2 })]);
+    expect(admitted(scope, [find({ seats_available: 2 })])).toHaveLength(1);
+    expect(admitted(scope, [find({ seats_available: 1 })])).toHaveLength(0);
+  });
+
+  it("pushes direct_only", () => {
+    const scope = routeFindsScope([route({ direct_only: 1 })]);
+    expect(admitted(scope, [find({ is_direct: 1 })])).toHaveLength(1);
+    expect(admitted(scope, [find({ is_direct: 0 })])).toHaveLength(0);
+  });
+
+  it("pushes point_limit, inclusively", () => {
+    const scope = routeFindsScope([route({ point_limit: 100_000 })]);
+    expect(admitted(scope, [find({ miles_cost: 100_000 })])).toHaveLength(1);
+    expect(admitted(scope, [find({ miles_cost: 100_001 })])).toHaveLength(0);
+  });
+
+  it("does NOT push currencies", () => {
+    // Deliberate, and the reason is `routeMatch.ts`'s: it reads a malformed
+    // filter column as "no filter" because blanking the Routes page over one bad
+    // column is worse than showing an unfiltered row. `json_each` on malformed
+    // JSON raises and fails the whole request instead. The matcher still applies
+    // this in JS — the scope just reads the row first.
+    // `RouteFilters` does not carry `currencies` at all, so there is nothing to
+    // push even by accident — this pins that the SQL never grows one.
+    const scope = routeFindsScope([route({ cabins: '["business"]' })]);
+    expect(scope.where[0]).not.toContain("transfer_currencies");
+    expect(scope.where[0]).not.toContain("json_each");
+    expect(admitted(scope, [find({ transfer_currencies: '["amex_mr"]' })])).toHaveLength(1);
+  });
+
+  it("omits a filter it cannot read, rather than guessing", () => {
+    // Omission widens, which is safe. Guessing narrows, which is not.
+    for (const cabins of ["{not json", '"business"', "[]"]) {
+      const scope = routeFindsScope([route({ cabins })]);
+      expect(admitted(scope, [find({ cabin: "economy" })])).toHaveLength(1);
+    }
+  });
+
+  it("keeps each route's filters to its own OR-group", () => {
+    // The failure this prevents: a nonstop-only PIT->BOS route's `is_direct = 1`
+    // leaking across the OR and hiding every connection on a PIT->HND hub route
+    // that wants them.
+    const scope = routeFindsScope([
+      route({ direct_only: 1 }),
+      route({ origin: "PIT", destination: "HND", direct_only: 0 }),
+    ]);
+    expect(admitted(scope, [find({ destination: "BOS", is_direct: 0 })])).toHaveLength(0);
+    expect(admitted(scope, [find({ destination: "HND", is_direct: 0 })])).toHaveLength(1);
+  });
+
+  it("matches the matcher on every combination", () => {
+    // The superset property itself, run rather than argued. Both engines see the
+    // same rows: `routeMatcher` in JS, and the scope's SQL in SQLite. The scope
+    // may keep a row the matcher rejects — that only costs a read — but a row
+    // the matcher accepts and the scope drops is invisible data loss, and is
+    // what this fails on.
+    const routes: FilteredRoute[] = [
+      route({ cabins: '["business","first"]', min_seats: 2, point_limit: 100_000 }),
+      route({ origin: "PIT", destination: "HND", via: '["DTW"]', date_end: "2026-10-20" }),
+      route({ origin: "SLC", destination: "PIT", round_trip: 1, direct_only: 1 }),
+    ];
+    const rows: Row[] = [];
+    for (const [origin, destination] of [
+      ["PIT", "BOS"],
+      ["BOS", "PIT"],
+      ["PIT", "HND"],
+      ["PIT", "DTW"],
+      ["DTW", "HND"],
+      ["SLC", "PIT"],
+      ["PIT", "SLC"],
+      ["SEA", "NRT"],
+    ]) {
+      for (const flight_date of ["2026-10-07", "2026-10-08", "2026-10-20", "2026-10-21"]) {
+        for (const cabin of ["economy", "business"]) {
+          for (const seats_available of [1, 4]) {
+            for (const miles_cost of [50_000, 150_000]) {
+              for (const is_direct of [0, 1]) {
+                rows.push(
+                  find({ origin, destination, flight_date, cabin, seats_available, miles_cost, is_direct }),
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const scope = routeFindsScope(routes);
+    const kept = admitted(scope, rows);
+    const key = (r: Row) =>
+      [r.origin, r.destination, r.flight_date, r.cabin, r.seats_available, r.miles_cost, r.is_direct].join("|");
+    const keptKeys = new Set(kept.map(key));
+
+    // `RouteFilters` is optional where `MatchableRoute` is not, and each default
+    // here is the matcher's own reading of an absent column. `currencies` is
+    // null because the scope never receives it — see the test above.
+    const matchable = (r: FilteredRoute): MatchableRoute => ({
+      ...r,
+      cabins: r.cabins ?? null,
+      currencies: null,
+      direct_only: r.direct_only ?? 0,
+      point_limit: r.point_limit ?? null,
+      min_seats: r.min_seats ?? 1,
+    });
+    const matchers = routes.map((r) => routeMatcher(matchable(r)));
+    const wanted = rows.filter((r) => matchers.some((m) => m.matches(r)));
+
+    // Non-trivial on both sides: a scope that admitted everything would pass the
+    // superset check and be worth nothing.
+    expect(wanted.length).toBeGreaterThan(0);
+    expect(kept.length).toBeLessThan(rows.length);
+    for (const r of wanted) expect(keptKeys.has(key(r))).toBe(true);
   });
 });
 
 describe("routeFindsScope — the bind budget", () => {
   it("keeps binds in the order the ? placeholders appear", () => {
     const scope = routeFindsScope([
-      route({ origins: '["SEA","PDX"]', destinations: '["NRT","HND"]' }),
+      route({
+        origins: '["SEA","PDX"]',
+        destinations: '["NRT","HND"]',
+        cabins: '["business"]',
+        min_seats: 2,
+        point_limit: 100_000,
+      }),
     ]);
     // `findsFrom` interpolates where.join(" AND ") and spreads these binds in
-    // order, so a mismatch here filters on the wrong values silently.
-    expect(scope.binds).toEqual(["SEA", "PDX", "NRT", "HND", "2026-10-08", "2026-10-10"]);
-    expect(scope.where.join(" AND ")).toBe(
-      "origin IN (?, ?) AND destination IN (?, ?) AND flight_date BETWEEN ? AND ?",
-    );
+    // order, so a mismatch here filters on the wrong values silently — and it
+    // would not throw, because a cabin code and an airport code are both TEXT.
+    expect(scope.binds).toEqual([
+      "SEA",
+      "PDX",
+      "NRT",
+      "HND",
+      "2026-10-08",
+      "2026-10-10",
+      "business",
+      2,
+      100_000,
+    ]);
+    expect(scope.where).toEqual([
+      "((origin IN (?, ?) AND destination IN (?, ?) AND flight_date BETWEEN ? AND ?" +
+        " AND cabin IN (?) AND seats_available >= ? AND miles_cost <= ?))",
+    ]);
   });
 
   it("stays inside D1's 100-bind limit at the widest route the wire contract allows", () => {
@@ -190,11 +418,27 @@ describe("routeFindsScope — the bind budget", () => {
         destinations: '["NRT","HND","KIX"]',
         via: '["ICN","TPE","HKG"]',
         round_trip: 1,
+        cabins: '["economy","premium","business","first"]',
+        min_seats: 2,
+        point_limit: 100_000,
       }),
     ]);
     // Consumed once by findsFrom, plus the caller's own.
     expect(scope.binds.length + 1).toBeLessThanOrEqual(100);
-    expect(scope.where.length).toBe(3);
+    expect(scope.where).toHaveLength(1);
+  });
+
+  it("drops to the UNION form when the per-route one runs out of binds", () => {
+    // The middle rung. Correct, and as wide as what shipped before — the point
+    // is that it is reached instead of UNSCOPED, which reads the whole table.
+    const many = Array.from({ length: 25 }, (_, i) =>
+      route({ origin: `O${i}`, destination: `D${i}` }),
+    );
+    const scope = routeFindsScope(many);
+    expect(scope.where).toHaveLength(3);
+    expect(admits(scope, "O3", "D3", "2026-10-08")).toBe(true);
+    // The union's cross product, which is exactly what it costs.
+    expect(admits(scope, "O3", "D7", "2026-10-08")).toBe(true);
   });
 
   it("falls back to UNSCOPED rather than emitting a statement D1 would refuse", () => {

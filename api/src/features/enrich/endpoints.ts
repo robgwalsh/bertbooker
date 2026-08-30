@@ -7,7 +7,7 @@ import {
   makeTransport,
 } from "../../providers/transport.js";
 import type { Env, Vars } from "../../bindings.js";
-import { rowIdParam } from "../../http/params.js";
+import { rowIdParam } from "../../util/params.js";
 import { selectEnrichableRows, selectEnrichTargets, withinRouteScope } from "../../db/finds.js";
 import { selectRouteWindow, selectScopedRoutes } from "../../db/trackedRoutes.js";
 import { enrichAvailability } from "./engine.js";

@@ -1,5 +1,5 @@
 import type { AirportGeo, AirportInfo, AirportName } from "../../../shared/src/wire/index.js";
-import type { QueryReader } from "../http/params.js";
+import type { QueryReader } from "../util/params.js";
 
 /**
  * The `airports` table and its `airports_fts` index — ~72k public-domain

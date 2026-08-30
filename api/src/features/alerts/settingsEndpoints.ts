@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { rowIdParam } from "../../http/params.js";
+import { rowIdParam } from "../../util/params.js";
 import {
   deleteRecipient,
   insertRecipient,

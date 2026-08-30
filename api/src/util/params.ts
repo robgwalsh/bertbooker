@@ -1,5 +1,14 @@
 /**
- * Path-parameter parsing shared by the `/api/tracked-routes/:id` family.
+ * READING A REQUEST'S PARAMETERS — a path segment, and a query string.
+ *
+ * In `util/` for the same reason `./dates.ts` is: neither knows anything about
+ * award travel, and both would read the same in any application. What they do
+ * know about is HTTP, and the point of both exports is to keep that knowledge
+ * from spreading — `rowIdParam` so a handler validates before the database is
+ * touched, `QueryReader` so a WHERE builder in `db/` never has to take a Hono
+ * `Context`.
+ *
+ * ## rowIdParam
  *
  * One helper, one reason. Every handler that owns an `:id` used to write
  * `Number(c.req.param("id"))` and bind the result straight into SQL, which for
@@ -14,13 +23,13 @@
  */
 
 /**
- * How a handler hands a query string to something that must not know about
- * HTTP.
+ * How a handler hands a query string to something that must not know about HTTP.
  *
  * The WHERE builders in `db/` are shaped by the request's query string, and they
  * take one of these rather than a Hono `Context` — which is what keeps `db/`
  * free of the web framework while the handler stays free of SQL. Declared once
- * here because two db modules take one.
+ * here because two db modules take one; it used to be declared identically in
+ * both.
  */
 export type QueryReader = (k: string) => string | undefined;
 

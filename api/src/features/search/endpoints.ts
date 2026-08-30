@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
 import type { Env, Vars } from "../../bindings.js";
-import { rowIdParam } from "../../http/params.js";
+import { rowIdParam } from "../../util/params.js";
 import {
   openSearchRun,
   planSearchPass,

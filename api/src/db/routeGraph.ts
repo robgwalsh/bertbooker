@@ -5,7 +5,7 @@ import type {
   RouteGraphRow,
 } from "../../../shared/src/wire/index.js";
 import type { SeatsAeroGraphRoute } from "../providers/seatsaero.js";
-import type { QueryReader } from "../http/params.js";
+import type { QueryReader } from "../util/params.js";
 import type {
   GraphPair,
   GraphPathRow,

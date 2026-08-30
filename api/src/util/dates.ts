@@ -6,14 +6,14 @@
 // the horizon, then tile the remainder into request-sized chunks — and they live
 // here so a caller supplies only its own constants.
 //
-// **The only module in `util/`, and the bar it sets.** This is here because it
-// has no opinion about award travel at all — it is date arithmetic, and it would
-// read the same in any application. Everything else that used to sit beside it
-// DID have such an opinion, and went to the model it is about: which of two
-// offers is better is `models/offer.ts`, what counts as a change is
-// `models/change.ts`, what a route expands to is `models/route.ts`. If a thing
-// proposed for this directory could not be lifted into an unrelated codebase
-// unchanged, it belongs in `models/` instead.
+// **The bar for `util/`, and this module is why it is set there.** Nothing here
+// has an opinion about award travel — it is date arithmetic, and it would read
+// the same in any application. Everything that used to sit beside it DID have
+// such an opinion, and went to the model it is about: which of two offers is
+// better is `models/offer.ts`, what counts as a change is `models/change.ts`,
+// what a route expands to is `models/route.ts`. If a thing proposed for this
+// directory could not be lifted into an unrelated codebase unchanged, it belongs
+// in `models/` instead.
 
 /**
  * Is this the fixed-width `YYYY-MM-DD` every helper here and the schema assume?

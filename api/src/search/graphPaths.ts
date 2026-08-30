@@ -5,7 +5,8 @@ import {
   rankPaths,
   type Coord,
 } from "../domain/graphPaths.js";
-import { airportCoords, graphPathRowsForPairs } from "../db/routeGraph.js";
+import { graphPathRowsForPairs } from "../db/routeGraph.js";
+import { airportCoords } from "../db/airports.js";
 import { SEATSAERO_PROGRAM_MAP } from "../providers/seatsaero.js";
 import type { PathSearchResult } from "../../../shared/src/wire/index.js";
 

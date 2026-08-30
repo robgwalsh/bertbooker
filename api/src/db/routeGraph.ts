@@ -1,6 +1,8 @@
 import type {
   RouteFetchRecord,
   RouteFetchStatus,
+  RouteGraphEdge,
+  RouteGraphRow,
 } from "../../../shared/src/wire/index.js";
 import type { SeatsAeroGraphRoute } from "../providers/seatsaero.js";
 
@@ -328,43 +330,194 @@ export async function graphPathRowsForPairs(
   }));
 }
 
+// ---- the pane's reads -------------------------------------------------------
+
+/** How the pane hands a search in: whatever the request's query string says,
+ *  read by name. Deliberately not a Hono `Context`. */
+export type QueryReader = (k: string) => string | undefined;
+
 /**
- * Coordinates for a set of airport codes.
+ * Shared WHERE builder for the graph table and the graph map — the pair that
+ * must never disagree about which set is on screen. Anonymous `?` binds pushed
+ * in SQL order, so the readers below append their own (ORDER BY, LIMIT) only
+ * AFTER these.
  *
- * `airports.iata` is NOT unique, so this picks one row per code the way
- * `AIRPORT_PICK` in `endpoints/seatsaeroRoutes.ts` does — a plain join would
- * return a code twice and the caller would silently keep whichever arrived last.
- * Codes are bound as JSON for the same 100-parameter reason as everything else
- * here: a two-stop sweep resolves every endpoint and hub at once.
+ * `source` is REQUIRED here, unlike `airportFilter`'s "no query -> major
+ * airports" default. A route graph is per-program by nature, and the
+ * cross-source question has its own read (`selectPairSources`).
+ *
+ * Exported for its test, which is what `db/seatsaeroRoutes.test.ts` pins.
  */
-export async function airportCoords(
+export function routeFilter(query: QueryReader): {
+  source: string;
+  where: string[];
+  binds: unknown[];
+} {
+  const source = (query("source") ?? "").trim().toLowerCase();
+  const where: string[] = ["r.source = ?"];
+  const binds: unknown[] = [source];
+
+  const eq = (param: string, column: string) => {
+    const v = (query(param) ?? "").trim().toUpperCase();
+    if (!v) return;
+    where.push(`r.${column} = ?`);
+    binds.push(v);
+  };
+  eq("origin", "origin");
+  eq("destination", "destination");
+
+  const region = (param: string, column: string) => {
+    const v = (query(param) ?? "").trim();
+    if (!v) return;
+    where.push(`r.${column} = ?`);
+    binds.push(v);
+  };
+  region("originRegion", "origin_region");
+  region("destinationRegion", "destination_region");
+
+  const range = (param: string, op: string) => {
+    const raw = query(param);
+    if (raw === undefined || raw === "") return;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    where.push(`r.distance_mi ${op} ?`);
+    binds.push(n);
+  };
+  range("minDistance", ">=");
+  range("maxDistance", "<=");
+
+  const q = (query("q") ?? "").trim();
+  if (q) {
+    // One token, matched against either end of the pair. Deliberately simpler
+    // than `airportFilter`'s multi-token AND: a route row is a pair, and
+    // "SFO tokyo" would mean something this table cannot answer.
+    if (/^[A-Za-z]{3}$/.test(q)) {
+      // THREE LETTERS IS A CODE, and only a code.
+      //
+      // Substring-matching a three-letter token against airport names is close
+      // to useless: "PIT" appears in "Aspen-Pitkin County", in "Beijing
+      // CaPITal" and in "Cherry CaPITal", so asking for Pittsburgh returned
+      // Aspen, Beijing and Traverse City. Short tokens are overwhelmingly codes
+      // — the default-airport preference produces nothing else — so they are
+      // treated as one, and anything longer keeps the name search below.
+      const code = q.toUpperCase();
+      where.push("(r.origin = ? OR r.destination = ?)");
+      binds.push(code, code);
+    } else {
+      // `%` and `_` are LIKE metacharacters and `q` is whatever was typed. The
+      // value is BOUND, so this was never injectable — but an unescaped pattern
+      // is still a pattern the caller gets to write, and `%a%b%c%d%e%…` against
+      // the joined seatsaero_routes × airports set makes both the COUNT(*) and
+      // the row read below scan repeatedly. D1 bills rows read.
+      const contains = `%${q.replace(/[\%_]/g, (ch) => `\${ch}`)}%`;
+      where.push(
+        `(ao.name LIKE ? ESCAPE '\' OR ad.name LIKE ? ESCAPE '\'
+          OR ao.city LIKE ? ESCAPE '\' OR ad.city LIKE ? ESCAPE '\')`,
+      );
+      binds.push(contains, contains, contains, contains);
+    }
+  }
+
+  return { source, where, binds };
+}
+
+/**
+ * Join `airports` by IATA code, one row per code.
+ *
+ * This used to be `(SELECT … FROM airports WHERE iata != '' GROUP BY iata)`,
+ * inlined at each use, guarding against duplicate codes multiplying a pair into
+ * several edges. The guard cost more than the thing it guarded against: SQLite
+ * MATERIALIZEs that subquery per use — twice per route query and FOUR times per
+ * geo request, since the shared `from` fragment is used by the count and the
+ * rows — and each materialization walks all 72,454 entries of
+ * `idx_airports_iata`. It measured 34,574 rows read to return 200.
+ *
+ * It was also guarding against nothing: the seed has **9,054 rows with an IATA
+ * code and 9,054 distinct codes**. `scripts/build-airports.mjs` now refuses to
+ * write a seed that would break that, so the invariant is enforced where the
+ * data is made rather than re-derived in every query that reads it. A plain join
+ * is then two `idx_airports_iata` seeks per row.
+ */
+const airportJoin = (alias: string, col: string) =>
+  `LEFT JOIN airports ${alias} ON ${alias}.iata = ${col} AND ${alias}.iata != ''`;
+
+/** Slim rows plus coordinates for the map, and the untruncated total beside
+ *  them so the caller can say whether the limit bit. */
+export async function selectGraphGeo(
   db: D1Database,
-  codes: readonly string[],
-): Promise<Map<string, { lat: number; lon: number }>> {
-  const wanted = [...new Set(codes)].filter(Boolean);
-  if (!wanted.length) return new Map();
+  filter: { where: string[]; binds: unknown[] },
+  limit: number,
+): Promise<{ edges: RouteGraphEdge[]; total: number }> {
+  const from = `FROM seatsaero_routes r
+                ${airportJoin("ao", "r.origin")}
+                ${airportJoin("ad", "r.destination")}
+                WHERE ${filter.where.join(" AND ")}`;
+
+  const counted = await db
+    .prepare(`SELECT COUNT(*) AS n ${from}`)
+    .bind(...filter.binds)
+    .first<{ n: number }>();
 
   const { results } = await db
     .prepare(
-      // A plain join, not a `GROUP BY iata` derived table. That form was
-      // MATERIALIZED per call — a full walk of `idx_airports_iata`'s 72,454
-      // entries to look up a handful of codes — and it was guarding against
-      // duplicate IATA codes that the seed does not contain. See `airportJoin`
-      // in endpoints/seatsaeroRoutes.ts; `scripts/build-airports.mjs` is what
-      // keeps that true.
-      `SELECT a.iata, a.latitude, a.longitude
-         FROM json_each(?1) k
-         JOIN airports a ON a.iata = k.value AND a.iata != ''`,
+      `SELECT r.origin, r.destination,
+              ao.latitude AS origin_lat, ao.longitude AS origin_lon,
+              ad.latitude AS destination_lat, ad.longitude AS destination_lon
+       ${from} LIMIT ?`,
     )
-    .bind(JSON.stringify(wanted))
-    .all<{ iata: string; latitude: number | null; longitude: number | null }>();
+    .bind(...filter.binds, limit)
+    .all<RouteGraphEdge>();
 
-  const out = new Map<string, { lat: number; lon: number }>();
-  for (const row of results) {
-    // A null coordinate is not a zero one. Null Island is in the Gulf of Guinea
-    // and every distance measured from it would be wrong rather than missing.
-    if (row.latitude === null || row.longitude === null) continue;
-    out.set(row.iata, { lat: row.latitude, lon: row.longitude });
-  }
-  return out;
+  return { edges: results, total: counted?.n ?? 0 };
+}
+
+export interface PairSourceRow {
+  source: string;
+  origin: string;
+  destination: string;
+  distance_mi: number | null;
+}
+
+/** Who flies this pair — an exact lookup across EVERY source, deliberately not
+ *  routed through `routeFilter`: that builder is a source-scoped search, and
+ *  this is the one question that is not about a single program. */
+export async function selectPairSources(
+  db: D1Database,
+  origin: string,
+  destination: string,
+): Promise<PairSourceRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT source, origin, destination, distance_mi
+         FROM seatsaero_routes
+        WHERE (origin = ?1 AND destination = ?2)
+           OR (origin = ?2 AND destination = ?1)`,
+    )
+    .bind(origin, destination)
+    .all<PairSourceRow>();
+  return results;
+}
+
+/** The graph table read, with airport names joined for display. */
+export async function selectGraphRows(
+  db: D1Database,
+  filter: { where: string[]; binds: unknown[] },
+  limit: number,
+): Promise<RouteGraphRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT r.source, r.origin, r.destination, r.origin_region, r.destination_region,
+              r.distance_mi,
+              ao.name AS origin_name, ao.city AS origin_city,
+              ad.name AS destination_name, ad.city AS destination_city
+         FROM seatsaero_routes r
+         ${airportJoin("ao", "r.origin")}
+         ${airportJoin("ad", "r.destination")}
+        WHERE ${filter.where.join(" AND ")}
+        ORDER BY r.origin, r.destination
+        LIMIT ?`,
+    )
+    .bind(...filter.binds, limit)
+    .all<RouteGraphRow>();
+  return results;
 }

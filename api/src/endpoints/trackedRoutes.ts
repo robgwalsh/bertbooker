@@ -9,8 +9,16 @@ import { isIsoDate } from "../domain/window.js";
 import { CABIN_ORDER } from "../domain/types.js";
 import { CURRENCIES } from "../domain/programs.js";
 import { rowIdParam } from "../http/params.js";
+import {
+  deleteTrackedRoute,
+  insertTrackedRoute,
+  selectAllTrackedRoutes,
+  selectRouteShape,
+  selectTrackedRouteRow,
+  updateTrackedRoute,
+} from "../db/trackedRoutes.js";
 import type { Env, Vars } from "../bindings.js";
-import type { RouteInput, TrackedRoute } from "../../../shared/src/wire/index.js";
+import type { RouteInput } from "../../../shared/src/wire/index.js";
 
 /**
  * Tracked routes — the saved searches everything else in the app hangs off.
@@ -30,11 +38,7 @@ export const trackedRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
 // ---- Tracked routes (saved searches) ----
 trackedRoutes.get("/api/tracked-routes", async (c) => {
   const email = c.get("userEmail");
-  const { results } = await c.env.DB.prepare(
-    "SELECT * FROM tracked_routes ORDER BY created_at DESC",
-  )
-    .all<TrackedRoute>();
-  return c.json(results);
+  return c.json(await selectAllTrackedRoutes(c.env.DB));
 });
 
 /**
@@ -380,46 +384,34 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
       ? await autoVia(c.env.DB, spec, Boolean(b.roundTrip))
       : (b.via ?? []);
 
-  const res = await c.env.DB.prepare(
-    `INSERT INTO tracked_routes
-       (origin, destination, origins, destinations, via,
-        date_start, date_end, cabins, min_seats, currencies, direct_only,
-        point_limit, round_trip, alerts_enabled, alert_email, alert_on, alert_min_drop_pct)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     RETURNING id`,
-  )
-    .bind(
-      // The scalars are NOT NULL and stay the route's PRIMARY airport of each
-      // side. `runs` records them the same way, so a run can be read back
-      // against the route it was of.
-      spec.origins[0]!,
-      spec.destinations[0]!,
-      JSON.stringify(spec.origins),
-      JSON.stringify(spec.destinations),
-      viaColumn(via),
-      b.dateStart,
-      b.dateEnd,
-      // Store NULL (not "[]") when no filter, so downstream "no filter" checks
-      // treat an empty selection as "any cabin".
-      cabins ? JSON.stringify(cabins) : null,
-      clampMinSeats(b.minSeats, 2),
-      // Same NULL-when-empty rule for the currency filter ("any currency").
-      b.currencies?.length ? JSON.stringify(b.currencies) : null,
-      b.directOnly ? 1 : 0,
-      // NULL = no limit, which is what a route with no opinion gets.
-      clampPointLimit(b.pointLimit, null),
-      // Unlike every other flag bound here, this one changes what a search
-      // GATHERS: both directions in the one call.
-      b.roundTrip ? 1 : 0,
-      // ...and so does this one: it enrolls the route in the cron sweep.
-      b.alertsEnabled ? 1 : 0,
-      b.alertEmail?.trim() || null,
-      // NULL means the default set. `[]` was already refused above.
-      b.alertOn?.length ? JSON.stringify(b.alertOn) : null,
-      clampDropPct(b.alertMinDropPct, 5),
-    )
-    .first<{ id: number }>();
-  return c.json({ id: res?.id }, 201);
+  const id = await insertTrackedRoute(c.env.DB, {
+    // The scalars are NOT NULL and stay the route's PRIMARY airport of each
+    // side. `runs` records them the same way, so a run can be read back against
+    // the route it was of.
+    origin: spec.origins[0]!,
+    destination: spec.destinations[0]!,
+    origins: JSON.stringify(spec.origins),
+    destinations: JSON.stringify(spec.destinations),
+    via: viaColumn(via),
+    dateStart: b.dateStart,
+    dateEnd: b.dateEnd,
+    // Store NULL (not "[]") when no filter, so downstream "no filter" checks
+    // treat an empty selection as "any cabin".
+    cabins: cabins ? JSON.stringify(cabins) : null,
+    minSeats: clampMinSeats(b.minSeats, 2),
+    // Same NULL-when-empty rule for the currency filter ("any currency").
+    currencies: b.currencies?.length ? JSON.stringify(b.currencies) : null,
+    directOnly: b.directOnly ? 1 : 0,
+    // NULL = no limit, which is what a route with no opinion gets.
+    pointLimit: clampPointLimit(b.pointLimit, null),
+    roundTrip: b.roundTrip ? 1 : 0,
+    alertsEnabled: b.alertsEnabled ? 1 : 0,
+    alertEmail: b.alertEmail?.trim() || null,
+    // NULL means the default set. `[]` was already refused above.
+    alertOn: b.alertOn?.length ? JSON.stringify(b.alertOn) : null,
+    alertMinDropPct: clampDropPct(b.alertMinDropPct, 5),
+  });
+  return c.json({ id }, 201);
 });
 
 /**
@@ -455,11 +447,7 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
   const lists = validateLists(b);
   if (!lists.ok) return c.json({ error: "bad_list", message: lists.message }, 400);
 
-  const row = await c.env.DB.prepare(
-    "SELECT * FROM tracked_routes WHERE id = ?",
-  )
-    .bind(id)
-    .first<Record<string, unknown>>();
+  const row = await selectTrackedRouteRow(c.env.DB, id);
   if (!row) return c.json({ error: "not_found" }, 404);
 
   const merged = {
@@ -533,69 +521,50 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
         : await autoVia(c.env.DB, spec, roundTrip === 1)
       : (b.via ?? []);
 
-  await c.env.DB.prepare(
-    `UPDATE tracked_routes
-        SET origin = ?, destination = ?, origins = ?, destinations = ?, via = ?,
-            date_start = ?, date_end = ?,
-            cabin = ?, cabins = ?, currencies = ?, min_seats = ?, direct_only = ?,
-            point_limit = ?,
-            round_trip = ?,
-            alerts_enabled = ?, alert_email = ?, alert_on = ?, alert_min_drop_pct = ?,
-            -- Turning alerts ON re-decides the baseline. A route that has been
-            -- dark has a stale per-source snapshot, so its next diff would call
-            -- everything new and email a wall of it; clearing the digest clock
-            -- makes the next sweep a silent baseline. But a route somebody
-            -- searched RECENTLY already holds the snapshot a baseline sweep
-            -- would go and fetch, so baselineOnEnable stamps the clock instead
-            -- and the very next sweep can email real changes. See its docblock —
-            -- the baseline is the snapshot, this column is only the suppression.
-            -- (No backticks in here — this is a template literal.)
-            alert_last_digest_at = CASE WHEN ? = 1 AND alerts_enabled = 0
-                                        THEN ? ELSE alert_last_digest_at END,
-            -- A settings change is a fresh start for the back-off too; otherwise
-            -- fixing a broken window would still wait out the old penalty.
-            alert_consecutive_failures = 0
-      WHERE id = ?`,
-  )
-    .bind(
-      // The scalars stay the PRIMARY airport of each side, exactly as on insert:
-      // they are NOT NULL and `runs` records them the same way.
-      spec.origins[0]!,
-      spec.destinations[0]!,
-      JSON.stringify(spec.origins),
-      JSON.stringify(spec.destinations),
-      viaColumn(via),
-      dateStart,
-      dateEnd,
-      // Representative value for any `SELECT *` reader; `cabins` is the filter.
-      cabins ? (storedList(cabins).length === 1 ? storedList(cabins)[0] : "any") : "any",
-      cabins,
-      currencies,
-      clampMinSeats(b.minSeats, clampMinSeats(row.min_seats, 1)),
-      b.directOnly === undefined ? Number(row.direct_only ?? 0) : b.directOnly ? 1 : 0,
-      // Absent keeps the stored ceiling; `null` (what the header's chip sends
-      // for an empty field, or for "No limit") clears it.
-      clampPointLimit(b.pointLimit, row.point_limit == null ? null : Number(row.point_limit)),
-      roundTrip,
-      alertsEnabled,
+  await updateTrackedRoute(c.env.DB, id, {
+    // The scalars stay the PRIMARY airport of each side, exactly as on insert:
+    // they are NOT NULL and `runs` records them the same way.
+    origin: spec.origins[0]!,
+    destination: spec.destinations[0]!,
+    origins: JSON.stringify(spec.origins),
+    destinations: JSON.stringify(spec.destinations),
+    via: viaColumn(via),
+    dateStart,
+    dateEnd,
+    // Representative value for any `SELECT *` reader; `cabins` is the filter.
+    cabin: cabins ? (storedList(cabins).length === 1 ? storedList(cabins)[0]! : "any") : "any",
+    cabins,
+    currencies,
+    minSeats: clampMinSeats(b.minSeats, clampMinSeats(row.min_seats, 1)),
+    directOnly: b.directOnly === undefined ? Number(row.direct_only ?? 0) : b.directOnly ? 1 : 0,
+    // Absent keeps the stored ceiling; `null` (what the header's chip sends
+    // for an empty field, or for "No limit") clears it.
+    pointLimit: clampPointLimit(
+      b.pointLimit,
+      row.point_limit == null ? null : Number(row.point_limit),
+    ),
+    roundTrip,
+    alertsEnabled,
+    alertEmail:
       b.alertEmail === undefined
         ? (row.alert_email as string | null)
         : b.alertEmail?.trim() || null,
-      // `undefined` keeps what is stored; `null` resets to the default set. `[]`
-      // was refused above rather than stored as "never fire".
+    // `undefined` keeps what is stored; `null` resets to the default set. `[]`
+    // was refused above rather than stored as "never fire".
+    alertOn:
       b.alertOn === undefined
         ? (row.alert_on as string | null)
         : b.alertOn?.length
           ? JSON.stringify(b.alertOn)
           : null,
-      clampDropPct(b.alertMinDropPct, Number(row.alert_min_drop_pct ?? 5)),
-      alertsEnabled,
-      // Only consulted by the CASE above, i.e. only on an OFF -> ON transition.
-      baselineOnEnable(row.last_checked_at == null ? null : Number(row.last_checked_at), Date.now()),
-      id,
-      email,
-    )
-    .run();
+    alertMinDropPct: clampDropPct(b.alertMinDropPct, Number(row.alert_min_drop_pct ?? 5)),
+    // Only consulted by the CASE inside the statement, i.e. only on an
+    // OFF -> ON transition.
+    baselineDigestAt: baselineOnEnable(
+      row.last_checked_at == null ? null : Number(row.last_checked_at),
+      Date.now(),
+    ),
+  });
 
   return c.json({ ok: true });
 });
@@ -620,12 +589,7 @@ trackedRoutes.get("/api/tracked-routes/:id/paths", async (c) => {
   const email = c.get("userEmail");
   const id = rowIdParam(c.req.param("id"));
   if (id === null) return c.json({ error: "bad_id" }, 400);
-  const row = await c.env.DB.prepare(
-    `SELECT origin, destination, origins, destinations, round_trip
-       FROM tracked_routes WHERE id = ?`,
-  )
-    .bind(id)
-    .first<Record<string, unknown>>();
+  const row = await selectRouteShape(c.env.DB, id);
   if (!row) return c.json({ error: "not_found" }, 404);
 
   let spec: ReturnType<typeof normalizeSpec>;
@@ -652,9 +616,7 @@ trackedRoutes.delete("/api/tracked-routes/:id", async (c) => {
   // a 200. See `rowIdParam`.
   const id = rowIdParam(c.req.param("id"));
   if (id === null) return c.json({ error: "bad_id" }, 400);
-  await c.env.DB.prepare("DELETE FROM tracked_routes WHERE id = ?")
-    .bind(id)
-    .run();
+  await deleteTrackedRoute(c.env.DB, id);
   return c.json({ ok: true });
 });
 

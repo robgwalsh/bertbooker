@@ -7,9 +7,7 @@ import type {
   PairProgram,
   PathSearchResult,
   RouteFetchResult,
-  RouteGraphEdge,
   RouteGraphGeo,
-  RouteGraphRow,
   RouteGraphSource,
   ReachReport,
 } from "../../../shared/src/wire/index.js";
@@ -29,7 +27,12 @@ import {
   readFetchRecords,
   recordRouteFetch,
   replaceSourceRoutes,
+  routeFilter,
+  selectGraphGeo,
+  selectGraphRows,
+  selectPairSources,
 } from "../db/routeGraph.js";
+import { selectRoutesForReach } from "../db/trackedRoutes.js";
 import { recordQuota } from "../db/sourceQuota.js";
 import {
   REACH_DEEP_PAIRS,
@@ -177,132 +180,14 @@ seatsaeroRoutes.post("/api/seatsaero/sources/:source/fetch", async (c) => {
   return c.json(body);
 });
 
-// Shared WHERE builder for the graph table and the graph map — the pair that
-// must never disagree about which set is on screen. Anonymous `?` binds pushed
-// in SQL order, so callers append their own (ORDER BY, LIMIT) only AFTER these.
-//
-// `source` is REQUIRED here, unlike `airportFilter`'s "no query -> major
-// airports" default. A route graph is per-program by nature, and the
-// cross-source question has its own surface at `/routes/pair`.
-export function routeFilter(query: (k: string) => string | undefined): {
-  source: string;
-  where: string[];
-  binds: unknown[];
-} {
-  const source = (query("source") ?? "").trim().toLowerCase();
-  const where: string[] = ["r.source = ?"];
-  const binds: unknown[] = [source];
-
-  const eq = (param: string, column: string) => {
-    const v = (query(param) ?? "").trim().toUpperCase();
-    if (!v) return;
-    where.push(`r.${column} = ?`);
-    binds.push(v);
-  };
-  eq("origin", "origin");
-  eq("destination", "destination");
-
-  const region = (param: string, column: string) => {
-    const v = (query(param) ?? "").trim();
-    if (!v) return;
-    where.push(`r.${column} = ?`);
-    binds.push(v);
-  };
-  region("originRegion", "origin_region");
-  region("destinationRegion", "destination_region");
-
-  const range = (param: string, op: string) => {
-    const raw = query(param);
-    if (raw === undefined || raw === "") return;
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return;
-    where.push(`r.distance_mi ${op} ?`);
-    binds.push(n);
-  };
-  range("minDistance", ">=");
-  range("maxDistance", "<=");
-
-  const q = (query("q") ?? "").trim();
-  if (q) {
-    // One token, matched against either end of the pair. Deliberately simpler
-    // than `airportFilter`'s multi-token AND: a route row is a pair, and
-    // "SFO tokyo" would mean something this table cannot answer.
-    if (/^[A-Za-z]{3}$/.test(q)) {
-      // THREE LETTERS IS A CODE, and only a code.
-      //
-      // Substring-matching a three-letter token against airport names is close
-      // to useless: "PIT" appears in "Aspen-Pitkin County", in "Beijing
-      // CaPITal" and in "Cherry CaPITal", so asking for Pittsburgh returned
-      // Aspen, Beijing and Traverse City. Short tokens are overwhelmingly codes
-      // — the default-airport preference produces nothing else — so they are
-      // treated as one, and anything longer keeps the name search below.
-      const code = q.toUpperCase();
-      where.push("(r.origin = ? OR r.destination = ?)");
-      binds.push(code, code);
-    } else {
-      // `%` and `_` are LIKE metacharacters and `q` is whatever was typed. The
-      // value is BOUND, so this was never injectable — but an unescaped pattern
-      // is still a pattern the caller gets to write, and `%a%b%c%d%e%…` against
-      // the joined seatsaero_routes × airports set makes both the COUNT(*) and
-      // the row read below scan repeatedly. D1 bills rows read.
-      const contains = `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-      where.push(
-        `(ao.name LIKE ? ESCAPE '\\' OR ad.name LIKE ? ESCAPE '\\'
-          OR ao.city LIKE ? ESCAPE '\\' OR ad.city LIKE ? ESCAPE '\\')`,
-      );
-      binds.push(contains, contains, contains, contains);
-    }
-  }
-
-  return { source, where, binds };
-}
-
-/**
- * Join `airports` by IATA code, one row per code.
- *
- * This used to be `(SELECT … FROM airports WHERE iata != '' GROUP BY iata)`,
- * inlined at each use, guarding against duplicate codes multiplying a pair into
- * several edges. The guard cost more than the thing it guarded against: SQLite
- * MATERIALIZEs that subquery per use — twice per route query and FOUR times per
- * `/routes/geo` request, since the shared `from` fragment is used by the count
- * and the rows — and each materialization walks all 72,454 entries of
- * `idx_airports_iata`. It measured 34,574 rows read to return 200.
- *
- * It was also guarding against nothing: the seed has **9,054 rows with an IATA
- * code and 9,054 distinct codes**. `scripts/build-airports.mjs` now refuses to
- * write a seed that would break that, so the invariant is enforced where the
- * data is made rather than re-derived in every query that reads it. A plain join
- * is then two `idx_airports_iata` seeks per row.
- */
-const airportJoin = (alias: string, col: string) =>
-  `LEFT JOIN airports ${alias} ON ${alias}.iata = ${col} AND ${alias}.iata != ''`;
-
 // ---- Slim rows + coordinates for the map -----------------------------------
 seatsaeroRoutes.get("/api/seatsaero/routes/geo", async (c) => {
-  const { source, where, binds } = routeFilter((k) => c.req.query(k));
-  if (!source) return c.json({ error: "bad_request" }, 400);
+  const filter = routeFilter((k) => c.req.query(k));
+  if (!filter.source) return c.json({ error: "bad_request" }, 400);
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 20000, 1), 50000);
 
-  const from = `FROM seatsaero_routes r
-                ${airportJoin("ao", "r.origin")}
-                ${airportJoin("ad", "r.destination")}
-                WHERE ${where.join(" AND ")}`;
-
-  const counted = await c.env.DB.prepare(`SELECT COUNT(*) AS n ${from}`)
-    .bind(...binds)
-    .first<{ n: number }>();
-  const total = counted?.n ?? 0;
-
-  const { results } = await c.env.DB.prepare(
-    `SELECT r.origin, r.destination,
-            ao.latitude AS origin_lat, ao.longitude AS origin_lon,
-            ad.latitude AS destination_lat, ad.longitude AS destination_lon
-     ${from} LIMIT ?`,
-  )
-    .bind(...binds, limit)
-    .all<RouteGraphEdge>();
-
-  const body: RouteGraphGeo = { edges: results, total, truncated: total > results.length };
+  const { edges, total } = await selectGraphGeo(c.env.DB, filter, limit);
+  const body: RouteGraphGeo = { edges, total, truncated: total > edges.length };
   return c.json(body);
 });
 
@@ -315,14 +200,7 @@ seatsaeroRoutes.get("/api/seatsaero/routes/pair", async (c) => {
   const destination = (c.req.query("destination") ?? "").trim().toUpperCase();
   if (!origin || !destination) return c.json({ error: "bad_request" }, 400);
 
-  const { results } = await c.env.DB.prepare(
-    `SELECT source, origin, destination, distance_mi
-       FROM seatsaero_routes
-      WHERE (origin = ?1 AND destination = ?2)
-         OR (origin = ?2 AND destination = ?1)`,
-  )
-    .bind(origin, destination)
-    .all<{ source: string; origin: string; destination: string; distance_mi: number | null }>();
+  const results = await selectPairSources(c.env.DB, origin, destination);
 
   const records = await readFetchRecords(c.env.DB);
   const fetched = new Set(fetchedSources(records));
@@ -413,20 +291,7 @@ seatsaeroRoutes.get("/api/seatsaero/routes/paths", async (c) => {
 
 // ---- Do the routes you track go anywhere anyone watches? -------------------
 seatsaeroRoutes.get("/api/seatsaero/reach", async (c) => {
-  const { results: routes } = await c.env.DB.prepare(
-    `SELECT id, origin, destination, origins, destinations, round_trip
-       FROM tracked_routes
-      ORDER BY id`,
-  )
-    .all<{
-      id: number;
-      origin: string;
-      destination: string;
-      origins: string | null;
-      destinations: string | null;
-      round_trip: number;
-      programs: string | null;
-    }>();
+  const routes = await selectRoutesForReach(c.env.DB);
 
   const parsed: ReachRouteInput[] = routes.map((r) => ({
     id: r.id,
@@ -503,25 +368,11 @@ seatsaeroRoutes.get("/api/seatsaero/reach", async (c) => {
 
 // ---- The table read (registered last — the bare path) ----------------------
 seatsaeroRoutes.get("/api/seatsaero/routes", async (c) => {
-  const { source, where, binds } = routeFilter((k) => c.req.query(k));
-  if (!source) return c.json({ error: "bad_request" }, 400);
+  const filter = routeFilter((k) => c.req.query(k));
+  if (!filter.source) return c.json({ error: "bad_request" }, 400);
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 200, 1), 500);
 
-  const { results } = await c.env.DB.prepare(
-    `SELECT r.source, r.origin, r.destination, r.origin_region, r.destination_region,
-            r.distance_mi,
-            ao.name AS origin_name, ao.city AS origin_city,
-            ad.name AS destination_name, ad.city AS destination_city
-       FROM seatsaero_routes r
-       ${airportJoin("ao", "r.origin")}
-       ${airportJoin("ad", "r.destination")}
-      WHERE ${where.join(" AND ")}
-      ORDER BY r.origin, r.destination
-      LIMIT ?`,
-  )
-    .bind(...binds, limit)
-    .all<RouteGraphRow>();
-  return c.json(results);
+  return c.json(await selectGraphRows(c.env.DB, filter, limit));
 });
 
 function parseCodes(json: string | null): string[] | null {

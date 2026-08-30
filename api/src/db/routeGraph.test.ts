@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   PATH_ROW_LIMIT,
   ROUTE_INSERT_CHUNK,
-  airportCoords,
   fetchedSources,
   graphPathRowsForPairs,
   recordRouteFetch,
@@ -301,46 +300,5 @@ describe("graphPathRowsForPairs", () => {
         legSources: ["alaska", "alaska", "alaska"],
       },
     ]);
-  });
-});
-
-describe("airportCoords", () => {
-  it("asks nothing for an empty or all-blank code list", async () => {
-    const { db, asked } = stubReader([]);
-    expect(await airportCoords(db, [])).toEqual(new Map());
-    expect(await airportCoords(db, ["", ""])).toEqual(new Map());
-    expect(asked).toHaveLength(0);
-  });
-
-  it("dedupes the codes before binding them", async () => {
-    const { db, asked } = stubReader([]);
-    await airportCoords(db, ["SFO", "ICN", "SFO"]);
-    expect(JSON.parse(asked[0]!.args[0] as string)).toEqual(["SFO", "ICN"]);
-  });
-
-  it("joins airports directly, so the lookup is a seek rather than a table walk", async () => {
-    // This used to assert `GROUP BY iata` — a derived table guarding against
-    // duplicate codes. SQLite MATERIALIZEs that per call, walking all 72,454
-    // entries of idx_airports_iata to resolve a handful of codes, and the seed
-    // has no duplicates to guard against (9,054 codes, 9,054 distinct).
-    // `scripts/build-airports.mjs` now fails the build rather than writing one,
-    // so the invariant holds where the data is made and this can be a seek.
-    const { db, asked } = stubReader([]);
-    await airportCoords(db, ["SFO"]);
-    expect(asked[0]!.sql).toContain("JOIN airports a ON a.iata = k.value");
-    expect(asked[0]!.sql).not.toContain("GROUP BY iata");
-  });
-
-  it("drops a null coordinate rather than plotting it at Null Island", async () => {
-    // Null Island is in the Gulf of Guinea. Every distance measured from it
-    // would be wrong rather than missing, which is the worse failure.
-    const { db } = stubReader([
-      { iata: "SFO", latitude: 37.6188, longitude: -122.375 },
-      { iata: "XXX", latitude: null, longitude: null },
-      { iata: "YYY", latitude: 1, longitude: null },
-    ]);
-    const out = await airportCoords(db, ["SFO", "XXX", "YYY"]);
-    expect([...out.keys()]).toEqual(["SFO"]);
-    expect(out.get("SFO")).toEqual({ lat: 37.6188, lon: -122.375 });
   });
 });

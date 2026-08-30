@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { routeFilter } from "./seatsaeroRoutes.js";
+import { routeFilter } from "./routeGraph.js";
 
 // `routeFilter` is the one WHERE builder the graph table and the graph map
 // share, which is what keeps them showing the same set. It is exported only so

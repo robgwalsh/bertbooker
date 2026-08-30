@@ -20,20 +20,20 @@ import {
   csrfOrigin,
   isEdgeRequest,
 } from "./middleware/security.js";
-import { runAlertTick } from "./alerts/sweep.js";
+import { runAlertTick } from "./features/alerts/sweep.js";
 // The endpoint modules, each a `Hono` sub-app mounted below. THE ORDER OF THESE
 // MOUNTS IS THE ROUTING TABLE — see the block comment above them.
-import { quota } from "./endpoints/quota.js";
-import { d1Usage } from "./endpoints/d1Usage.js";
-import { search } from "./endpoints/search.js";
-import { enrich } from "./endpoints/enrich.js";
-import { alerts } from "./endpoints/alerts.js";
-import { reference } from "./endpoints/reference.js";
-import { airports } from "./endpoints/airports.js";
-import { seatsaeroRoutes } from "./endpoints/seatsaeroRoutes.js";
-import { routes } from "./endpoints/routes.js";
-import { trackedRoutes } from "./endpoints/trackedRoutes.js";
-import { settings } from "./endpoints/settings.js";
+import { quota } from "./features/usage/quotaEndpoints.js";
+import { d1Usage } from "./features/usage/d1UsageEndpoints.js";
+import { search } from "./features/search/endpoints.js";
+import { enrich } from "./features/enrich/endpoints.js";
+import { alerts } from "./features/alerts/endpoints.js";
+import { reference } from "./features/reference/endpoints.js";
+import { airports } from "./features/reference/airportEndpoints.js";
+import { seatsaeroRoutes } from "./features/graph/endpoints.js";
+import { routes } from "./features/trackedRoutes/routesPageEndpoints.js";
+import { trackedRoutes } from "./features/trackedRoutes/endpoints.js";
+import { settings } from "./features/alerts/settingsEndpoints.js";
 
 // THIS WORKER NEVER CALLS AN AIRLINE'S OWN SITE. The rule is about who is being
 // scored: this Worker may call a service that authenticates the CREDENTIAL, and

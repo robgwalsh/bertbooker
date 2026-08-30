@@ -427,7 +427,7 @@ allowance to maintain. It is not coming back for this.
 
 ### The four types
 
-`new | more_seats | price_drop | gone` (`ChangeType` in `api/src/domain/diff.ts`),
+`new | more_seats | price_drop | gone` (`ChangeType` in `api/src/models/change.ts`),
 stored per route as a JSON array in `alert_on`.
 
 **The default is `["new", "price_drop"]`.** `gone` is out because most

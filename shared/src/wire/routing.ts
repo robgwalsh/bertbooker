@@ -8,7 +8,7 @@
 // VALUES rather than types, `routing.ts` was the one module outside `wire/`
 // whose runtime code reached the browser's module graph at all.
 //
-// `api/src/domain/routing.ts` re-exports everything here, so no `api/` import
+// `api/src/models/route.ts` re-exports everything here, so no `api/` import
 // moved.
 
 export interface RoutePair {
@@ -31,7 +31,7 @@ export interface RouteSpec {
  * destinations. It cannot be one query: a cross product rides in a single call,
  * but `SFO->ICN` and `ICN->KTM` are different markets.
  *
- * Declared here rather than beside `RouteLegGroup` in `api/src/domain/routing.ts`
+ * Declared here rather than beside `RouteLegGroup` in `api/src/models/route.ts`
  * because the search stream carries it, and a wire frame may name nothing the
  * SPA cannot import.
  */

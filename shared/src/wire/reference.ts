@@ -3,7 +3,7 @@
 // `CurrencyInfo` and `AirlineInfo` are declared here rather than beside the
 // constants that populate them: `GET /api/currencies` and `GET /api/airlines`
 // answer `c.json(CURRENCIES)` and `c.json(AIRLINE_DIRECTORY)` verbatim, so the
-// wire type IS the element type of those arrays. `api/src/domain/programs.ts`
+// wire type IS the element type of those arrays. `api/src/models/program.ts`
 // and `airlines.ts` re-export these and annotate their constants against them,
 // which is what keeps the served shape and the declared one in step.
 //

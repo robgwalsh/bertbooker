@@ -1,7 +1,7 @@
 // The domain vocabulary the wire speaks — DECLARED here, not borrowed.
 //
 // `Cabin`, `Segment`, and the rest of the shared domain vocabulary are
-// declared in this file; `api/src/domain/types.ts` re-exports them from here,
+// declared in this file; `api/src/models/availability.ts` re-exports them from here,
 // the same direction `./seatsaero.ts` uses. Declaring them here keeps
 // Worker-only code (`diffAvailability`, `planRoute`, `PROGRAM_SEEDS` — none of
 // which run in a browser) out of `shared/`: nothing in `wire/` needs to quote
@@ -12,7 +12,7 @@
 // alone, with neither DOM nor `@cloudflare/workers-types`, which is what keeps
 // that true.
 
-// ---- Cabins and itineraries (api/src/domain/types.ts re-exports these) ----
+// ---- Cabins and itineraries (api/src/models/availability.ts re-exports these) ----
 
 export type Cabin = "economy" | "premium" | "business" | "first";
 
@@ -45,7 +45,7 @@ export interface Segment {
   cabin?: Cabin;
 }
 
-// ---- Change detection (api/src/domain/diff.ts re-exports these) ----
+// ---- Change detection (api/src/models/change.ts re-exports these) ----
 
 export type ChangeType = "new" | "more_seats" | "price_drop" | "gone";
 
@@ -88,7 +88,7 @@ export interface ChangeSummary {
  */
 export type AlertType = ChangeType;
 
-// ---- Run and task status (api/src/domain/tasks.ts re-exports these) ----
+// ---- Run and task status (api/src/models/task.ts re-exports these) ----
 
 /** How a single unit of gathering work ended.
  *
@@ -99,7 +99,7 @@ export type AlertType = ChangeType;
  *
  *  `COVERAGE_CLAIMING_STATUSES` — the invariant that keeps that list to exactly
  *  {ok, empty} — is a runtime value and stays on the Worker's side, in
- *  `api/src/domain/tasks.ts`. */
+ *  `api/src/models/task.ts`. */
 export type SourceTaskStatus =
   /** Looked, found something. */
   | "ok"

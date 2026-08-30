@@ -1,7 +1,7 @@
 // What pressing Search will cost, before it is pressed.
 //
 // A deliberately simplified restatement of `estimateSearchCalls` in
-// `api/src/domain/routing.ts` — it quotes a RANGE for a form that is still being
+// `api/src/models/route.ts` — it quotes a RANGE for a form that is still being
 // typed into, where the real planner works from a validated spec. The two are
 // allowed to differ; what they must not differ on is the constants, which is
 // why those are imported rather than copied.
@@ -38,7 +38,7 @@ export function estimateCalls(
   // Round trip unions the two sides, so the pair count is the square of the
   // combined set minus its self-pairs — and the CALL count is untouched, which
   // is the headline. Mirrors `estimateSearchCalls`/`roundTripSpec` in
-  // api/src/domain/routing.ts.
+  // api/src/models/route.ts.
   const pairs = roundTrip
     ? (() => {
         const both = new Set([...form.origins, ...form.destinations]);

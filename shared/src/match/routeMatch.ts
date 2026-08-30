@@ -39,7 +39,7 @@
  *    did.
  *
  * Note the hub branches are NOT gated on `round_trip`, even though `planRoute`
- * (api/src/domain/routing.ts) ignores `via` for round trips. That is the SQL's
+ * (api/src/models/route.ts) ignores `via` for round trips. That is the SQL's
  * behaviour and it is the right one here: this reads what was GATHERED, and a
  * route that was searched with hubs before round-trip was turned on still has
  * those legs stored.
@@ -135,7 +135,7 @@ function hubSet(json: string | null): Set<string> {
  * cannot shift the calendar day — the result is compared against `flight_date`,
  * which has no time in it at all.
  *
- * Mirrors `addDaysISO` in api/src/domain/window.ts and app/src/lib/routeShape.ts.
+ * Mirrors `addDaysISO` in api/src/util/dates.ts and app/src/lib/routeShape.ts.
  * Kept as a copy for the same reason routeShape.ts states: `domain/window.ts`
  * is Worker-side and not part of what the SPA may import.
  */

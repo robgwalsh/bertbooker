@@ -9,7 +9,7 @@ import type { TrackedRoute } from "../api";
  * graph. `pages/routes/RoutesPage.tsx` imports them back; this is a move, not a copy.
  *
  * The date helpers mirror `addDaysISO` / `daysBetween` in
- * `api/src/domain/window.ts`, and are deliberately kept as copies:
+ * `api/src/util/dates.ts`, and are deliberately kept as copies:
  * `domain/window.ts` is not part of the wire contract, and putting two
  * date helpers into it purely to share them would widen that contract for no
  * gain. Four lines of calendar arithmetic is the cheaper duplicate.

@@ -150,7 +150,7 @@ tasks_failed` is the index a resumed pass starts the plan from.
 
 Task order must therefore be **stable across plans of the same route**. A resumed
 pass indexes into the plan by count, so a plan that reorders between passes would
-re-run some tasks and silently skip others. `api/src/domain/routing.ts` sorts its
+re-run some tasks and silently skip others. `api/src/models/route.ts` sorts its
 airport lists for exactly this reason.
 
 ---
@@ -208,7 +208,7 @@ is why adding an index to that table is a trade to argue rather than a tidy-up.
 2. **Decide what it does to `finds` first.** One source per slot is currently
    assumed. See §1.
 3. **Map its programs onto `PROGRAM_SEEDS`.** A program that is not seeded is not
-   storable; add it to *both* `api/src/domain/programs.ts` and
+   storable; add it to *both* `api/src/models/program.ts` and
    `seed/programs.sql`, which mirror each other.
 4. **Establish `horizonDays` empirically.** Too high wastes calls on an empty
    horizon; too low silently caps the app's reach.

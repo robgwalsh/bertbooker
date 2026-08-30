@@ -16,7 +16,7 @@
 -- ===========================================================================
 
 -- Loyalty programs and how the couple's currencies feed them.
--- Mirrors api/src/domain/programs.ts — keep the two in sync.
+-- Mirrors api/src/models/program.ts — keep the two in sync.
 --
 -- `kind` spans hotels as well as airlines, and the hotel rows are real: the
 -- Library page has a tab that renders them. Nothing SEARCHES a hotel program.
@@ -91,7 +91,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS airports_fts USING fts5(
 -- and `round_trip` — and the difference is the whole reason to know which is
 -- which: no filter can surface data that was never fetched, so turning either
 -- on needs a re-search. Everything else filters the pane and costs nothing to
--- change. api/src/domain/routing.ts turns a route into seats.aero calls.
+-- change. api/src/models/route.ts turns a route into seats.aero calls.
 CREATE TABLE IF NOT EXISTS tracked_routes (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   origin          TEXT NOT NULL,   -- IATA; the route's PRIMARY origin

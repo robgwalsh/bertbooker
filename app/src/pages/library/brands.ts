@@ -45,7 +45,7 @@ export const PROGRAM_DOMAIN: Record<string, string> = {
   choice: "choicehotels.com",
 };
 
-// Same idea, keyed by IATA carrier code (see AIRLINE_SEEDS in `api/src/features/reference/airlines.ts`).
+// Same idea, keyed by IATA carrier code (see AIRLINE_SEEDS in `api/src/models/airline.ts`).
 export const AIRLINE_DOMAIN: Record<string, string> = {
   AC: "aircanada.com",
   UA: "united.com",

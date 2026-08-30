@@ -12,13 +12,13 @@
  * Keyed by IATA because that is what the sources speak: seats.aero, like every
  * source this app has carried, puts a two-character code in `Segment.carrier`.
  *
- * The first block covers `AIRLINE_SEEDS` in `api/src/features/reference/airlines.ts` (the carriers the Library
+ * The first block covers `AIRLINE_SEEDS` in `api/src/models/airline.ts` (the carriers the Library
  * knows); the second is the operators that show up *inside* an itinerary without
  * being award carriers in their own right — US regionals flying a mainline
  * number, and low-cost carriers appearing as the operator of a leg.
  */
 export const AIRLINE_ICAO: Record<string, string> = {
-  // ---- mirrors AIRLINE_SEEDS (api/src/features/reference/airlines.ts) ----
+  // ---- mirrors AIRLINE_SEEDS (api/src/models/airline.ts) ----
   AC: "ACA", // Air Canada
   UA: "UAL", // United Airlines
   LH: "DLH", // Lufthansa

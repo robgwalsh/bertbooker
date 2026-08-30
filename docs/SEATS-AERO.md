@@ -515,7 +515,7 @@ file before committing it.
 | | |
 |---|---|
 | `api/src/providers/seatsaero.ts` | everything above the Worker: pure `buildSearchUrl` / `normalizeSeatsAero` / `parseQuotaHeaders` / `parseSeatsAeroTrips`, plus `planSeatsAeroChunks` / `runSeatsAeroChunk` / `runSeatsAeroTrips` |
-| `api/src/domain/routing.ts` | a route as a set of pairs; round-trip spec; the call estimate |
+| `api/src/models/route.ts` | a route as a set of pairs; round-trip spec; the call estimate |
 | `api/src/features/search/endpoints.ts` | the Search endpoint, the stream, resumption |
 | `api/src/features/enrich/engine.ts` | Get Trips, the engine; `api/src/features/enrich/endpoints.ts` the two HTTP shapes |
 | `api/src/db/runs.ts` | the run and quota writers — `recordQuota`, `finishRun`, `MAX_STORED_CHANGES` |

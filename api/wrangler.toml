@@ -146,7 +146,7 @@ enabled = true
 # day reads as a failing sweep, not as an absence of award space — which is the
 # distinction this whole architecture exists to preserve.
 #
-# WHY */15 AND NOT HOURLY, because it is a real trade and it was chosen: a Cron
+# WHY */30 AND NOT HOURLY, because it is a real trade and it was chosen: a Cron
 # Trigger with an interval UNDER ONE HOUR gets 30 SECONDS of CPU, where an hourly
 # one gets 15 minutes. Waiting on seats.aero is I/O and free; parsing a page of
 # 500 trips-bearing rows is not. So the tick is small on purpose — capped at
@@ -165,7 +165,7 @@ enabled = true
 # tick AFTER the one it should have run on, which measured as a flat 2x
 # slowdown. See docs/ALERTS.md §4.
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/30 * * * *"]
 
 # This worker talks to exactly THREE hosts, and the split is the rule rather
 # than an exception list. The test a host has to pass is the same for all of

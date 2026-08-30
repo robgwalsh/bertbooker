@@ -1,6 +1,6 @@
 # Alerts — the one scheduled thing
 
-A Cron Trigger wakes every fifteen minutes, re-searches the tracked routes marked
+A Cron Trigger wakes every thirty minutes, re-searches the tracked routes marked
 for alerts, and emails a digest when something has changed. It is the **only
 unattended work in this codebase**, and everything below exists because
 unattended work is a different kind of thing from a button somebody pressed.
@@ -13,7 +13,7 @@ whether an `onEvent` callback is passed, i.e. whether anyone is listening.
 
 ```
                         ┌──────────────────────────────────────────┐
-  cron */15  ─────────▶ │ runAlertTick        (alerts/sweep.ts)    │
+  cron */30  ─────────▶ │ runAlertTick        (alerts/sweep.ts)    │
                         │   1. read alert routes + their clocks    │
                         │   2. sweepPacing   → how often (pace.ts) │
                         │   3. dueRoutes     → who, most overdue   │
@@ -42,7 +42,7 @@ Where things live:
 | `api/src/alerts/select.ts` | which changes are worth an email — pure |
 | `api/src/alerts/digest.ts` | grouping and rendering — pure |
 | `app/src/pages/alerts/AlertsPage.tsx`, `app/src/lib/alerts.ts` | the safety surface |
-| `api/wrangler.toml` `[triggers]` | `crons = ["*/15 * * * *"]` |
+| `api/wrangler.toml` `[triggers]` | `crons = ["*/30 * * * *"]` |
 | `migrations/0001_init.sql` | `alert_*` columns, `alert_outbox`, `alert_deliveries` |
 | `migrations/0008_alert_recipients.sql` | `alert_recipients`, the allowlist |
 
@@ -124,7 +124,7 @@ constraint (10,000 per invocation, though D1 calls count against it) — CPU is.
 
 So:
 
-- the cron is `*/15 * * * *`, a **heartbeat**, not a cadence;
+- the cron is `*/30 * * * *`, a **heartbeat**, not a cadence;
 - the tick is capped at `ALERT_MAX_CALLS_PER_TICK` (25) outbound calls, and
   **that cap is the whole bound** — a tick sweeps due routes, most overdue
   first, until the cap is spent;
@@ -290,16 +290,17 @@ count it shows.
 ```
 cycleCost     = Σ routeSweepCost(searchable routes)
 cyclesPerDay  = floor(dailyBudget / cycleCost)
-interval      = clamp(ceil(1440 / cyclesPerDay), MIN_SWEEP_MINUTES=15, MAX_SWEEP_MINUTES=1440)
+interval      = clamp(ceil(1440 / cyclesPerDay), MIN_SWEEP_MINUTES=30, MAX_SWEEP_MINUTES=1440)
 ```
 
 More routes, or wider ones, means each is swept less often. That is the whole
 model, and it is why the Alerts tab shows cadence as *derived* rather than as a
 setting.
 
-- **The floor is 15 minutes** however much allowance is spare: seats.aero serves
+- **The floor is 30 minutes** however much allowance is spare: seats.aero serves
   rows out of its own cache, so re-asking faster mostly re-reads the same answer
-  and spends a call to learn nothing.
+  and spends a call to learn nothing. It is also the cron period, and a floor
+  below that would quote a cadence no tick can keep.
 - **Unaffordable is a return value, not a clamp.** `floor(budget/cost)` is zero
   the moment one cycle costs more than a day's allowance, and dividing by it
   yields `Infinity` — which would clamp silently to the daily maximum and present
@@ -363,7 +364,7 @@ it, because sweeping every *due* route does nothing when the route is not due.
 time rather than the first tick strictly after it. It cannot sweep anything
 early: there is no tick between one sweep and its successor to be early on. It is
 bounded by half the *interval* as well, so a cadence longer than the cron still
-waits for its own tick — a 30-minute cadence is not pulled forward to 15.
+waits for its own tick — a 60-minute cadence is not pulled forward to 30.
 
 ---
 

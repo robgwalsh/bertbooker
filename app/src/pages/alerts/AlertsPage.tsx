@@ -160,8 +160,8 @@ export function Alerts() {
 
       <Divider sx={{ my: 3 }} />
       <Typography variant="caption" color="text.secondary">
-        The scheduler wakes every 15 minutes and sweeps at most one route, so a
-        wide route can take a few wake-ups to finish. A digest goes out once a
+        The scheduler wakes every 30 minutes and sweeps due routes until its call cap is
+        spent, so a wide route can take a few wake-ups to finish. A digest goes out once a
         full pass is complete. See <code>docs/ALERTS.md</code>.
       </Typography>
     </PagePad>

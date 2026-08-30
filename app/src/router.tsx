@@ -119,7 +119,7 @@ function AlertsHealthDot() {
   const { data } = useQuery({
     queryKey: ["alert-schedule"],
     queryFn: api.alertSchedule,
-    // The cron wakes every 15 minutes; polling faster than that learns nothing.
+    // The cron wakes every 30 minutes; polling faster than that learns nothing.
     refetchInterval: 5 * 60_000,
     retry: false,
   });

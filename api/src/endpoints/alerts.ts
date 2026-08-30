@@ -180,7 +180,7 @@ alerts.get("/api/alerts/runs", async (c) => {
  *
  * The cron is the only caller in production and that does not change; this is
  * the development loop. Without it, working on `alerts/` means waiting up to
- * fifteen minutes for a tick, up to `intervalMinutes` for that tick to pick your
+ * thirty minutes for a tick, up to `intervalMinutes` for that tick to pick your
  * route, and then reading D1 by hand to find out what it decided.
  *
  * Three properties, each load-bearing:

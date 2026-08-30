@@ -73,15 +73,16 @@ describe("sweepPacing", () => {
   });
 
   it("divides the allowance among the routes", () => {
-    // One route measured at 10 calls, 600 budget => 60 cycles/day => every 24m.
+    // One route measured at 10 calls, 300 budget => 30 cycles/day => every 48m,
+    // clear of the floor so this pins the division rather than the clamp.
     const p = sweepPacing({
       routes: [{ routeId: 1, chunks: 5, observedCalls: 10 }],
-      dailyBudget: 600,
+      dailyBudget: 300,
     });
     expect(p.affordable).toBe(true);
     if (p.affordable) {
-      expect(p.cyclesPerDay).toBe(60);
-      expect(p.intervalMinutes).toBe(24);
+      expect(p.cyclesPerDay).toBe(30);
+      expect(p.intervalMinutes).toBe(48);
     }
   });
 
@@ -189,8 +190,8 @@ describe("routeDueAt / dueRoutes", () => {
   });
 
   it("does not pull a longer cadence forward by a whole tick", () => {
-    // The grace is half a TICK, so a 30-minute cadence still waits for the
-    // 30-minute tick. Half an INTERVAL here would have swept it at 15.
+    // The grace is half a TICK, so a 60-minute cadence still waits for the
+    // 60-minute mark. Half an INTERVAL here would have swept it at 30.
     const attempt = 1_000_000;
     const route = {
       routeId: 1,
@@ -199,8 +200,8 @@ describe("routeDueAt / dueRoutes", () => {
       lastCheckedAt: null,
       consecutiveFailures: 0,
     };
-    expect(dueRoutes([route], 30, attempt + 15 * MIN)).toEqual([]);
-    expect(dueRoutes([route], 30, attempt + 30 * MIN).map((r) => r.routeId)).toEqual([1]);
+    expect(dueRoutes([route], 60, attempt + 30 * MIN)).toEqual([]);
+    expect(dueRoutes([route], 60, attempt + 60 * MIN).map((r) => r.routeId)).toEqual([1]);
   });
 
   it("orders the due set most-overdue first", () => {

@@ -20,14 +20,17 @@ import type { SweepPacing } from "../../../shared/src/wire/alerts.js";
 
 /** Never sweep a route more often than this, however much allowance is spare.
  *  seats.aero serves rows out of its own cache, so re-asking faster mostly
- *  re-reads the same answer and spends a call to learn nothing. */
-export const MIN_SWEEP_MINUTES = 15;
+ *  re-reads the same answer and spends a call to learn nothing. It also cannot
+ *  usefully sit below `SWEEP_TICK_MINUTES`: a route is only ever swept on a
+ *  tick, so a finer floor would have the Alerts tab quote a cadence the cron
+ *  cannot keep. */
+export const MIN_SWEEP_MINUTES = 30;
 /** The cron's period, MIRRORED from `[triggers] crons` in `api/wrangler.toml` —
  *  change one and change the other. A route is only ever swept on a tick, so
  *  this is the resolution of every cadence below; `dueGraceMs` is why that has
  *  to be written down rather than inferred from `MIN_SWEEP_MINUTES`, which
  *  happens to be the same number today and answers a different question. */
-export const SWEEP_TICK_MINUTES = 15;
+export const SWEEP_TICK_MINUTES = 30;
 /** ...and never claim a cadence slower than daily; past that the honest answer
  *  is "this is unaffordable", which is a different return value. */
 export const MAX_SWEEP_MINUTES = 24 * 60;

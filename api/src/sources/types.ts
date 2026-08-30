@@ -7,8 +7,9 @@ import type { SourceQuotaObservation, SourceTaskStatus } from "../domain/tasks.j
  * A **source** is anything that can answer "what award space exists on this
  * route, on these dates". The app knows nothing else about where its data comes
  * from: a source produces `AvailabilityResult[]`, the ingest pipeline
- * (`ingest/apply.ts`) decides what that means for the database, and every read
- * goes through one CTE regardless of who wrote the row.
+ * (`features/search/apply.ts`) decides what that means for the database, and
+ * every read of a stored find goes through `db/finds.ts` regardless of who wrote
+ * the row.
  *
  * docs/SOURCES.md is the guide. What follows is the contract itself.
  */
@@ -42,9 +43,11 @@ export interface SourceQuery {
  * three were refused" has to be queryable, not a log line.
  */
 export interface SourceTask {
-  /** Stable within a run. It is the idempotency key when a batch POST is
-   *  retried — `(run_id, source, task_key)` is UNIQUE — so it MUST be derived
-   *  from the work, never from a counter or a clock. */
+  /** Stable within a run, and derived from the WORK rather than from a counter
+   *  or a clock. Nothing stores it — the `search_tasks` table it used to be a
+   *  unique key in is gone (docs/SOURCES.md §3) — but the property still matters:
+   *  a resumed pass indexes into the plan by count, so a plan that reordered
+   *  between passes would re-run some tasks and silently skip others. */
   key: string;
   source: string;
   origin: string;
@@ -66,7 +69,10 @@ export interface SourceResult {
    * finds, under-claiming costs a stale row. When unsure, narrow it.
    */
   coveredDates?: string[];
-  /** Forensics, stored on the task row so a bad run is diagnosable later. */
+  /** Forensics. NOT stored: the task row that used to carry these went with the
+   *  `search_tasks` table, and what a person needs to debug a bad call is
+   *  streamed to them as it happens instead. Kept on the contract because a
+   *  generic runner would still want somewhere to put them. */
   finalUrl?: string;
   httpStatus?: number;
   capture?: unknown;
@@ -118,7 +124,7 @@ export interface SourceDescriptor {
  *
  * **Nothing implements this today, and that is the honest state of it.**
  * seats.aero — the only source — is a `SourceDescriptor` only, because the
- * Worker drives it through a specialised runner (`api/src/search/run.ts`) that
+ * Worker drives it through a specialised runner (`api/src/features/search/run.ts`) that
  * streams each HTTP call to the browser as it lands, meters a per-request
  * subrequest budget, and resumes across requests when it runs out. Expressing
  * that through a plain `run()` would mean pushing streaming callbacks and call

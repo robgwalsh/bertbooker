@@ -2,7 +2,7 @@
 //
 // `AlertSchedule` is the one wire shape that had NO written-down form anywhere
 // until this module: `GET /api/alerts/schedule` builds a four-level object
-// literal by hand in `api/src/endpoints/alerts.ts`, and the SPA's interface was the
+// literal by hand in `api/src/features/alerts/endpoints.ts`, and the SPA's interface was the
 // only description of it. Annotating that handler against this type is the
 // highest-value half of the whole enforcement pass — it is 14 mapped route
 // fields that nothing was checking.
@@ -14,7 +14,7 @@ import type { AlertType } from "./domain.js";
  * therefore run.
  *
  * Declared here rather than beside `sweepPacing()` (which computes it, in
- * `api/src/alerts/pace.ts` and re-exports this type) because the Alerts tab
+ * `api/src/features/alerts/pace.ts` and re-exports this type) because the Alerts tab
  * renders the answer: `AlertSchedulePacing` below is the flattened form that
  * actually goes over the wire, and this is the union it is spread from.
  */

@@ -74,7 +74,7 @@ export function directionArrow(r: TrackedRoute): string {
  *
  * ONE clock answers this for both of the things that search, and that is the
  * point rather than a simplification. `last_checked_at` is stamped by
- * `api/src/search/run.ts`, which the Search button and the scheduled alert
+ * `api/src/features/search/run.ts`, which the Search button and the scheduled alert
  * sweep both go through — so a route the cron re-searched at 3am reads as
  * fresh here without anyone having to ask which of the two did it.
  */

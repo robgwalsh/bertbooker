@@ -64,7 +64,7 @@ claims coverage.
 ### `SourceDescriptor` without `run` is the only shape in use
 
 seats.aero is descriptor-only. The Worker drives it through a specialised runner
-(`api/src/search/run.ts`) that streams every HTTP call to the browser as it lands,
+(`api/src/features/search/run.ts`) that streams every HTTP call to the browser as it lands,
 meters a per-request subrequest budget, and resumes across requests when it runs
 out. Expressing that through a plain `run()` would push streaming callbacks and
 call accounting into the interface and make every future source carry
@@ -161,7 +161,7 @@ airport lists for exactly this reason.
 source.run()  →  AvailabilityResult[]  →  applyTask()  →  finds
 ```
 
-`applyTask` (`api/src/ingest/apply.ts`) runs per task, as work completes —
+`applyTask` (`api/src/features/search/apply.ts`) runs per task, as work completes —
 gathering can die halfway and the successful tasks should already be durable. Its
 order is the safety property: **read baseline → write what changed → prune**, so
 a crash under-claims rather than over-claims. The claim itself is

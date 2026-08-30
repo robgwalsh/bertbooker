@@ -20,7 +20,7 @@ export const quota = () => req<QuotaPage>("/quota");
 
 /** Today's D1 rows read and written against their daily ceilings — the other
  *  two chips beside the bolt. A separate call from `quota` because it waits on
- *  Cloudflare rather than on D1; see `api/src/endpoints/d1Usage.ts`. Answers
+ *  Cloudflare rather than on D1; see `api/src/features/usage/d1UsageEndpoints.ts`. Answers
  *  `{}` with no `usage` when Cloudflare could not be asked, which is the
  *  ordinary state locally. */
 export const d1Usage = () => req<D1UsagePage>("/d1-usage");

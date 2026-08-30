@@ -6,14 +6,14 @@ unattended work in this codebase**, and everything below exists because
 unattended work is a different kind of thing from a button somebody pressed.
 
 It is not, however, a second engine. A sweep is the *same* Search — the same
-`planSearchPass` / `openSearchRun` / `runSearchPass` in `api/src/search/run.ts`,
+`planSearchPass` / `openSearchRun` / `runSearchPass` in `api/src/features/search/run.ts`,
 the same `applyTask` ingest, the same coverage rules, the same `runs` row.
-`search/run.ts` has **two callers and one behaviour**; the only difference is
+`features/search/run.ts` has **two callers and one behaviour**; the only difference is
 whether an `onEvent` callback is passed, i.e. whether anyone is listening.
 
 ```
                         ┌──────────────────────────────────────────┐
-  cron */30  ─────────▶ │ runAlertTick        (alerts/sweep.ts)    │
+  cron */30  ─────────▶ │ runAlertTick        (alerts/tick.ts)     │
                         │   1. read alert routes + their clocks    │
                         │   2. sweepPacing   → how often (pace.ts) │
                         │   3. dueRoutes     → who, most overdue   │
@@ -21,7 +21,7 @@ whether an `onEvent` callback is passed, i.e. whether anyone is listening.
                         │        decideSweep → can it be paid for  │
                         │        sweepRoute  → search/run.ts       │
                         │        selectAlertable → alert_outbox    │
-                        │   5. cycle complete? → flushOutbox       │
+                        │   5. cycle complete? → flush (outbox.ts) │
                         └──────────────────────────────────────────┘
                                         │                    │
                              ingest (applyTask)      Resend → digest
@@ -33,14 +33,17 @@ Where things live:
 
 | file | what |
 |---|---|
-| `api/src/alerts/sweep.ts` | the tick, the sweep, the outbox, the flush |
-| `api/src/alerts/budget.ts` | **the only budget guard in the repo** |
-| `api/src/endpoints/alerts.ts` | the four `/api/alerts/*` endpoints |
-| `api/src/alerts/email.ts` | Resend, and the read of the recipient allowlist |
-| `api/src/endpoints/settings.ts` | editing that allowlist — `alert_recipients` |
-| `api/src/alerts/pace.ts` | cost, cadence, due-ness, back-off, baseline — all pure |
-| `api/src/alerts/select.ts` | which changes are worth an email — pure |
-| `api/src/alerts/digest.ts` | grouping and rendering — pure |
+| `api/src/features/alerts/tick.ts` | the tick and the sweep — what a tick DECIDES |
+| `api/src/features/alerts/outbox.ts` | the outbox and the flush — what it eventually SAYS |
+| `api/src/features/alerts/alertRoutes.ts` | the row, the cost model and the label, read by both |
+| `api/src/features/alerts/budget.ts` | **the only budget guard in the repo** |
+| `api/src/features/alerts/endpoints.ts` | the four `/api/alerts/*` endpoints |
+| `api/src/features/alerts/email.ts` | Resend, and nothing else |
+| `api/src/features/alerts/recipients.ts` | who this deployment may email — asked by the sender AND by route validation |
+| `api/src/features/alerts/settingsEndpoints.ts` | editing that allowlist — `alert_recipients` |
+| `api/src/features/alerts/pace.ts` | cost, cadence, due-ness, back-off, baseline — all pure |
+| `api/src/features/alerts/select.ts` | which changes are worth an email — pure |
+| `api/src/features/alerts/digest.ts` | grouping and rendering — pure |
 | `app/src/pages/alerts/AlertsPage.tsx`, `app/src/lib/alerts.ts` | the safety surface |
 | `api/wrangler.toml` `[triggers]` | `crons = ["*/30 * * * *"]` |
 | `migrations/0001_init.sql` | `alert_*` columns, `alert_outbox`, `alert_deliveries`, `alert_recipients` |
@@ -190,7 +193,7 @@ one; `maxCalls` is what bounds a tick today.
 
 ## 3. A tick, step by step
 
-`runAlertTick(env, { now?, deadlineAt?, force? })` — `api/src/alerts/sweep.ts`.
+`runAlertTick(env, { now?, deadlineAt?, force? })` — `api/src/features/alerts/tick.ts`.
 
 It **returns a summary and never throws on one route's failure**: a single
 unsearchable route must not stop the cycle, and its failure is already durable on
@@ -244,7 +247,7 @@ its own `runs` row.
 
 ## 4. Pacing — how often
 
-`api/src/alerts/pace.ts`. All pure, and that is the point:
+`api/src/features/alerts/pace.ts`. All pure, and that is the point:
 
 > **The scheduler and the Alerts tab call the same functions.** `GET
 > /api/alerts/schedule` derives nothing of its own — it runs `sweepPacing`,
@@ -280,7 +283,7 @@ direction this table exists not to.
 records only the calls that pass spent; a route resumed across three ticks would
 otherwise look a third as expensive as it is.
 
-`AlertRouteCost` is built in ONE place (`alertRouteCosts`, `alerts/sweep.ts`) and
+`AlertRouteCost` is built in ONE place (`alertRouteCosts`, `alerts/alertRoutes.ts`) and
 read by both the scheduler and the Alerts tab, and `AlertScheduleRoute` carries
 `queriesPerChunk` so the page's `estimatedCalls` still follows from the chunk
 count it shows.
@@ -419,7 +422,7 @@ allowance to maintain. It is not coming back for this.
 
 ## 6. What is worth an email
 
-`api/src/alerts/select.ts`, pure, called as
+`api/src/features/alerts/select.ts`, pure, called as
 `selectAlertable(changes, findKeys, rule, routeFilters)`.
 
 ### The four types
@@ -477,7 +480,7 @@ arrive twice.
 
 ## 7. The budget guard and the reserve
 
-`api/src/alerts/budget.ts`. **Nothing else may import this module.**
+`api/src/features/alerts/budget.ts`. **Nothing else may import this module.**
 
 What it protects is not the quota for its own sake. It is the **reserve**: the
 scheduler stops well short of the day's ceiling so that a human pressing Search
@@ -581,7 +584,7 @@ fixed.
 
 ## 9. The digest, and delivery
 
-`api/src/alerts/digest.ts` renders strings and decides nothing; the Worker
+`api/src/features/alerts/digest.ts` renders strings and decides nothing; the Worker
 half only hands them to Resend.
 
 - **One digest per recipient, not per route.** `groupForRecipients` buckets by
@@ -605,7 +608,7 @@ half only hands them to Resend.
 
 ### Resend, and the recipient allowlist
 
-`api/src/alerts/email.ts`. **This is the Worker's second and last outbound host**, and
+`api/src/features/alerts/email.ts`. **This is the Worker's second and last outbound host**, and
 the distinction is what makes it allowed: Resend is not a data source, it is a
 delivery channel — a keyed vendor API that authenticates the *key*, not the
 client, exactly like seats.aero. Nothing about the airline prohibition changes.
@@ -762,7 +765,7 @@ independent facts; there is no requirement that they match.
 | `alert_last_digest_at` | **the email clock** — NULL suppresses (§5) |
 | `alert_consecutive_failures` | back-off; reset on success and on edit |
 
-Plus `last_checked_at`, the coverage clock, written by `search/run.ts` at the
+Plus `last_checked_at`, the coverage clock, written by `features/search/run.ts` at the
 end of any pass that claimed coverage — so the sweeper reads it but does not
 write it itself. **Three clocks, and collapsing any two re-creates a bug the
 others exist to prevent.** In particular `alert_last_attempt_at` is stamped
@@ -825,15 +828,22 @@ That last row is the one with no in-app surface, which is exactly why
 
 Everything interesting is pure, and offline:
 
-- `api/src/alerts/alerts.test.ts` — cost, pacing (including that unaffordable
-  **refuses** rather than clamping), due-ness and both clocks, back-off,
-  `baselineOnEnable` at the cutoff, `parseAlertTypes`, `selectAlertable`
-  (including that `gone` bypasses the intersection and that a drop coinciding with
-  more seats classifies as `more_seats`).
-- `api/src/alerts/digest.test.ts` — rendering, escaping, grouping, and that a
+- `api/src/features/alerts/pace.test.ts` — cost, pacing (including that
+  unaffordable **refuses** rather than clamping), due-ness and both clocks,
+  back-off, and `baselineOnEnable` at the cutoff.
+- `api/src/features/alerts/select.test.ts` — `parseAlertTypes` and
+  `selectAlertable`, including that `gone` bypasses the intersection and that a
+  drop coinciding with more seats classifies as `more_seats`.
+- `api/src/features/alerts/recipients.test.ts` — the allowlist, and that an empty
+  table still means the account's own address.
+- `api/src/features/alerts/digest.test.ts` — rendering, escaping, grouping, and that a
   recipient whose routes were all quiet gets nothing.
-- `api/src/alerts/budget.test.ts` — the guard, both bases, and the UTC day.
+- `api/src/features/alerts/budget.test.ts` — the guard, both bases, and the UTC day.
 - `app/src/alerts.test.ts` — the health ladder's order and completeness.
+
+`api/src/features/alerts/tick.test.ts` drives `runAlertTick` itself with
+`../search/run.js` mocked, so the pacing, budget and skip paths are covered
+without a database.
 
 `npm test` runs all of it. There is no test that drives a real tick against D1;
 `POST /api/alerts/run` is the loop that covers that ground, by hand.

@@ -46,7 +46,7 @@ import {
 // `AvailabilitySegments`, only the whole journey's endpoints — so a layover
 // inside it is unmeasured, and a cabin no trip described stays a `summary`.
 // `GET /trips/{id}` is the fallback for both, at ONE CALL PER availability
-// object, which is why it is a click (`api/src/search/enrich.ts`) and never
+// object, which is why it is a click (`api/src/features/enrich/engine.ts`) and never
 // part of a search. The remaining limitation is recorded on the task's notes
 // rather than hidden — see `runSeatsAeroChunk` below.
 //
@@ -93,7 +93,7 @@ export const SEATSAERO_TAKE_WITH_TRIPS = 500;
  * **Every key here was verified live on 2026-08-09** against
  * `GET /partnerapi/routes?source=<name>` (documented at
  * developers.seats.aero/reference/get-routes-1, and since 2026-08-18 the
- * Library's seats.aero pane runs the same check as a surface rather than as a
+ * Tools page's Data coverage tab runs the same check as a surface rather than as a
  * terminal ritual), and that verification is not optional
  * ceremony: **the API silently ignores an unrecognised `sources` value.** It
  * answers `200 {"data":[]}` rather than erroring, so a misspelled name is not a
@@ -453,7 +453,7 @@ export function normalizeSeatsAero(
 // response header, and it can **narrow its own coverage claim** when pagination
 // is cut short — and it is resumable mid-window, which is what lets a 30-second
 // cron tick pick up where the last one stopped. The Worker drives it directly
-// (`api/src/search/run.ts`); see docs/SOURCES.md.
+// (`api/src/features/search/run.ts`); see docs/SOURCES.md.
 
 // The constants and the two call/chunk shapes above this line now live in
 // `../wire/seatsaero.ts`, because the SPA reads them and this file cannot be on
@@ -806,7 +806,7 @@ export async function runSeatsAeroChunk(
 // which is why it plays no part in a search: a 200-row chunk would spend a fifth
 // of the day's allowance on decoration. It is affordable exactly once the choice
 // is a person's — one click, one row, one call — so this half is driven by
-// `api/src/search/enrich.ts` and never by the search path.
+// `api/src/features/enrich/engine.ts` and never by the search path.
 //
 // One availability id covers ALL FOUR CABINS of a (route, date, program), so a
 // single call expands up to four `finds` rows. That is the
@@ -1349,7 +1349,7 @@ export async function runSeatsAeroTrips(
 //
 // Which city pairs a program's award inventory is monitored on. Reference data,
 // not availability: it claims no coverage, writes no snapshot, and is not a
-// source under docs/SOURCES.md. It backs the Library's seats.aero pane
+// source under docs/SOURCES.md. It backs the Tools page's Data coverage tab
 // (docs/SEATS-AERO.md §12), one metered call per source, on a button press.
 //
 // Two answers come back looking alike, and telling them apart is the point:

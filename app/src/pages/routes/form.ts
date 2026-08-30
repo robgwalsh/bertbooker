@@ -103,7 +103,7 @@ export function formFromRoute(r: TrackedRoute): RouteForm {
 }
 
 /** A stored `alert_on` back into the form's list. Mirrors `parseAlertTypes` in
- *  api/src/alerts/select.ts — NULL and anything unrecognised mean the
+ *  api/src/features/alerts/select.ts — NULL and anything unrecognised mean the
  *  default set, never "nothing". */
 export function parseAlertOn(json: string | null): AlertType[] {
   if (!json) return ["new", "price_drop"];
@@ -125,7 +125,7 @@ export function parseAlertOn(json: string | null): AlertType[] {
  * EMPTY is the unset value and the only one: 0 and negatives collapse to `null`
  * here and are refused by the Worker, because a route that hides every find it
  * has looks exactly like a broken one. Mirrors `clampPointLimit` in
- * api/src/endpoints/trackedRoutes.ts — a divergence between the two reads as a
+ * api/src/features/trackedRoutes/endpoints.ts — a divergence between the two reads as a
  * filter silently hiding everything.
  */
 export function parsePointLimit(raw: string): number | null {

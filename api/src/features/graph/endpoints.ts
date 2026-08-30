@@ -42,8 +42,8 @@ import {
 } from "./pathSearch.js";
 
 /**
- * The Library's seats.aero pane: the route graph each program's award inventory
- * is monitored on (`docs/SEATS-AERO.md` §12).
+ * The Tools page's Data coverage tab (`/tools/coverage`): the route graph each
+ * program's award inventory is monitored on (`docs/SEATS-AERO.md` §12).
  *
  * ROUTE ORDER IS LOAD-BEARING within this file, the same way it is in
  * `airports.ts`: `/routes/geo` and `/routes/pair` are registered before the bare
@@ -57,7 +57,11 @@ import {
  *
  * Nothing here is gated on `isLocalRequest`. `/api/airports/geo` is, because the
  * Airports pane is dev-only; this pane ships, which is also why the map takes
- * its coordinates from the join below rather than calling that endpoint.
+ * its coordinates from the graph read's own join to `airports` rather than
+ * calling that endpoint.
+ *
+ * Every statement these handlers issue is `db/routeGraph.ts`, including the
+ * `routeFilter` builder the table and the map share.
  */
 export const seatsaeroRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
 

@@ -31,7 +31,7 @@ import { QuotaSplash } from "./QuotaSplash";
 
 /**
  * The front door. Wraps the whole app: nothing renders until the Worker has
- * agreed the shared password was given (`api/src/gate.ts`).
+ * agreed the shared password was given (`api/src/middleware/gate.ts`).
  *
  * It is a gate, not a decoration — the API refuses every `/api/*` call without a
  * valid session regardless of what the SPA draws. What this component buys is
@@ -49,7 +49,7 @@ import { QuotaSplash } from "./QuotaSplash";
  *   dead API.
  *
  * Nothing in this component ever holds the session. It is an HttpOnly cookie
- * (`api/src/gate.ts`); what `session` tracks here is only whether we
+ * (`api/src/middleware/gate.ts`); what `session` tracks here is only whether we
  * believe one exists, seeded from an expiry hint and corrected by the Worker.
  */
 export function PasswordGate({ children }: { children: ReactNode }) {
@@ -313,7 +313,7 @@ function SelfHostNote() {
  *
  * `SESSION_SECRET` fails closed rather than falling back to a password-derived
  * key on purpose: the fallback would be the very weakness that secret exists to
- * remove, and it would be invisible. See `api/src/gate.ts`.
+ * remove, and it would be invisible. See `api/src/middleware/gate.ts`.
  */
 function NotConfigured({ reason }: { reason?: "no_app_password" | "no_session_secret" }) {
   const name = reason === "no_session_secret" ? "SESSION_SECRET" : "APP_PASSWORD";

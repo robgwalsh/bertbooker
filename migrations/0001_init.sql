@@ -269,7 +269,7 @@ CREATE TABLE IF NOT EXISTS finds (
 -- overwritten. `finished_at` stays NULL while paused, so a run in progress never
 -- reads as complete.
 --
--- Pruned to 30 days by the cron tick — see api/src/alerts/sweep.ts.
+-- Pruned to 30 days by the cron tick — see api/src/features/alerts/outbox.ts.
 CREATE TABLE IF NOT EXISTS runs (
   id            TEXT PRIMARY KEY,     -- uuid minted by the caller
   trigger       TEXT NOT NULL,

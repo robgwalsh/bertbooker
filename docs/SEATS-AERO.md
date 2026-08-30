@@ -1,8 +1,8 @@
 # seats.aero
 
 The Partner API integration: `api/src/providers/seatsaero.ts` (pure
-wire handling plus the chunk loop), `api/src/endpoints/search.ts` (Search),
-`api/src/search/enrich.ts` (the itinerary behind a row), and the SPA controls
+wire handling plus the chunk loop), `api/src/features/search/endpoints.ts` (Search),
+`api/src/features/enrich/engine.ts` (the itinerary behind a row), and the SPA controls
 that drive both.
 
 ---
@@ -13,7 +13,7 @@ A Pro key buys **1000 calls per UTC day**, resetting at 00:00 UTC. Every respons
 carries the remaining count in `X-RateLimit-Remaining`. That number is a
 **display, not a guard**: nothing in the interactive search/enrich paths reads
 it to refuse a call — the one place that does read it before spending is
-`api/src/alerts/budget.ts`, and nowhere else (§9).
+`api/src/features/alerts/budget.ts`, and nowhere else (§9).
 
 ---
 
@@ -284,7 +284,7 @@ rather than asserting either state.
 
 ## 6. Get Trips, and enrichment
 
-`api/src/search/enrich.ts`. Two entry points: one find
+`api/src/features/enrich/engine.ts`. Two entry points: one find
 (`POST /api/finds/enrich`) and a whole route
 (`POST /api/tracked-routes/:id/enrich`, NDJSON, same stream contract as search).
 
@@ -443,7 +443,7 @@ asked for — that was, and remains, the whole of the argument for deleting the
 old budget guard.
 
 There is now exactly one reader that consults it *before* spending:
-`api/src/alerts/budget.ts`, the scheduled sweep. It spends with nobody
+`api/src/features/alerts/budget.ts`, the scheduled sweep. It spends with nobody
 watching, which is the case a budget was always for, and it is in its own file so
 that "who checks quota first" stays a one-file answer to `grep`. It extends the
 `undefined`-not-1000 reasoning above rather than contradicting it: on a day
@@ -516,11 +516,11 @@ file before committing it.
 |---|---|
 | `api/src/providers/seatsaero.ts` | everything above the Worker: pure `buildSearchUrl` / `normalizeSeatsAero` / `parseQuotaHeaders` / `parseSeatsAeroTrips`, plus `planSeatsAeroChunks` / `runSeatsAeroChunk` / `runSeatsAeroTrips` |
 | `api/src/domain/routing.ts` | a route as a set of pairs; round-trip spec; the call estimate |
-| `api/src/endpoints/search.ts` | the Search endpoint, the stream, resumption |
-| `api/src/search/enrich.ts` | Get Trips, the engine; `api/src/endpoints/enrich.ts` the two HTTP shapes |
+| `api/src/features/search/endpoints.ts` | the Search endpoint, the stream, resumption |
+| `api/src/features/enrich/engine.ts` | Get Trips, the engine; `api/src/features/enrich/endpoints.ts` the two HTTP shapes |
 | `api/src/db/runs.ts` | the run and quota writers — `recordQuota`, `finishRun`, `MAX_STORED_CHANGES` |
-| `api/src/search/run.ts` | the engine: `planSearchPass` / `openSearchRun` / `runSearchPass` |
-| `api/src/endpoints/quota.ts` | `GET /api/quota`, the chip's endpoint |
+| `api/src/features/search/run.ts` | the engine: `planSearchPass` / `openSearchRun` / `runSearchPass` |
+| `api/src/features/usage/quotaEndpoints.ts` | `GET /api/quota`, the chip's endpoint |
 | `app/src/api/search.ts`, `enrich.ts` | `searchRoute` / `enrichRoute` and the resume loop. The wire types they speak are `shared/src/wire/`, not copies |
 | `app/src/pages/routes/useRouteSearch.ts`, `useRouteEnrich.ts` | the two stream hooks, owned by the **page** so a search survives navigating away |
 
@@ -612,7 +612,7 @@ is interactive work, and it reports its own failure to whoever triggered it.
 
 ### The pane
 
-`/api/seatsaero/*` (`api/src/endpoints/seatsaeroRoutes.ts`). **Exactly one path
+`/api/seatsaero/*` (`api/src/features/graph/endpoints.ts`). **Exactly one path
 spends anything**: `POST /api/seatsaero/sources/:source/fetch`. It is in
 `METERED_PATTERNS` in `e2e/fixtures.ts`, so a UI test that reaches it fails
 loudly instead of quietly spending. Everything else is a D1 read — which is the
@@ -682,7 +682,7 @@ rather than calling `/api/airports/geo`, which would 404 in production.
 
 ### Reach, which is NOT coverage
 
-`assessGraphReach` (`api/src/domain/graphReach.ts`) asks whether the pairs a
+`assessGraphReach` (`api/src/features/graph/reach.ts`) asks whether the pairs a
 tracked route covers are in anybody's graph. **Do not call this coverage.**
 Coverage means *did WE look at (route, date, program)* — a fact about our own
 searching that licenses a prune. This is a fact about the SOURCE'S network, true
@@ -701,7 +701,7 @@ graph must never be evidence of absence.
 Read as a set of isolated edges, the graph says SFO→KTM is impossible. It is not:
 nine hubs join it, the best at a 7% detour. Every long-haul without a nonstop
 market — which is most of the interesting ones — read as a flat `gap` until
-`domain/graphPaths.ts` existed.
+`features/graph/paths.ts` existed.
 
 **A path is not an itinerary, and the pane owes the reader that sentence.** It is
 a claim about which markets seats.aero *monitors*, chained. The distinction is
@@ -798,7 +798,7 @@ ranges, about 6 of the 10 allowed pages. The headroom is real but not generous.
 
 Hubs are filled in automatically by `autoVia` when a route is saved and its pair
 reaches nothing directly, using the same `searchGraphPaths` this section
-describes — which moved to `api/src/search/graphPaths.ts` when it gained a third
+describes — which moved to `api/src/features/graph/pathSearch.ts` when it gained a third
 caller. `via` is ignored on a round trip, silently: four query groups and a
 pairing of pairings is a different feature, and a route flipped to round trip
 long after its hubs were filled must not become unsearchable.

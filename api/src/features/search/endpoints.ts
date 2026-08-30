@@ -8,7 +8,7 @@ import {
   runSearchPass,
   type PlanFailure,
   type SearchEvent,
-} from "../search/run.js";
+} from "./run.js";
 
 /**
  * Searching a tracked route, on the Worker, against seats.aero.
@@ -33,7 +33,7 @@ import {
  */
 export const search = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-export type { SearchEvent } from "../search/run.js";
+export type { SearchEvent } from "./run.js";
 
 /** The engine's refusal codes as HTTP. The engine returns a code rather than a
  *  status because its other caller — the cron sweep — has no response to put one

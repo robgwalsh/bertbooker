@@ -301,7 +301,7 @@ function reportSearch(name, wire, shape) {
  * The Worker's own limits, restated in the units this probe measures.
  *
  * A page is held in memory and a bounded slice of it is streamed to the tab
- * (`CAPTURE_BUDGET_BYTES` in api/src/search.ts). A variant that cannot
+ * (`CAPTURE_BUDGET_BYTES` in api/src/features/search/run.ts). A variant that cannot
  * fit a page inside the whole capture budget is not a variant we can ship with
  * the current streaming design, whatever its shape looks like.
  */

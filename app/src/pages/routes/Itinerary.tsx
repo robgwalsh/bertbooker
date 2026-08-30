@@ -49,7 +49,7 @@ const CARD_MAX_WIDTH = 500;
  * True when there is a second leg and it has no departure time — the exact shape
  * a search-embedded trip produces, since that payload carries the whole journey's
  * endpoints and nothing per leg. Mirrors the SQL predicate the bulk sweep uses in
- * `api/src/enrich.ts`; keep the two in step. A nonstop is fully timed by
+ * `api/src/features/enrich/engine.ts`; keep the two in step. A nonstop is fully timed by
  * definition and is never "timeless".
  */
 function lacksLegTimes(f: Find): boolean {

@@ -40,21 +40,28 @@ import { settings } from "./features/alerts/settingsEndpoints.js";
 // may not call one that judges the CLIENT. Carriers do the latter and refuse
 // datacenter IPs outright — United answers Akamai 428 and Delta 444 to raw HTTP
 // even from a residential connection, and Delta denies a real browser session
-// replayed verbatim on top of that. Scraping them is over regardless; see
+// replayed verbatim on top of that. Scraping them is over regardless of where
+// the request comes from; see docs/SEATS-AERO.md §9.
 //
-// It reaches exactly TWO hosts, and the split is the rule rather than an
+// It reaches exactly THREE hosts, and the split is the rule rather than an
 // exception list:
 //
-//   INBOUND DATA — seats.aero's Partner API (`search/run.ts`): a keyed, metered
-//     vendor API that authenticates the key rather than the client.
-//   OUTBOUND NOTIFICATION — Resend (`alerts/email.ts`): not a data source at all, but a
-//     delivery channel, on exactly the same keyed-vendor footing.
+//   INBOUND DATA — seats.aero's Partner API (`features/search/run.ts`): a keyed,
+//     metered vendor API that authenticates the key rather than the client.
+//   OUTBOUND NOTIFICATION — Resend (`features/alerts/email.ts`): not a data
+//     source at all, but a delivery channel, on exactly the same keyed-vendor
+//     footing.
+//   OBSERVABILITY ABOUT OURSELVES — Cloudflare's GraphQL Analytics API
+//     (`providers/cloudflareAnalytics.ts`), asked what our own D1 queries have
+//     cost today. Neither a data source nor a delivery channel; its token is
+//     scoped `Account Analytics: Read` and unset costs only two chips. The
+//     reasoning is in wrangler.toml beside the binding, and it is NOT a
+//     precedent for a fourth.
 //
-//
-// Something DOES run on a schedule: the alerts cron (`alerts/sweep.ts`, and the
-// `scheduled` handler on the default export below) re-searches routes marked
-// for alerts. `alerts/budget.ts` reads the quota before spending, scoped to
-// that one caller — see docs/ALERTS.md §1 and §7.
+// Something DOES run on a schedule: the alerts cron (`features/alerts/tick.ts`,
+// and the `scheduled` handler on the default export below) re-searches routes
+// marked for alerts. `features/alerts/budget.ts` reads the quota before
+// spending, scoped to that one caller — see docs/ALERTS.md §1 and §7.
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -134,10 +141,10 @@ app.route("/", reference);
 // coordinates the trip list's route maps draw from.
 app.route("/", airports);
 
-// The seats.aero route graph behind the Library's seats.aero pane: which pairs
-// each program is monitored on. Owns `/api/seatsaero/*`, which collides with
-// nothing, so this position is for reading order only — it sits beside
-// `airports` because both are reference data the Library browses.
+// The seats.aero route graph behind the Tools page's Data coverage tab: which
+// pairs each program is monitored on. Owns `/api/seatsaero/*`, which collides
+// with nothing, so this position is for reading order only — it sits beside
+// `airports` because both are catalogues of somebody else's network.
 app.route("/", seatsaeroRoutes);
 
 // The Routes page's payload — monitors joined to their current finds. The only
@@ -153,7 +160,7 @@ app.route("/", trackedRoutes);
 app.route("/", settings);
 
 /*
- * `POST /api/tracked-routes/:id/search` lives in `endpoints/search.ts`.
+ * `POST /api/tracked-routes/:id/search` lives in `features/search/endpoints.ts`.
  *
  * A Worker cannot read a carrier's own site: United returns Akamai 428 and
  * Delta 444 even from a residential IP.

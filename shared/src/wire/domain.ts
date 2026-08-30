@@ -65,7 +65,7 @@ export interface ChangeSummary {
    *  Note what these are NOT for: alert FILTERING does not read them. That
    *  question — "would this route's own pane show this find?" — is answered by
    *  intersecting with the finds query, so the route's cabin/currency/nonstop
-   *  rules keep exactly one implementation. See `api/src/alerts/select.ts`. */
+   *  rules keep exactly one implementation. See `api/src/features/alerts/select.ts`. */
   origin?: string;
   destination?: string;
   /** Absent for "gone" (there is no current result). */
@@ -81,14 +81,14 @@ export interface ChangeSummary {
  *
  * Structurally `ChangeType` — the thing `diffAvailability` classifies — under
  * the name the wire and the SPA use for it. Note that the *display order* is NOT
- * here: `ALL_ALERT_TYPES` in `api/src/alerts/select.ts` and the SPA's
+ * here: `ALL_ALERT_TYPES` in `api/src/features/alerts/select.ts` and the SPA's
  * `ALERT_TYPES` list the same four members in different orders, and the SPA's
  * order is what the route form's checkboxes render in. Unifying the arrays would
  * silently reorder that form, so only the type is shared.
  */
 export type AlertType = ChangeType;
 
-// ---- Run and task status (api/src/ingest/types.ts re-exports these) ----
+// ---- Run and task status (api/src/domain/tasks.ts re-exports these) ----
 
 /** How a single unit of gathering work ended.
  *
@@ -99,7 +99,7 @@ export type AlertType = ChangeType;
  *
  *  `COVERAGE_CLAIMING_STATUSES` — the invariant that keeps that list to exactly
  *  {ok, empty} — is a runtime value and stays on the Worker's side, in
- *  `api/src/ingest/types.ts`. */
+ *  `api/src/domain/tasks.ts`. */
 export type SourceTaskStatus =
   /** Looked, found something. */
   | "ok"

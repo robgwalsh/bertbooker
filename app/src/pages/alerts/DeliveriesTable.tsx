@@ -36,7 +36,7 @@ export function DeliveriesTable({ deliveries }: { deliveries: AlertDelivery[] })
           </TableHead>
           <TableBody>
             {deliveries.map((d) => (
-              <TableRow key={d.id}>
+              <TableRow key={`${d.sweep_id}-${d.to_email}`}>
                 <TableCell>{sinceLabel(d.created_at)}</TableCell>
                 <TableCell>{d.to_email}</TableCell>
                 <TableCell>{d.subject}</TableCell>

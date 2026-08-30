@@ -1,14 +1,11 @@
-import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Box, Button, CircularProgress, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import AltRouteRoundedIcon from "@mui/icons-material/AltRouteRounded";
 import FlightRoundedIcon from "@mui/icons-material/FlightRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
-import ShowChartRoundedIcon from "@mui/icons-material/ShowChartRounded";
 import { api, type Find, type Segment } from "../../api";
 import { PRIMARY_METERED_SOURCE } from "../../lib/quota";
 import { AirlineLogo } from "../../components/brand";
-import { PriceHistoryDialog } from "./PriceHistoryDialog";
 import { bookingTarget } from "../../lib/booking";
 import { flightAwareUrl, flightLabel, parseSegments } from "../../lib/flights";
 import {
@@ -96,7 +93,7 @@ function EnrichControl({ f, labelled }: { f: Find; labelled?: boolean }) {
         program: f.program,
       }),
     onSuccess: () => {
-      // The finds table reads through `findsCte`, as `/api/routes` does, so
+      // The finds table reads through `findsFrom`, as `/api/routes` does, so
       // both keys have to move — and the quota, since a call was spent.
       void qc.invalidateQueries({ queryKey: ["routes"] });
       void qc.invalidateQueries({ queryKey: ["finds"] });
@@ -215,29 +212,6 @@ function EnrichControl({ f, labelled }: { f: Find; labelled?: boolean }) {
 
 /**
  * What this slot has cost over time.
- *
- * Beside `EnrichControl` and `BookLink` rather than in a column, for the same
- * reason they are: it acts on the itinerary, not on the row. Unlike its
- * neighbour it spends nothing — `price_history` is ours — so there is no cost
- * in the tooltip and no confirmation before the click.
- *
- * The dialog is MOUNTED only once opened. A wide route holds a thousand finds,
- * and a dialog per row would be a thousand idle queries.
- */
-function HistoryControl({ f }: { f: Find }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <Tooltip title="What this has cost over time">
-        <IconButton size="small" onClick={() => setOpen(true)} aria-label="Price history">
-          <ShowChartRoundedIcon fontSize="small" sx={{ opacity: 0.55 }} />
-        </IconButton>
-      </Tooltip>
-      {open && <PriceHistoryDialog find={f} open onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
 /** Out to the airline's own award page when a source handed us one, else a
  *  Google Flights search for the route and date. */
 function BookLink({ f }: { f: Find }) {
@@ -381,7 +355,6 @@ function SummaryStub({ f }: { f: Find }) {
         </Typography>
         <Stack direction="row" spacing={0} sx={{ ml: "auto", alignItems: "center" }}>
           <EnrichControl f={f} labelled />
-          <HistoryControl f={f} />
           <BookLink f={f} />
         </Stack>
       </Stack>
@@ -547,8 +520,7 @@ export function ItineraryCard({ f }: { f: Find }) {
           )}
           <Stack direction="row" spacing={0} sx={{ alignItems: "center" }}>
             <EnrichControl f={f} />
-            <HistoryControl f={f} />
-            <BookLink f={f} />
+              <BookLink f={f} />
           </Stack>
         </Stack>
       </Stack>

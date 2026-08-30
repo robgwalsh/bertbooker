@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { FilteredRoute, FindsScope, ScopedRoute } from "./finds.js";
-import { BEST_MILES_EVER, FIND_COLUMNS, findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
+import { FIND_COLUMNS, findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
 import type { MatchableRoute } from "../../../shared/src/match/routeMatch.js";
 import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 
@@ -32,7 +32,7 @@ import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 
 /** Only the columns the scope constrains. Every one is NOT NULL in 0001, which
  *  is the property `pushFilters` relies on to match the matcher's reading. */
-const DDL = `CREATE TABLE availability_snapshots (
+const DDL = `CREATE TABLE finds (
   origin              TEXT NOT NULL,
   destination         TEXT NOT NULL,
   flight_date         TEXT NOT NULL,
@@ -88,7 +88,7 @@ function admitted(scope: FindsScope, rows: Row[]): Row[] {
   try {
     db.exec(DDL);
     const insert = db.prepare(
-      `INSERT INTO availability_snapshots
+      `INSERT INTO finds
          (origin, destination, flight_date, cabin, seats_available, miles_cost,
           is_direct, transfer_currencies)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -129,7 +129,7 @@ describe("routeFindsScope — the superset property, one witness per branch", ()
   });
 
   it("admits every pair of a multi-airport route", () => {
-    // MEMBERSHIP, not equality — the same rule ROUTE_FINDS_MATCH's json_each
+    // MEMBERSHIP, not equality — the same rule the SQL predicate's json_each
     // clauses enforce. A SEA/PDX -> NRT/HND route has four real pairs.
     const scope = routeFindsScope([
       route({ origins: '["SEA","PDX"]', destinations: '["NRT","HND"]' }),
@@ -172,7 +172,7 @@ describe("routeFindsScope — the superset property, one witness per branch", ()
 
   it("admits a second hub leg departing the day AFTER the window closes", () => {
     // An overnight in the hub on the last gathered date is a real journey, and
-    // ROUTE_FINDS_MATCH widens exactly this branch by a day. The scope widens
+    // `routeMatcher` widens exactly this branch by a day. The scope widens
     // unconditionally, which is why this passes for a route with no hubs too.
     const scope = routeFindsScope([
       route({ destination: "HND", via: '["DTW"]', date_end: "2026-10-20" }),
@@ -552,18 +552,12 @@ describe("findsFrom — the best-ever seek", () => {
     expect(findsFrom(scope).binds).toEqual(scope.binds);
   });
 
-  it("correlates best_miles_ever on the whole slot key", () => {
-    // It is computed rather than stored, so it is not in FIND_COLUMNS — a caller
-    // that wants it appends this expression.
-    expect(FIND_COLUMNS).not.toContain("best_miles_ever");
-    expect(BEST_MILES_EVER).toContain("MIN(ph.miles_cost)");
-    // All three ARE the slot key, and the table holds one row per slot, so the
-    // seek returns exactly one row per find.
-    for (const col of ["ph.route_key = f.route_key", "ph.program = f.program", "ph.cabin = f.cabin"])
-      expect(BEST_MILES_EVER).toContain(col);
-    // Load-bearing: idx_ph_best is PARTIAL, and SQLite only uses a partial index
-    // when the query WHERE implies the index WHERE. Without this the seek falls
-    // to idx_ph_slot and costs a row fetch each.
-    expect(BEST_MILES_EVER).toContain("ph.miles_cost IS NOT NULL");
+  it("reads one bare table, with no join and no subquery", () => {
+    // There is one row per slot, so a find IS a row. Every join and correlated
+    // subquery this used to carry existed to collapse history that no longer
+    // exists, and each was measured in tens of thousands of rows read.
+    const { sql } = findsFrom(scope);
+    expect(sql).toContain("FROM finds f");
+    for (const forbidden of ["JOIN", "SELECT", "GROUP BY"]) expect(sql).not.toContain(forbidden);
   });
 });

@@ -6,7 +6,7 @@ import type { SeatsAeroGraphRoute } from "../providers/seatsaero.js";
 
 /**
  * Reads and writes for `seatsaero_routes` / `seatsaero_route_fetches`
- * (migrations/0003). SQL more than one surface shares, which is what `db/` is
+ * SQL more than one surface shares, which is what `db/` is
  * for: the fetch endpoint writes it, the table, map, pair lookup and reach check
  * all read it.
  *

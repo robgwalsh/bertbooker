@@ -97,7 +97,7 @@ function MeterTooltip({
  * scroll to is a number you check after the fact.
  *
  * **The seats.aero meter is the one this app spends on purpose. The D1 meters
- * are the ones that have actually bitten**: `migrations/0005_read_indexes.sql`
+ * are the ones that have actually bitten**: the read-index work
  * records 18,357,629 rows read in 24h against a free-plan ceiling of 5,000,000,
  * found by hand with `wrangler d1 insights` long after the fact. A query
  * rewrite that triples rows read is otherwise invisible until D1 starts

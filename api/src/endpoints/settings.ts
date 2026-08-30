@@ -7,13 +7,12 @@ import type { AlertRecipient, AlertRecipients } from "../../../shared/src/wire/i
  * The deployment's own settings, as opposed to a route's.
  *
  * One subject today: `alert_recipients`, the addresses this Worker may email an
- * alert digest to (migration 0008, `docs/ALERTS.md` §9). It was
+ * alert digest to (`docs/ALERTS.md` §9). It was
  * `ALERT_ALLOWED_RECIPIENTS`, a CSV env binding, which meant a deploy per edit.
  *
- * The table is NOT scoped by `user_email`, so neither is anything here. What it
- * bounds is the Worker's outbound sending on a verified domain — a property of
- * the deployment, not of an account, and there is one identity behind the
- * password anyway.
+ * Nothing here is scoped to an owner, because nothing in this database is. What
+ * the list bounds is the Worker's outbound sending on a verified domain — a
+ * property of the deployment rather than of an account.
  */
 export const settings = new Hono<{ Bindings: Env; Variables: Vars }>();
 

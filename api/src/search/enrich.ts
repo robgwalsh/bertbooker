@@ -1,7 +1,6 @@
-import { routeKey, type Cabin } from "../domain/types.js";
+import type { Cabin } from "../domain/types.js";
 import {
   runSeatsAeroTrips,
-  SEATSAERO_SOURCE_ID,
   type SeatsAeroTripDetail,
 } from "../providers/seatsaero.js";
 import { classifyError, type FetchLike, makeTransport } from "../providers/transport.js";
@@ -29,7 +28,7 @@ import { recordQuota } from "../db/runs.js";
  *    enrichment looks at ONE row that was already looked at. Claiming here
  *    would license deleting every other row in that slice on the strength of a
  *    detail fetch that never asked about them.
- *  - **It writes no `search_runs` / `search_tasks` row.** The observable-task
+ *  - **It writes no `runs` row.** The observable-task
  *    invariant is about unattended gathering, where a failure is otherwise
  *    indistinguishable from "there is no award space". A failure here goes
  *    straight back to the person who clicked, as a status code. What stays
@@ -43,9 +42,8 @@ import { recordQuota } from "../db/runs.js";
  *  copy of the number. */
 export { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";
 
-/** One `availability_snapshots` row that could be enriched. */
+/** One `finds` row that could be enriched. */
 export interface EnrichableRow {
-  id: number;
   origin: string;
   destination: string;
   flight_date: string;
@@ -62,11 +60,8 @@ export interface EnrichableRow {
 /**
  * The seats.aero snapshot per cabin for one (route, date, program).
  *
- * A two-column prefix of `idx_snap_slot` (0014), which is UNIQUE — so this is at
- * most one row per cabin by construction. It used to be a MAX(captured_at)
- * self-join, the third hand-rolled copy of that collapse, because the table was
- * append-on-change history and enriching a superseded row would have decorated
- * something no read path would ever return. There is no superseded row now.
+ * A four-column prefix of the primary key, which leaves only `cabin` free — so
+ * this is at most one row per cabin by construction rather than by a filter.
  *
  * `raw_hash` rides along for the guard on the UPDATEs below.
  */
@@ -79,12 +74,12 @@ export async function currentRows(
 ): Promise<EnrichableRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT s.id, s.origin, s.destination, s.flight_date, s.program, s.cabin,
+      `SELECT s.origin, s.destination, s.flight_date, s.program, s.cabin,
               s.miles_cost, s.source_record_id, s.detail_level, s.raw_hash
-         FROM availability_snapshots s
-        WHERE s.route_key = ? AND s.program = ? AND s.source = ?`,
+         FROM finds s
+        WHERE s.origin = ? AND s.destination = ? AND s.flight_date = ? AND s.program = ?`,
     )
-    .bind(routeKey(origin, destination, flightDate), program, SEATSAERO_SOURCE_ID)
+    .bind(origin, destination, flightDate, program)
     .all<EnrichableRow>();
   return results;
 }
@@ -146,9 +141,19 @@ export async function enrichAvailability(
       writes.push(
         db
           .prepare(
-            "UPDATE availability_snapshots SET enriched_at = ? WHERE id = ? AND raw_hash = ?",
+            `UPDATE finds SET enriched_at = ?
+              WHERE origin = ? AND destination = ? AND flight_date = ?
+                AND program = ? AND cabin = ? AND raw_hash = ?`,
           )
-          .bind(now, row.id, row.raw_hash),
+          .bind(
+            now,
+            row.origin,
+            row.destination,
+            row.flight_date,
+            row.program,
+            row.cabin,
+            row.raw_hash,
+          ),
       );
       writeCabin.push(null);
       skipped.push({ cabin: row.cabin, reason: "no trip at the stored price" });
@@ -158,11 +163,12 @@ export async function enrichAvailability(
     writes.push(
       db
         .prepare(
-          `UPDATE availability_snapshots SET
+          `UPDATE finds SET
              segments_json = ?, stop_count = ?, duration_minutes = ?,
              booking_url = COALESCE(?, booking_url), is_direct = ?,
              detail_level = 'itinerary', enriched_at = ?
-           WHERE id = ? AND raw_hash = ?`,
+           WHERE origin = ? AND destination = ? AND flight_date = ?
+             AND program = ? AND cabin = ? AND raw_hash = ?`,
         )
         .bind(
           JSON.stringify(detail.segments),
@@ -174,7 +180,11 @@ export async function enrichAvailability(
           detail.bookingUrl ?? null,
           detail.stops === 0 ? 1 : 0,
           now,
-          row.id,
+          row.origin,
+          row.destination,
+          row.flight_date,
+          row.program,
+          row.cabin,
           row.raw_hash,
         ),
     );

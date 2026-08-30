@@ -22,7 +22,7 @@ export class SourceRegistrationError extends Error {}
  * Validates the two things that fail LATE and badly if wrong:
  *
  *  - a duplicate id, which would silently shadow one source with another and
- *    mix two services' rows under one `availability_snapshots.source`;
+ *    mix two services' rows under one `finds.source`;
  *  - a program not in `PROGRAM_SEEDS`, which is a foreign key on the snapshot
  *    row — so the mistake would surface as a write failing mid-run rather than
  *    as a bad registration.
@@ -38,7 +38,7 @@ export function registerSource<T extends SourceDescriptor>(source: T): T {
   if (unknown.length) {
     throw new SourceRegistrationError(
       `source "${source.id}" declares unseeded programs: ${unknown.join(", ")} ` +
-        `— availability_snapshots.program is a foreign key, so these would fail on write`,
+        `— finds.program is a foreign key, so these would fail on write`,
     );
   }
   REGISTRY.set(source.id, source);

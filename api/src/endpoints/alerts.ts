@@ -6,7 +6,7 @@ import type { Env, Vars } from "../bindings.js";
 import type {
   AlertDelivery,
   AlertSchedule,
-  SearchRun,
+  Run,
 } from "../../../shared/src/wire/index.js";
 import { allowedRecipients } from "../alerts/email.js";
 import { isLocalRequest } from "../middleware/security.js";
@@ -34,9 +34,11 @@ import { decideSweep, readBudgetState } from "../alerts/budget.js";
 export const alerts = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 alerts.get("/api/alerts/schedule", async (c) => {
+  // The account address, and here only as the fallback RECIPIENT a route with
+  // no `alert_email` of its own would be mailed at. Nothing is scoped by it.
   const email = c.get("userEmail");
   const now = Date.now();
-  const rows = await alertRouteRows(c.env, email);
+  const rows = await alertRouteRows(c.env);
   const cfg = ALERT_DEFAULTS(c.env);
 
   const today = todayISO();
@@ -159,19 +161,18 @@ function pageLimit(raw: string | undefined): number {
   return Number.isFinite(n) ? Math.min(Math.max(n, 1), 100) : 25;
 }
 
-/** Recent sweeps. `search_runs` already answers this; the filter is the only
- *  new part: a sweep is a `search_runs` row like any other, told apart only
+/** Recent sweeps. `runs` already answers this; the filter is the only
+ *  new part: a sweep is a `runs` row like any other, told apart only
  *  by its trigger. */
 alerts.get("/api/alerts/runs", async (c) => {
-  const email = c.get("userEmail");
   const limit = pageLimit(c.req.query("limit"));
   const { results } = await c.env.DB.prepare(
-    `SELECT * FROM search_runs
-      WHERE user_email = ? AND trigger = 'alert'
+    `SELECT * FROM runs
+      WHERE trigger = 'alert'
       ORDER BY started_at DESC LIMIT ?`,
   )
-    .bind(email, limit)
-    .all<SearchRun>();
+    .bind(limit)
+    .all<Run>();
   return c.json(results ?? []);
 });
 

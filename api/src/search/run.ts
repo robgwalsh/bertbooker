@@ -2,7 +2,7 @@ import type { ChangeSummary } from "../domain/diff.js";
 import { planRoute, type RouteLegGroup, type RoutePair } from "../domain/routing.js";
 import { applyTask } from "../ingest/apply.js";
 import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../ingest/types.js";
-import { callMetadata, datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk, seatsAeroTaskKey } from "../providers/seatsaero.js";
+import { datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk } from "../providers/seatsaero.js";
 import {
   classifyError,
   clientMessage,
@@ -10,9 +10,9 @@ import {
   makeTransport,
 } from "../providers/transport.js";
 import { todayISO } from "../providers/window.js";
-import { finishRun, recordQuota, recordTask, type SearchTotals } from "../db/runs.js";
+import { finishRun, recordQuota, type SearchTotals } from "../db/runs.js";
 
-/** Declared in `../db/runs.ts`, beside the `search_runs` writer that consumes
+/** Declared in `../db/runs.ts`, beside the `runs` writer that consumes
  *  them, and re-exported here so this module reads as the search API it is. */
 export { MAX_STORED_CHANGES } from "../db/runs.js";
 export type { SearchTotals } from "../db/runs.js";
@@ -46,14 +46,14 @@ export type { SearchTotals } from "../db/runs.js";
  * would read as "no award space".
  *
  *   1. `planSearchPass` — every refusal, as a typed code. Reads only.
- *   2. `openSearchRun`  — the first WRITE: mint or resume the `search_runs` row.
+ *   2. `openSearchRun`  — the first WRITE: mint or resume the `runs` row.
  *   3. `runSearchPass`  — the loop that spends calls.
  *
  * The scheduler needs them separate for a second reason: it must know what a
  * sweep will cost (`plan.chunks.length`) *before* deciding whether the day's
- * allowance can afford it, and it must not leave a `search_runs` row behind for
- * a sweep the budget refused. `search_runs.status` has a CHECK constraint with
- * no `'skipped'` in it, and `search_tasks.run_id` is a foreign key — so the
+ * allowance can afford it, and it must not leave a `runs` row behind for
+ * a sweep the budget refused. `runs.status` has a CHECK constraint with
+ * no `'skipped'` in it — so the
  * ordering is forced anyway.
  */
 
@@ -163,7 +163,7 @@ export interface SearchPassResult {
   total: number;
   totals: SearchTotals;
   /** What changed, for the caller that cares. `endpoints/search.ts` ignores these (they
-   *  are persisted to `search_runs.changes_json` either way); the alert sweep
+   *  are persisted to `runs.changes_json` either way); the alert sweep
    *  is the reason they are returned rather than only stored. */
   changes: ChangeSummary[];
   status: "ok" | "partial" | "failed" | "aborted" | "running";
@@ -221,9 +221,9 @@ export async function planSearchPass(
     .prepare(
       `SELECT id, origin, destination, origins, destinations, date_start, date_end,
               round_trip, via
-         FROM tracked_routes WHERE id = ? AND user_email = ?`,
+         FROM tracked_routes WHERE id = ?`,
     )
-    .bind(opts.routeId, opts.email)
+    .bind(opts.routeId)
     .first<TrackedRouteRow>();
   if (!route) return { ok: false, failure: { code: "not_found" } };
 
@@ -299,13 +299,12 @@ export async function planSearchPass(
  * Mint the run row, or pick up the one a paused pass left behind.
  *
  * The first write, and deliberately separate from planning: a budget-refused
- * sweep must leave no trace, and `search_runs.status`'s CHECK constraint has no
+ * sweep must leave no trace, and `runs.status`'s CHECK constraint has no
  * `'skipped'` to record one with.
  *
- * Resuming REUSES the run row, because `search_tasks.run_id` is a foreign key to
- * it and `(run_id, source, task_key)` is UNIQUE — which is what makes
- * re-applying a resumed task an update rather than a duplicate. A second run
- * row would split one search's tasks across two ids and defeat that.
+ * Resuming REUSES the run row, because its counters are where a resumed pass
+ * finds its place in the plan: `tasks_ok + tasks_failed` is the index to start
+ * from. A second run row would restart the search from zero.
  */
 export async function openSearchRun(
   db: D1Database,
@@ -316,45 +315,38 @@ export async function openSearchRun(
 
   if (opts.resumeRunId) {
     const existing = await db
-      .prepare("SELECT id FROM search_runs WHERE id = ? AND user_email = ? AND trigger = ?")
-      .bind(opts.resumeRunId, plan.email, opts.trigger)
+      .prepare("SELECT id FROM runs WHERE id = ? AND trigger = ?")
+      .bind(opts.resumeRunId, opts.trigger)
       .first<{ id: string }>();
     if (!existing) return { ok: false, failure: { code: "run_not_found" } };
     return { ok: true, runId: existing.id, startedAt };
   }
 
   const runId = crypto.randomUUID();
-  // A run row is not bookkeeping: `search_tasks.run_id` is a foreign key to it,
-  // so no task can be recorded without one. `trigger` deliberately has
-  // no CHECK constraint, which is how 'search' joined 'cli'/'ui' for free — and
-  // now 'alert' joins the same way.
+  // `trigger` deliberately has no CHECK constraint, which is how 'alert' joined
+  // 'search' for free.
   //
   // `origin`/`destination` are NOT NULL scalars here and stay the route's
   // primary airports. The full pair list lives on each task's report, never in
   // a comma-joined column — see `SourceTaskReport.routes`.
   await db
     .prepare(
-      `INSERT INTO search_runs
-         (id, user_email, trigger, origin, destination, date_start, date_end,
-          programs_json, sources_json, status, started_at, tasks_planned, host,
-          runner_version, route_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'running', ?, ?, NULL, NULL, ?)`,
+      `INSERT INTO runs
+         (id, trigger, route_id, origin, destination, status, started_at,
+          tasks_planned)
+       VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`,
     )
     .bind(
       runId,
-      plan.email,
       opts.trigger,
+      // The route this run is OF. `origin`/`destination` below are only its
+      // primary airports, so two routes sharing a pair are otherwise
+      // indistinguishable.
+      opts.routeId ?? plan.route.id,
       plan.route.origin,
       plan.route.destination,
-      plan.route.date_start,
-      plan.route.date_end,
-      JSON.stringify([SEATSAERO_SOURCE_ID]),
       startedAt,
       plan.tasks.length,
-      // The route this run is OF. `origin`/`destination` above are only its
-      // primary airports, so two routes sharing a pair are otherwise
-      // indistinguishable — see migrations/0008_run_route.sql.
-      opts.routeId ?? plan.route.id,
     )
     .run();
 
@@ -458,14 +450,12 @@ export async function runSearchPass(
       let report: SourceTaskReport;
       let calls = 0;
       let note: string | undefined;
-      // Metadata for every attempt, successful or not, so `capture_json` records
-      // what was tried even when the chunk threw.
-      const attempted: SeatsAeroCall[] = [];
 
       // Streams each call the moment it lands, so a slow page shows as
-      // in-flight rather than as nothing happening.
+      // in-flight rather than as nothing happening. This is the ONLY place a
+      // call is recorded: it is session state, streamed to whoever is watching,
+      // and nothing durable holds it.
       const onCall = async (call: SeatsAeroCall) => {
-        attempted.push(call);
         await emit({ type: "call", chunkIndex: i, ...call });
       };
 
@@ -484,15 +474,9 @@ export async function runSearchPass(
         note = out.notes.find((n) => n.includes("coverage narrowed"));
         report = {
           source: SEATSAERO_SOURCE_ID,
-          // The ROLE is passed now, and has to be: two groups of one chunk can
-          // share airport lists (a route whose only hub is also its only extra
-          // destination), and `search_tasks` is UNIQUE on
-          // (run_id, source, task_key) — the second `recordTask` would overwrite
-          // the first rather than record itself.
-          taskKey: seatsAeroTaskKey(origins, destinations, chunk, role),
-          // Real airports, never the joined list: these two land in
-          // `search_tasks` as NOT NULL scalars. The pairs the call actually
-          // covered — which is what coverage is claimed for — go in `routes`.
+          // Real airports, never the joined list: `runs` stores these as NOT
+          // NULL scalars. The pairs the call actually covered — which is what
+          // coverage is claimed for — go in `routes`.
           origin: origins[0]!,
           destination: destinations[0]!,
           routes: groupPairs,
@@ -505,10 +489,6 @@ export async function runSearchPass(
           finishedAt: Date.now(),
           coveredDates: out.coveredDates,
           offers: out.offers,
-          finalUrl: out.finalUrl,
-          httpStatus: out.httpStatus,
-          // Bodies are session-only; `capture_json` keeps the durable half.
-          capture: out.calls.map(callMetadata),
         };
         if (out.quota) {
           await recordQuota(db, [out.quota]);
@@ -527,7 +507,6 @@ export async function runSearchPass(
         if (status === "timeout" && opts.signal?.aborted) aborted = true;
         report = {
           source: SEATSAERO_SOURCE_ID,
-          taskKey: seatsAeroTaskKey(origins, destinations, chunk, role),
           origin: origins[0]!,
           destination: destinations[0]!,
           // Carried on the failure path too, and it costs nothing: `status`
@@ -542,14 +521,10 @@ export async function runSearchPass(
           error: message,
           // No offers and — critically — no coverage claim.
           offers: [],
-          // `onCall` recorded the refusal before the throw, so a blocked chunk
-          // still says what it tried and what came back.
-          capture: attempted.map(callMetadata),
         };
       }
 
-      await recordTask(db, runId, report);
-      const applied = await applyTask(db, runId, report);
+      const applied = await applyTask(db, report);
 
       totals.calls += calls;
       if (report.status === "ok" || report.status === "empty") totals.ok += 1;
@@ -651,9 +626,9 @@ export async function runSearchPass(
     const message = err instanceof Error ? err.message : String(err);
     await db
       .prepare(
-        "UPDATE search_runs SET status = 'failed', finished_at = ?, duration_ms = ? - started_at, error = ? WHERE id = ?",
+        "UPDATE runs SET status = 'failed', finished_at = ?, error = ? WHERE id = ?",
       )
-      .bind(Date.now(), Date.now(), message, runId)
+      .bind(Date.now(), message, runId)
       .run()
       .catch(() => {});
     await emit({ type: "error", message: clientMessage(err) }).catch(() => {});

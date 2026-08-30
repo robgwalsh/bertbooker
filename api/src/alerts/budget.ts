@@ -53,7 +53,7 @@ export type SweepDecision =
  *     the one day it mattered.
  *
  * So it **self-accounts** from our own records: whatever the last known limit
- * was, minus what today's runs already report spending (`search_runs.calls`,
+ * was, minus what today's runs already report spending (`runs.calls`,
  * added for this). That is an honest number derived from facts we hold, and the
  * first real `X-RateLimit-Remaining` of the day corrects it — which is why the
  * sweep also re-checks mid-flight rather than trusting this once.
@@ -61,7 +61,7 @@ export type SweepDecision =
 export function decideSweep(args: {
   /** Today's observation, if one exists for the CURRENT UTC day. */
   observation?: QuotaObservation;
-  /** Sum of `search_runs.calls` for runs started today (UTC). */
+  /** Sum of `runs.calls` for runs started today (UTC). */
   selfSpentToday: number;
   estimatedCost: number;
   reserve: number;
@@ -119,7 +119,7 @@ export async function readBudgetState(
       )
       .bind(SEATSAERO_SOURCE_ID, day),
     db
-      .prepare("SELECT COALESCE(SUM(calls), 0) AS spent FROM search_runs WHERE started_at >= ?")
+      .prepare("SELECT COALESCE(SUM(calls), 0) AS spent FROM runs WHERE started_at >= ?")
       .bind(utcDayStart(now)),
   ]);
 

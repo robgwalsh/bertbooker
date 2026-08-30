@@ -202,7 +202,7 @@ describe("stitchJourneys — the route's other filters", () => {
   });
 
   it("drops a leg over the route's point limit", () => {
-    // Borrowed legs never went through ROUTE_FINDS_MATCH under THIS route, so
+    // Borrowed legs never went through `routeMatcher` under THIS route, so
     // the ceiling has to be re-applied here or a capped route is shown a
     // journey built out of an award it would never display on its own.
     const r = route({ point_limit: 60_000 });

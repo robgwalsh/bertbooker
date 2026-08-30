@@ -18,7 +18,7 @@ const SEA_NRT = { origins: ["SEA"], destinations: ["NRT"] };
 describe("normalizeAirports", () => {
   it("uppercases, trims, dedupes and SORTS", () => {
     // Sorting is not cosmetic. `seatsAeroTaskKey` is built from these lists and
-    // `search_tasks` is unique on (run_id, source, task_key), so an unstable
+    // A resumed pass indexes into the plan by count, so an unstable
     // order would give the same work two different keys.
     expect(normalizeAirports([" pdx", "SEA", "sea", "PDX "])).toEqual(["PDX", "SEA"]);
   });

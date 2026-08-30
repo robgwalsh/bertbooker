@@ -141,7 +141,7 @@ function airportFilter(
   // Three of those disjuncts had a LEADING wildcard, which no index can serve,
   // and one unindexable disjunct inside an OR forces the whole chain to a table
   // scan: 72,865 rows read to return 8, on every settled keystroke. See
-  // migration 0006.
+  // the FTS index.
   //
   // fts5 keeps the semantics that mattered. Within a token the match is across
   // every indexed column — which is what the OR spelled out by hand — and

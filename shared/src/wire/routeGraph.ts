@@ -17,7 +17,7 @@
  */
 export type RouteFetchStatus = "ok" | "empty" | "failed";
 
-/** migrations/0003_seatsaero_routes.sql — seatsaero_route_fetches, one row per
+/** A row of `seatsaero_route_fetches` — one per
  *  source we have asked. Asserted about by `readFetchRecords` in
  *  `api/src/db/routeGraph.ts`. */
 export interface RouteFetchRecord {
@@ -68,7 +68,7 @@ export interface RouteFetchResult {
   quotaRemaining: number | null;
 }
 
-/** migrations/0003_seatsaero_routes.sql — one row of seatsaero_routes, joined to
+/** One row of `seatsaero_routes`, joined to
  *  `airports` for the names. Asserted about by the SELECT in
  *  `api/src/endpoints/seatsaeroRoutes.ts`'s table route. */
 export interface RouteGraphRow {

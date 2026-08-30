@@ -7,7 +7,7 @@ unattended work is a different kind of thing from a button somebody pressed.
 
 It is not, however, a second engine. A sweep is the *same* Search — the same
 `planSearchPass` / `openSearchRun` / `runSearchPass` in `api/src/search/run.ts`,
-the same `applyTask` ingest, the same coverage rules, the same `search_runs` row.
+the same `applyTask` ingest, the same coverage rules, the same `runs` row.
 `search/run.ts` has **two callers and one behaviour**; the only difference is
 whether an `onEvent` callback is passed, i.e. whether anyone is listening.
 
@@ -26,7 +26,7 @@ whether an `onEvent` callback is passed, i.e. whether anyone is listening.
                                         │                    │
                              ingest (applyTask)      Resend → digest
                                         │                    │
-                          availability_snapshots     alert_deliveries
+                                  finds             alert_deliveries
 ```
 
 Where things live:
@@ -43,8 +43,7 @@ Where things live:
 | `api/src/alerts/digest.ts` | grouping and rendering — pure |
 | `app/src/pages/alerts/AlertsPage.tsx`, `app/src/lib/alerts.ts` | the safety surface |
 | `api/wrangler.toml` `[triggers]` | `crons = ["*/30 * * * *"]` |
-| `migrations/0001_init.sql` | `alert_*` columns, `alert_outbox`, `alert_deliveries` |
-| `migrations/0008_alert_recipients.sql` | `alert_recipients`, the allowlist |
+| `migrations/0001_init.sql` | `alert_*` columns, `alert_outbox`, `alert_deliveries`, `alert_recipients` |
 
 ---
 
@@ -63,8 +62,8 @@ quietly returns nothing is indistinguishable from "there is no award space on
 this route."** A person pressing Search watches a stream and sees a red frame.
 Nobody watches a cron.
 
-The answer is not "be careful". It is that **a sweep is an ordinary `search_runs`
-row** — `trigger = 'alert'`, with its tasks, its `calls`, its `error`, its
+The answer is not "be careful". It is that **a sweep is an ordinary `runs`
+row** — `trigger = 'alert'`, with its counters, its `calls`, its `error`, its
 status — plus three per-route counters (`alert_last_attempt_at`,
 `alert_last_digest_at`, `alert_consecutive_failures`), and a surface built to
 read them: the Alerts tab, plus a dot on the tab strip
@@ -195,18 +194,19 @@ one; `maxCalls` is what bounds a tick today.
 
 It **returns a summary and never throws on one route's failure**: a single
 unsearchable route must not stop the cycle, and its failure is already durable on
-its own `search_runs` row.
+its own `runs` row.
 
 1. **Identity, fail-closed.** `scheduled()` runs **no middleware** — not `cors`,
    `csrf`, `gate`, `identity`, or `applySecurityHeaders`. Identity is
    `env.APP_USER_EMAIL` read directly, and an unset value returns
-   `pacing: "no_app_user_email"` and does nothing, because
-   `search_runs.user_email` is `NOT NULL` and there would be no account to
-   attribute a sweep to.
+   `pacing: "no_app_user_email"` and does nothing. Nothing in this database is
+   scoped to an owner, so what is missing is not a key — it is the **address a
+   digest would be sent to**, and a sweep that cannot mail anybody could only
+   spend calls nobody would hear about.
 2. **Read the routes** (`alertRouteRows`) — every `alerts_enabled = 1` route for
    that account, with `alert_last_attempt_at`, `last_checked_at`,
    `alert_consecutive_failures`, and `observed_calls`: the `calls` of that
-   route's last finished alert run, looked up by `search_runs.route_id`. It is
+   route's last finished alert run, looked up by `runs.route_id`. It is
    `route_id` and not the `origin`/`destination` scalars because those are only a
    route's *primary* airports, so two routes over one city pair would otherwise
    be priced off each other's measurements.
@@ -217,7 +217,7 @@ its own `search_runs` row.
    walks that list until `ALERT_MAX_CALLS_PER_TICK` is spent (§2).
 5. **Ask the guard, per route** — `readBudgetState` + `decideSweep` (§7). A refusal is
    recorded as `skipped: [{ routeId, reason }]` and **no run row is written**:
-   `search_runs.status` has no `'skipped'`, and a row that spent nothing would
+   `runs.status` has no `'skipped'`, and a row that spent nothing would
    pollute the `observed_calls` measurement that feeds step 3.
 6. **Sweep it** — `sweepRoute` (below), which returns the calls it spent so the
    tick can decrement its remaining budget. A route that never reached
@@ -354,7 +354,7 @@ to the millisecond (900,001 ms between the two ticks that wrote those rows). So
 the floor lands a second or two *after* the next tick, every single time: not
 due, skipped, swept on the one after. Four routes the Alerts tab paced at
 `every 15m` were swept **every 30 minutes, exactly** — 22:45, 23:15, 23:45,
-00:15 — for as long as `search_runs` goes back.
+00:15 — for as long as `runs` goes back.
 
 This is not the one-route-per-tick bug in §2. That one was fixed; this survived
 it, because sweeping every *due* route does nothing when the route is not due.
@@ -411,8 +411,9 @@ cycle diffs against.
 the whole route, so a search that covered only part of the window looks as fresh
 as one that covered all of it. Widening a window and enabling alerts in the same
 breath can still produce one noisy digest. Bounding it properly would mean
-recording per-slice check times, which is a whole stored table for one avoidable
-email — the trade that got that table deleted (`migrations/0010`).
+recording per-slice check times — a stored row per (route, date, program) — for
+one avoidable email. Such a table existed once and cost 93% of the daily D1 write
+allowance to maintain. It is not coming back for this.
 
 ---
 
@@ -444,23 +445,22 @@ to ignore the mail.
 > `parseAlertTypes` falls back to the default set on a corrupted value for the
 > same reason.
 
-### The intersection, and why it is SQL
+### The intersection, and why it is the Routes page's own predicate
 
-The other half of the question is *would this route's own pane show this find?*
-— cabins, currencies, seats, nonstop, and the cross-source collapse. That is
-**not** re-implemented in TypeScript. `sweepRoute` runs `routeFindKeys`, which is
-the Routes page's own CTE (`findsCte` + `ROUTE_FINDS_MATCH` + `ROUTE_FINDS_SEATS`
-in `api/src/db/finds.ts`) restricted to the one route, and hands the resulting
-`changeKey` set in.
+The other half of the question is *would this route's own pane show this find?* —
+cabins, currencies, seats, nonstop. That is **not** re-implemented here.
+`sweepRoute` runs `routeFindKeys`, which reads `finds` through the same
+`routeFindsScope` the Routes page uses and then applies `routeMatcher`
+(`shared/src/match/routeMatch.ts`) — **the same function object the page runs** —
+and hands the resulting `changeKey` set in.
 
-The reason is worth stating, because writing the filter in `select.ts` would have
-been the obvious thing to do. "Can the couple book this?" is the currency clause
-in `ROUTE_FINDS_MATCH`, and a second copy in TypeScript would be blind to the
-cross-source collapse — so it could fire on a snapshot another source has already
-superseded: **an email about a seat the app itself does not show.**
+That sharing is the load-bearing part, and it is why the predicate is one module
+rather than one copy each. An alert that fires on a find the route's pane hides
+is indistinguishable from a bug in either half, and the sweep sends no mail when
+it finds nothing, so drift in the other direction reports itself to nobody.
 
-`changeKey` is `route_key|program|cabin`, and `routeFindKeys` builds its set with
-exactly that concatenation. The two must not drift.
+`routeFindKeys` calls `changeKey` itself rather than re-spelling its format, so
+the set it builds and the keys the diff produces cannot drift apart.
 
 ### `gone` bypasses the intersection, and must
 
@@ -516,7 +516,9 @@ no row at all when the first tick fires.** Two obvious answers are both wrong:
   one day it mattered.
 
 So it **self-accounts**: last known limit (or `ASSUMED_DAILY_LIMIT = 1000`) minus
-`SUM(search_runs.calls)` for runs started since midnight UTC. An honest number
+`SUM(runs.calls)` for runs started since midnight UTC — a covering seek on
+`idx_runs_spend`, which is the one index on that table that exists for this
+query alone. An honest number
 derived from facts we hold, corrected by the first real observation of the day.
 `SweepDecision.basis` reports which of the two it used, and the Alerts tab shows
 it, because "read from seats.aero's own header" and "counted from our own
@@ -622,8 +624,8 @@ different places. An unset key means sweeps still run and still ingest, and ever
 digest is recorded as skipped with the reason. **Never a silent drop:** with no
 failure mail, `alert_deliveries` is the only trace an undelivered digest leaves.
 
-**Recipients are allowlisted**, and the list is the `alert_recipients` table
-(migration `0008`), edited in the app under **Settings → System**. With one
+**Recipients are allowlisted**, and the list is the `alert_recipients` table,
+edited in the app under **Settings → System**. With one
 shared password as the only auth, an unchecked per-route `alert_email` would
 make this an arbitrary-recipient sender on a verified domain, and the domain's
 sending reputation is not something a typo should be able to spend.
@@ -653,9 +655,11 @@ the app could show you.
 **Double-send is guarded on both sides**: `UNIQUE (sweep_id, to_email)` in
 `alert_deliveries`, and a matching `Idempotency-Key` header
 (`SHA-256(sweepId:recipient)`) that Resend de-duplicates on for 24 hours.
-`sweep_id` is a uuid minted per flush, not a foreign key — one sweep can cover
-several routes and therefore several runs, which is what `run_ids_json` records.
-There is deliberately no `alert_sweeps` table.
+`sweep_id` is a uuid minted per flush and not a foreign key: one sweep can cover
+several routes and therefore several runs. There is deliberately no
+`alert_sweeps` table, and no column recording which runs a digest covered —
+`runs.route_id` already answers that, and the two json blobs that used to
+duplicate it were written and never read.
 
 **Only a successful send clears the outbox** and stamps `alert_last_digest_at`. A
 refused send leaves the rows intact so the next cycle tries again.
@@ -669,7 +673,7 @@ refused send leaves the rows intact so the next cycle tries again.
 | endpoint | what |
 |---|---|
 | `GET /api/alerts/schedule` | pacing, budget, email config, and every alert route's state |
-| `GET /api/alerts/runs?limit=` | `search_runs WHERE trigger = 'alert'` |
+| `GET /api/alerts/runs?limit=` | `runs WHERE trigger = 'alert'` |
 | `GET /api/alerts/deliveries?limit=` | `alert_deliveries`, newest first |
 | `POST /api/alerts/run` | fire one tick by hand — **local dev only** |
 
@@ -765,19 +769,35 @@ others exist to prevent.** In particular `alert_last_attempt_at` is stamped
 BEFORE the search and the other two after it, which is what stops a
 permanently-failing route being due on every tick.
 
-`idx_tracked_routes_alerts` was partial (`WHERE alerts_enabled = 1`) because the
-scheduler's one hot query was "which alert-enabled route is most overdue".
-**Dropped by `migrations/0011`:** that question stopped being SQL when
-`dueRoutes` (`alerts/pace.ts`) became a pure function over rows already in
-memory. It was the only index on `tracked_routes`, so it was also the only
-reason the pacing-clock UPDATE billed two D1 rows instead of one.
+**`tracked_routes` carries no index at all**, and should not grow one: there are
+seven rows, and the scheduler's "which route is most overdue" question is not SQL
+— `dueRoutes` (`alerts/pace.ts`) is a pure function over rows already in memory.
+An index here would only make the pacing-clock UPDATE bill two D1 rows instead of
+one.
 
-`alert_outbox` — §8. `alert_deliveries` and `alert_recipients` — §9. Neither `type` nor
-`search_runs.trigger` carries a CHECK constraint: a new transition type should
-not need a migration to become storable.
+`alert_outbox` and `alert_deliveries` are both `WITHOUT ROWID` on their natural
+keys — `(route_id, change_key)` and `(sweep_id, to_email)`. Those keys were
+already UNIQUE for the idempotency reasons in §8 and §9; declaring them as the
+primary key retires a surrogate `id` and a redundant index, so filing a change
+costs one row written rather than three. Neither `alert_outbox.type` nor
+`runs.trigger` carries a CHECK constraint: a new transition type should not need
+a migration to become storable.
 
-All `alert_*` columns and the outbox/delivery tables are defined in
-`migrations/0001_init.sql`; there is no separate alerts migration.
+### Run retention
+
+`runs` is the only table here that grows on a clock rather than with the data —
+about fifty rows a day, forever, from ticks alone. `pruneOldRuns` deletes rows
+older than `RUN_RETENTION_DAYS` (30) at the end of a **completed cycle**, beside
+the flush, so it runs about as often as a digest does rather than on every tick.
+
+Two details are deliberate. A run still `running` is spared whatever its age —
+that is a paused search waiting to resume, and deleting it would strand the sweep
+that owns it. And the delete is unbounded rather than `LIMIT`ed: at fifty rows a
+day the steady-state delete is a handful, and a first run after a long gap should
+get it over with instead of leaving a backlog that never drains.
+
+Nothing reads a run older than a day except the Alerts tab's history list, which
+shows 25.
 
 ---
 
@@ -794,7 +814,7 @@ All `alert_*` columns and the outbox/delivery tables are defined in
 | **every** route goes quiet, but sweeps look fine | an expired-window route blocks `cycleComplete`, so nothing flushes — see the note in §8 | *window expired* on the offending route |
 | a route slows down | `alert_consecutive_failures` back-off, up to ×8 | *failing*, with the count |
 | EVERY route swept at twice the cadence the tab quotes | `SWEEP_TICK_MINUTES` no longer matches the cron in `wrangler.toml`, so the due test has the wrong grace and each route waits for the tick after the one it was due on (§4) | *last swept* consistently one whole interval stale, on every route at once |
-| **no invocations at all** | `APP_USER_EMAIL` unset, or the tick threw | **Workers Logs** — `wrangler tail bertbooker` — and the Cron Triggers tab |
+| **no invocations at all** | `APP_USER_EMAIL` unset (no digest address), or the tick threw | **Workers Logs** — `wrangler tail bertbooker` — and the Cron Triggers tab |
 
 That last row is the one with no in-app surface, which is exactly why
 `runAlertTick` is awaited rather than fire-and-forget.

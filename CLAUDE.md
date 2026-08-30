@@ -208,7 +208,7 @@ policy.
 | `bindings.ts` | `Env` and `Vars`. Every secret is documented on the field, including what its absence does. |
 | `middleware/` | the request pipeline: `gate.ts` (password + `/api/auth/*`), `identity.ts`, `security.ts`. |
 | `endpoints/` | one `Hono` sub-app per surface, registering **absolute** `/api/...` paths, so every mount in `index.ts` is at `"/"` and the path is greppable from the handler. **Named `endpoints/`, not `routes/`** — "route" already means a tracked route here. |
-| `db/` | SQL more than one surface shares: `finds.ts` (the one `findsCte`) and `runs.ts`. |
+| `db/` | SQL more than one surface shares: `finds.ts` (the read scope) and `runs.ts`. |
 | `search/` | the gathering engine — `run.ts` (plan/open/run) and `enrich.ts`, split from their HTTP shell because there are two callers and one behaviour. |
 | `alerts/` | the scheduled sweep, pure halves included: `sweep.ts`, `budget.ts`, `pace.ts`, `select.ts`, `digest.ts`, `email.ts`. |
 | `domain/` | the source-agnostic model: `types.ts`, `diff.ts`, `collapse.ts`, `routing.ts`, `graphPaths.ts`, and the reference seeds `programs.ts` / `airlines.ts`. |
@@ -276,7 +276,7 @@ else lives at its point of use — see *Where the depth lives*.
 - **`api/src/index.ts` imports `./sources/index.js` for its SIDE EFFECT**, and
   that line is the whole of a real check: `registerSource` validates every
   program the source declares against `PROGRAM_SEEDS` at module scope, and
-  `availability_snapshots.program` is a foreign key, so without it a typo
+  `finds.program` is a foreign key, so without it a typo
   surfaces as a write failing mid-search instead of as a worker that won't boot.
   Nothing imports a *symbol* from `sources/`, so it looks removable. It is not.
 - **`SearchKind` vs `ProgramKind`** (`domain/types.ts`): a *search* is
@@ -291,15 +291,15 @@ else lives at its point of use — see *Where the depth lives*.
   over-claiming hard-deletes real finds while under-claiming costs a stale row.
   When unsure, narrow it. `ingest/apply.ts` explains each clause;
   `docs/SOURCES.md` is the contract.
-- **`availability_snapshots` holds ONE ROW PER SLOT** — `UNIQUE (route_key,
-  program, cabin)` since `0014`, written by UPSERT and pruned by that same key.
-  It was append-on-change history until then, and nothing ever read it as a
-  series: every reader collapsed it away with `MAX(captured_at)`, which cost 57%
-  of the Routes page query. `price_history` is the series, and holds strictly
-  more — it survives the prune, so it records the disappearances snapshots
-  cannot express. **`source` is no longer part of the key**, so a second source
-  is a schema change rather than a config change; that trade is argued in `0014`.
-- **`findsCte` is the one read of a stored find**, so no two surfaces can
+- **`finds` holds ONE ROW PER SLOT, in ONE B-TREE.** Its PRIMARY KEY is
+  `(origin, destination, flight_date, program, cabin)`, it is `WITHOUT ROWID`,
+  and it has **no secondary index** — so a changed find costs one row written,
+  and the key serves the Routes page's seek, the ingest baseline read, the upsert
+  conflict target, the prune, and both enrich lookups. An index added here is
+  paid for on every ingest write against a 100,000-a-day budget, so it is a trade
+  to argue rather than a tidy-up. There is no history table: what a slot cost
+  last week is not recorded anywhere, deliberately.
+- **The find query is the one read of a stored find**, so no two surfaces can
   disagree about what a current find is, and **`shared/src/match/routeMatch.ts`
   is the one answer to "does this find belong to this route"** — the Routes page
   and the alert sweep run the same predicate, because an alert that fires on a
@@ -311,15 +311,16 @@ else lives at its point of use — see *Where the depth lives*.
   to constrain a column here harder than the matcher constrains it. The scope is
   **one OR-group per route**, carrying that route's own airports, window and read
   filters, and it degrades in rungs when D1's 100-bind limit bites: per route,
-  then the union of every route (filters dropped), then unscoped. It was limited
-  to `origin`, `destination` and `flight_date` while a collapse ran underneath
-  it; `0014` removed the collapse and the limit went with it. `db/finds.ts` has
-  the why; `finds.test.ts` runs both engines against each other on `node:sqlite`
-  rather than re-implementing either.
-- **D1 bills rows READ, including temp b-tree and sort rows.** The only reliable
-  lever is a `WHERE` that scans fewer base rows. **Measure, don't reason from the
-  query's shape** — rewriting `per_source` as a `ROW_NUMBER()` window measured
-  *worse* (38,637 vs 22,835) and `MATERIALIZED` did not recover it. The app bar's
+  then the union of every route (filters dropped), then unscoped. `db/finds.ts`
+  has the why; `finds.test.ts` runs both engines against each other on
+  `node:sqlite` rather than re-implementing either.
+- **D1 bills rows READ *and* rows WRITTEN, and an index entry is a row written.**
+  The free tier allows 5,000,000 read a day against **100,000 written**, so
+  writes are the budget that binds and every index on a write-hot table is a
+  multiplier on the scarce one. On reads, the only reliable lever is a `WHERE`
+  that scans fewer base rows, and **you must measure rather than reason from the
+  query's shape** — a `ROW_NUMBER()` window rewrite once measured *worse* (38,637
+  vs 22,835) and `MATERIALIZED` did not recover it. The app bar's
   two arrow chips are the first place to look — today's rows read and written
   against the daily ceiling, account-wide, from Cloudflare's own analytics
   (`endpoints/d1Usage.ts`). They report and never enforce, and they are blind
@@ -331,31 +332,33 @@ else lives at its point of use — see *Where the depth lives*.
   binds a chunk as ONE JSON parameter and expands it with `json_each`
   (`db/routeGraph.ts`) rather than a multi-row `VALUES`.
 - **Migrations are one-time and tracked; never edit an applied one.**
-  `0001_init.sql` is the record of what was APPLIED, **not a description of the
-  live schema** — it still creates objects that later migrations drop, annotated
-  `DROPPED BY 000N` in place. Annotate, don't delete, or a fresh database and a
-  migrated one stop agreeing. The next number is one past the highest in
-  `migrations/`.
-- **Retiring a source is a migration, not just a deletion.** Prunes are scoped
-  per source, so deleting a source's code leaves nothing with the authority to
-  clean up its rows and they read as current forever.
-  `migrations/0002_drop_pointsyeah.sql` is that cleanup, already applied.
+  `0001_init.sql` is currently BOTH the record of what was applied and a true
+  description of the live schema, because the database was wiped and rebuilt from
+  it. That is a property with a short shelf life: the next migration is `0002`,
+  and from then on `0001` is history and the live schema is the sum of the
+  files. It uses `CREATE TABLE IF NOT EXISTS` throughout because four tables —
+  `airports`, `airports_fts`, `seatsaero_routes`, `seatsaero_route_fetches` —
+  survived that wipe with their data, and applying it must leave them alone.
+- **Retiring the source is deleting the rows in `finds`.** Nothing stores a
+  source id any more, so there is nothing to orphan — `docs/SOURCES.md` §1 has
+  what a SECOND source would cost, which is the harder direction.
 - **A WHOLE-DATABASE `wrangler d1 export` does not work here** — D1 refuses to
   export a database containing virtual tables and `airports_fts` is one. **A
   table-scoped one does**, and it is the backup to take before any destructive
   migration:
 
-      npx wrangler d1 export bertbooker_db --remote --config api/wrangler.toml         --table availability_snapshots --output ./backup.sql
+      npx wrangler d1 export bertbooker_db --remote --config api/wrangler.toml         --table tracked_routes --output ./backup.sql
 
   `wrangler d1 time-travel info` prints a bookmark that restores the whole
   database, and is the other half of the same insurance. To export EVERYTHING,
-  drop `airports_fts`, export, then re-create it from `0006` and re-run
+  drop `airports_fts`, export, then re-create it from `0001_init.sql` and re-run
   `db:seed:airports:derived:*`.
-- **Three paths spend real money** — search, enrich, and
-  `POST /api/seatsaero/sources/:source/fetch`. All three are listed in
+- **FOUR paths spend real money** — a route search, a route's bulk enrich, a
+  single find's enrich (`POST /api/finds/enrich`), and
+  `POST /api/seatsaero/sources/:source/fetch`. All four are listed in
   `METERED_PATTERNS` (`e2e/fixtures.ts`) so a UI test that reaches one fails
   rather than quietly spending a call. `docs/SEATS-AERO.md` §12 has the guards
-  around the third, which is reachable by *picking a program nobody has fetched
+  around the last, which is reachable by *picking a program nobody has fetched
   yet* as well as by a button — which is why no spec may touch the source
   dropdown's options, and why `/tools/coverage` has to stay free to open.
 - **Two things stream NDJSON** — the Worker's search and its enrich-all — and
@@ -444,9 +447,10 @@ constrains. When you touch the file, read it there.
 | --- | --- |
 | write-on-change, the stored-vs-recomputed baseline hash, why `collapseBy` is required, co-terminal answers and `routesTouched` | `api/src/ingest/apply.ts` |
 | what claims coverage, and what a task may report | `api/src/ingest/types.ts`, `api/src/sources/types.ts` |
-| the `findsCte` shape, and why a scope may constrain only the three columns that *are* `route_key` | `api/src/db/finds.ts` |
+| the read scope's superset ladder, and the one rule a pushed-down filter must obey | `api/src/db/finds.ts` |
 | what makes a find belong to a route, and the three places it differs from the SQL it replaced | `shared/src/match/routeMatch.ts` |
-| why the snapshot table is current-only, and what the unique key costs | `migrations/0013`, `migrations/0014` |
+| the run retention sweep, and why a `running` row is spared | `api/src/alerts/sweep.ts`, `docs/ALERTS.md` §12 |
+| why `finds` is one b-tree, and what an index added to it would cost | `migrations/0001_init.sql` |
 | hub routes planning two seats.aero queries per date chunk, chunk-major task order, `autoVia`, `splitDirectAndLegs` | `api/src/domain/routing.ts` |
 | a connection is LEGS, not a trip; the depth ladder and why the mixed tier stops at one stop | `api/src/domain/graphPaths.ts` |
 | `empty` is a SUCCESS — why the fetch itself is recorded, and why rendering it as an error destroys the signal | `api/src/endpoints/seatsaeroRoutes.ts`, `docs/SEATS-AERO.md` §12 |

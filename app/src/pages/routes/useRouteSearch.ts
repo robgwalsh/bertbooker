@@ -13,7 +13,7 @@ import {
  *
  *  The two client-only states sit alongside the server's own task statuses
  *  rather than replacing them, so `blocked` still means exactly what it means in
- *  `search_tasks`: we did not get an answer. */
+ *  a failed task: we did not get an answer. */
 
 /**
  * Which planned date range a TASK index belongs to.

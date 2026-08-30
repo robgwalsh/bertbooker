@@ -18,7 +18,7 @@ import type { RoundTripPair } from "../../lib/roundtrip";
  * One find's key.
  *
  * `index` is in it and has to be. (route, date, program, cabin) is the SNAPSHOT
- * table's key but not necessarily this list's — `findsCte` collapses across
+ * table's key but not necessarily this list's — the query collapses across
  * sources at query time and can hand back two sources' answers for one slot. It
  * is the *paginated* index (`start + i`), so the same find on
  * page 1 and page 3 is two different elements rather than one that appears to

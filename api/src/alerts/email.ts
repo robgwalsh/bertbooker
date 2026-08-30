@@ -37,7 +37,7 @@ export type SendResult =
  *  make this an arbitrary-recipient sender on a verified domain — and the
  *  domain's sending reputation is not something a typo should be able to spend.
  *
- *  The list is the `alert_recipients` table (migration 0008), edited from the
+ *  The list is the `alert_recipients` table, edited from the
  *  settings dialog's System tab. `APP_USER_EMAIL` is always included and is
  *  never a row there, so an EMPTY TABLE still means "only the account's own
  *  address" — the safe default rather than the permissive one, and never "this

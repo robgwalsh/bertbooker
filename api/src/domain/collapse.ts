@@ -27,7 +27,7 @@ export function betterOffer<T extends Collapsible>(a: T, b: T): boolean {
  * Keep the single best item per key.
  *
  * REQUIRED, not an optimization, wherever the result feeds a snapshot: the
- * `availability_snapshots` row and `changeKey` are keyed (route, date, program,
+ * `finds` row and `changeKey` are keyed (route, date, program,
  * cabin), so two itineraries competing for one slot would collide
  * non-deterministically and the diff would flap between them, reporting phantom
  * price_drop/more_seats changes on every run.

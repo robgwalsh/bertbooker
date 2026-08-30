@@ -413,14 +413,11 @@ seatsaeroRoutes.get("/api/seatsaero/routes/paths", async (c) => {
 
 // ---- Do the routes you track go anywhere anyone watches? -------------------
 seatsaeroRoutes.get("/api/seatsaero/reach", async (c) => {
-  const email = c.get("userEmail");
   const { results: routes } = await c.env.DB.prepare(
-    `SELECT id, origin, destination, origins, destinations, round_trip, programs
+    `SELECT id, origin, destination, origins, destinations, round_trip
        FROM tracked_routes
-      WHERE user_email = ? AND kind = 'flight'
       ORDER BY id`,
   )
-    .bind(email)
     .all<{
       id: number;
       origin: string;

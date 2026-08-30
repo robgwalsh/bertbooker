@@ -2,7 +2,7 @@
  * "Does this find belong to this tracked route, and does it pass the route's own
  * filters?" — the one definition, shared by the Routes page and the alert sweep.
  *
- * This was SQL. `ROUTE_FINDS_MATCH` (api/src/db/finds.ts) asked the same
+ * This was SQL — a correlated predicate in `api/src/db/finds.ts` — asking the same
  * question as a correlated predicate over `finds f` and `tracked_routes tr`, and
  * the two callers shared its text so they could not drift. That sharing is the
  * load-bearing part and it survives here unchanged: an alert that fired on a
@@ -68,7 +68,7 @@ export interface MatchableRoute {
 
 /**
  * The find columns the predicate reads — and the reason the alert sweep can ask
- * for eight columns instead of the twenty-seven `FIND_COLUMNS` projects.
+ * for nine columns instead of the twenty-one `FIND_COLUMNS` projects.
  */
 export interface MatchableFind {
   origin: string;

@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
-import { SEATSAERO_SOURCE_ID } from "../providers/seatsaero.js";
 import {
   classifyError,
   clientMessage,
@@ -62,7 +61,7 @@ enrich.post("/api/finds/enrich", async (c) => {
   // instead of by a route id, and `currentRows` selects on those coordinates
   // alone — it never joins `tracked_routes`. So any (origin, destination, date,
   // program) in the database could be enriched: one metered seats.aero call and
-  // a write to `availability_snapshots`, repeatable without limit because the
+  // a write to `finds`, repeatable without limit because the
   // per-row retry here is deliberately not gated on `enriched_at`. That made it
   // the cheapest way to drain the day's Partner-API quota, which in turn
   // silently disables the alert sweep for the rest of the UTC day.
@@ -74,9 +73,8 @@ enrich.post("/api/finds/enrich", async (c) => {
   // Spending is still first-come; this only says whose rows you may spend it on.
   const { results: scopeRows } = await c.env.DB.prepare(
     `SELECT origin, destination, origins, destinations, via, date_start, date_end, round_trip
-       FROM tracked_routes WHERE user_email = ?`,
+       FROM tracked_routes`,
   )
-    .bind(email)
     .all<ScopedRoute>();
   if (!withinRouteScope(scopeRows ?? [], origin, destination, flightDate)) {
     // The same 404 an unknown row gets, deliberately: whether a row exists that
@@ -87,8 +85,8 @@ enrich.post("/api/finds/enrich", async (c) => {
   const rows = await currentRows(c.env.DB, origin, destination, flightDate, program);
   if (rows.length === 0) return c.json({ error: "not_found" }, 404);
   if (!rows.some((r) => r.source_record_id)) {
-    // Rows written before the id was kept. A search re-writes them; migration
-    // 0011 cleared their raw_hash precisely so that happens on the next one.
+    // The source exposed no id for this record, so there is no handle to buy an
+    // itinerary with. A later search may write one.
     return c.json({ error: "not_enrichable" }, 409);
   }
 
@@ -133,9 +131,9 @@ enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
   // BEFORE the stream opens, because after the first byte the response is
   // committed to 200 and an `error` frame is all that is left.
   const route = await c.env.DB.prepare(
-    "SELECT id, origin, destination, date_start, date_end FROM tracked_routes WHERE id = ? AND user_email = ?",
+    "SELECT id, origin, destination, date_start, date_end FROM tracked_routes WHERE id = ?",
   )
-    .bind(id, email)
+    .bind(id)
     .first<{ id: number; origin: string; destination: string; date_start: string; date_end: string }>();
   if (!route) return c.json({ error: "not_found" }, 404);
 
@@ -166,22 +164,17 @@ enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
   // shape a chain-rebuilt itinerary has. A nonstop is fully timed already and is
   // never a target.
   //
-  // `enriched_at IS NULL` MEANS WHAT IT SAYS SINCE 0014, and did not before.
-  // This scan has no latest-row logic, so while the table was append-on-change
-  // it read superseded rows too — and a superseded summary (enriched_at NULL)
-  // for a slot whose current row was already enriched still matched, so a bulk
-  // run could spend a metered call re-expanding a slot that had nothing to
-  // learn. One row per slot makes that unrepresentable rather than merely
-  // unlikely.
+  // `enriched_at IS NULL` means what it says: one row per slot, so there is no
+  // superseded copy of it carrying a stale NULL and inviting a second metered
+  // call for a slot that has already been expanded.
   //
   // Still open, and unrelated to any of that: the pair test uses the route's
   // PRIMARY airports only, so a multi-airport or hub route never bulk-enriches
   // its other pairs. That is a coverage gap, not a cost one.
   const { results: targets } = await c.env.DB.prepare(
     `SELECT origin, destination, flight_date, program, source_record_id
-       FROM availability_snapshots
-      WHERE origin = ? AND destination = ? AND source = ?
-        AND flight_date BETWEEN ? AND ?
+       FROM finds
+      WHERE origin = ? AND destination = ? AND flight_date BETWEEN ? AND ?
         AND source_record_id IS NOT NULL
         AND enriched_at IS NULL
         AND (
@@ -192,7 +185,7 @@ enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
       GROUP BY source_record_id
       ORDER BY flight_date ASC, program ASC`,
   )
-    .bind(route.origin, route.destination, SEATSAERO_SOURCE_ID, route.date_start, route.date_end)
+    .bind(route.origin, route.destination, route.date_start, route.date_end)
     .all<TargetRow>();
 
   if (targets.length === 0) return c.json({ error: "nothing_to_enrich" }, 400);

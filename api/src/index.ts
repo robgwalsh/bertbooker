@@ -4,7 +4,7 @@ import { csrf } from "hono/csrf";
 // SIDE-EFFECT IMPORT, and the only one in this worker. `sources/index.ts` calls
 // `registerSource(seatsAeroSource)` at module scope, which validates every
 // program that source declares against `PROGRAM_SEEDS`. That matters because
-// `availability_snapshots.program` is a foreign key: without this, a typo in a
+// `finds.program` is a foreign key: without this, a typo in a
 // source's program list surfaces as a write failing halfway through a search
 // instead of as a worker that refuses to boot.
 //
@@ -27,7 +27,6 @@ import { quota } from "./endpoints/quota.js";
 import { d1Usage } from "./endpoints/d1Usage.js";
 import { search } from "./endpoints/search.js";
 import { enrich } from "./endpoints/enrich.js";
-import { findHistory } from "./endpoints/findHistory.js";
 import { alerts } from "./endpoints/alerts.js";
 import { reference } from "./endpoints/reference.js";
 import { airports } from "./endpoints/airports.js";
@@ -42,7 +41,6 @@ import { settings } from "./endpoints/settings.js";
 // datacenter IPs outright — United answers Akamai 428 and Delta 444 to raw HTTP
 // even from a residential connection, and Delta denies a real browser session
 // replayed verbatim on top of that. Scraping them is over regardless; see
-// docs/HARVEST-POSTMORTEM.md for why it was abandoned rather than fixed.
 //
 // It reaches exactly TWO hosts, and the split is the rule rather than an
 // exception list:
@@ -121,12 +119,6 @@ app.route("/", search);
 // Registered here purely so it reads next to `search`.
 app.route("/", enrich);
 
-// What one slot has cost over time. A pure read of `price_history` — it spends
-// nothing — mounted next to `enrich` so the two `/api/finds/*` surfaces read
-// together. It shares no path with anything, so this position is legibility
-// rather than routing.
-app.route("/", findHistory);
-
 // What the Alerts tab reads. In production it is read-only: the cron does the
 // writing, and the only way to change what it does is to edit a route (PATCH
 // via `trackedRoutes` below). The one exception is `POST /api/alerts/run`, which
@@ -149,7 +141,7 @@ app.route("/", airports);
 app.route("/", seatsaeroRoutes);
 
 // The Routes page's payload — monitors joined to their current finds. The only
-// reader of `findsCte`.
+// reader of the finds query.
 app.route("/", routes);
 
 // The saved searches themselves. Mounted last of the `/api/tracked-routes`
@@ -164,7 +156,7 @@ app.route("/", settings);
  * `POST /api/tracked-routes/:id/search` lives in `endpoints/search.ts`.
  *
  * A Worker cannot read a carrier's own site: United returns Akamai 428 and
- * Delta 444 even from a residential IP — see docs/HARVEST-POSTMORTEM.md.
+ * Delta 444 even from a residential IP.
  *
  * What the Worker does run rests on a different fact: seats.aero is a keyed
  * vendor API, not a carrier site, and does not care where the request
@@ -255,8 +247,8 @@ export default {
    * `identity`, and not `applySecurityHeaders` — none of those are on a code
    * path a `scheduled` invocation takes. So identity is read straight off
    * `env.APP_USER_EMAIL`, and `runAlertTick` fails closed when it is unset
-   * exactly as the gate would, because `search_runs.user_email` is NOT NULL and
-   * there would be no account to attribute a sweep to.
+   * exactly as the gate would — unset means there is no address a digest could
+   * be sent to, so a sweep could only spend calls nobody would hear about.
    *
    * `await`, deliberately, and NOT `ctx.waitUntil`. An async `scheduled`
    * handler's returned promise is already awaited by the runtime, so

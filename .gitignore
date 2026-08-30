@@ -23,3 +23,7 @@ e2e/.artifacts/
 # Playwright's own defaults, in case a run ever misses playwright.config.ts.
 playwright-report/
 test-results/
+
+# One-off D1 backups (see the export command in CLAUDE.md).
+backup*.sql
+restore-bookmark.txt

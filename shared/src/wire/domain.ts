@@ -60,7 +60,7 @@ export interface ChangeSummary {
   /** The city pair. Recoverable from `key` only by knowing the flight date is
    *  its last ten characters — parseable, fragile, and the alert digest needs
    *  one line per change to say where the seat is. Optional because
-   *  `search_runs.changes_json` holds blobs written before these existed.
+   *  `runs.changes_json` holds blobs written before these existed.
    *
    *  Note what these are NOT for: alert FILTERING does not read them. That
    *  question — "would this route's own pane show this find?" — is answered by

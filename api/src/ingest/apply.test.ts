@@ -22,7 +22,6 @@ const offer = (o: Partial<AvailabilityResult> = {}): AvailabilityResult => ({
   feesCurrency: "USD",
   isDirect: true,
   segments: [],
-  source: "fetch:alaska",
   sourceFetchedAt: 1_700_000_000_000,
   bookableWith: ["bilt"],
   ...o,
@@ -30,7 +29,6 @@ const offer = (o: Partial<AvailabilityResult> = {}): AvailabilityResult => ({
 
 const task = (t: Partial<SourceTaskReport> = {}): SourceTaskReport => ({
   source: "fetch:alaska",
-  taskKey: "alaska:SEA-LAX:2027-03-05",
   origin: "SEA",
   destination: "LAX",
   dates: ["2027-03-05"],
@@ -224,21 +222,9 @@ interface StubbedRow extends Record<string, unknown> {
   raw_hash: string;
 }
 
-/** One row of a `price_history` write, unpacked from the JSON parameter the
- *  bulk writer binds it as. `m` is the miles cost; null marks a gone point. */
-interface HistoryArg {
-  k: string;
-  d: string;
-  p: string;
-  c: string;
-  s: string;
-  m: number | null;
-}
-
 function stubDb(baseline: StubbedRow[]) {
   const inserts: unknown[][] = [];
   const deletes: unknown[][] = [];
-  const history: HistoryArg[] = [];
   /** Every `.all()` read, so a test can assert on the baseline query's SHAPE
    *  and not only on what came back from it. */
   const reads: { sql: string; args: unknown[] }[] = [];
@@ -260,19 +246,17 @@ function stubDb(baseline: StubbedRow[]) {
     prepare: (sql: string) => statement(sql),
     batch: async (stmts: { sql: string; args: unknown[] }[]) => {
       for (const s of stmts) {
-        if (s.sql.includes("INSERT INTO availability_snapshots")) inserts.push(s.args);
-        else if (s.sql.includes("DELETE FROM availability_snapshots")) deletes.push(s.args);
-        else if (s.sql.includes("INSERT INTO price_history"))
-          history.push(...(JSON.parse(String(s.args[0])) as HistoryArg[]));
+        if (s.sql.includes("INSERT INTO finds")) inserts.push(s.args);
+        else if (s.sql.includes("DELETE FROM finds")) deletes.push(s.args);
       }
       return stmts.map(() => ({ meta: { changes: 1 } }));
     },
   } as unknown as D1Database;
 
-  return { db, inserts, deletes, history, reads };
+  return { db, inserts, deletes, reads };
 }
 
-/** The columns `loadPreviousForSource` selects, for one stored snapshot. */
+/** The columns `loadPrevious` selects, for one stored find. */
 const storedRow = (r: AvailabilityResult, rawHash: string): StubbedRow => ({
   origin: r.origin,
   destination: r.destination,
@@ -285,7 +269,6 @@ const storedRow = (r: AvailabilityResult, rawHash: string): StubbedRow => ({
   fees_currency: r.feesCurrency,
   is_direct: r.isDirect ? 1 : 0,
   segments_json: JSON.stringify(r.segments),
-  source: r.source,
   source_fetched_at: r.sourceFetchedAt,
   transfer_currencies: JSON.stringify(r.bookableWith ?? []),
   duration_minutes: r.durationMinutes ?? null,
@@ -303,7 +286,6 @@ const storedRow = (r: AvailabilityResult, rawHash: string): StubbedRow => ({
 
 describe("applyTask — write-on-change", () => {
   const summary = offer({
-    source: "seatsaero",
     sourceRecordId: "avail-1",
     detailLevel: "summary",
     segments: [{ from: "SEA", to: "LAX", carrier: "AS", cabin: "business" }],
@@ -312,82 +294,40 @@ describe("applyTask — write-on-change", () => {
     task({ source: "seatsaero", offers: [summary], programs: ["alaska"] });
 
   it("writes nothing when the source's claim is unchanged", async () => {
-    // The cheapest smoke test this pipeline has. It covers price_history too:
-    // a point per SEARCH rather than per change would turn the series into a
-    // sample of how often the cron ran.
-    const { db, inserts, history } = stubDb([storedRow(summary, hashResult(summary))]);
-    const out = await applyTask(db, "run-1", seatsAeroTask());
+    // The cheapest end-to-end proof this pipeline has that a source's ids and
+    // hashes line up: search twice, write nothing the second time.
+    const { db, inserts } = stubDb([storedRow(summary, hashResult(summary))]);
+    const out = await applyTask(db, seatsAeroTask());
     expect(inserts).toHaveLength(0);
-    expect(history).toHaveLength(0);
     expect(out.snapshotsWritten).toBe(0);
   });
 
-  it("records the disappearance as a point, not as the end of the series", async () => {
-    // The whole reason price_history exists. The DELETE below is unscoped in
-    // time — it takes every snapshot the slot ever had — so unless this point is
-    // written, a series ends exactly when it becomes interesting.
-    const { db, deletes, history } = stubDb([storedRow(summary, hashResult(summary))]);
-    const out = await applyTask(
-      db,
-      "run-gone",
-      task({ source: "seatsaero", offers: [], programs: ["alaska"] }),
-    );
+  it("prunes a slot the source has stopped reporting", async () => {
+    const { db, deletes } = stubDb([storedRow(summary, hashResult(summary))]);
+    const out = await applyTask(db, task({ source: "seatsaero", offers: [], programs: ["alaska"] }));
 
     expect(deletes).toHaveLength(1);
     expect(out.snapshotsPruned).toBe(1);
-    expect(history).toHaveLength(1);
-    // NULL, not zero: the source covered the slot and reported no award. A zero
-    // would read as a free seat.
-    expect(history[0]!.m).toBeNull();
-    expect(history[0]!.k).toBe("SEA-LAX-2027-03-05");
+    // The whole primary key, so the delete can never take a neighbouring cabin
+    // or program with it.
+    expect(deletes[0]).toEqual(["SEA", "LAX", "2027-03-05", "alaska", "business"]);
   });
 
-  it("counts pruned snapshots off the deletes alone", async () => {
-    // The history write rides in the SAME batch as the DELETE, deliberately —
-    // one transaction, so a price cannot be destroyed without the record of its
-    // disappearance landing with it. That puts its inserted-row count in the
-    // same results array, and tallying the whole array would report two
-    // snapshots pruned where one row was deleted.
-    const { db, deletes, history } = stubDb([storedRow(summary, hashResult(summary))]);
-    const out = await applyTask(
-      db,
-      "run-gone",
-      task({ source: "seatsaero", offers: [], programs: ["alaska"] }),
-    );
-    expect(history).toHaveLength(1);
-    expect(out.snapshotsPruned).toBe(deletes.length);
-  });
-
-  it("records nothing for a slice the task never covered", async () => {
-    // No coverage claim, no prune, and so nothing observed to write down.
-    const { db, deletes, history } = stubDb([storedRow(summary, hashResult(summary))]);
+  it("prunes nothing for a slice the task never covered", async () => {
+    // No coverage claim, no authority to delete. This is the line between a
+    // source that looked and found nothing and one that was refused at the door.
+    const { db, deletes } = stubDb([storedRow(summary, hashResult(summary))]);
     await applyTask(
       db,
-      "run-blocked",
       task({ source: "seatsaero", status: "blocked", offers: [], programs: ["alaska"] }),
     );
     expect(deletes).toHaveLength(0);
-    expect(history).toHaveLength(0);
-  });
-
-  it("records a price point for each snapshot it writes", async () => {
-    const { db, inserts, history } = stubDb([]);
-    await applyTask(db, "run-1", seatsAeroTask(), 1_700_000_000_000);
-    expect(inserts).toHaveLength(1);
-    expect(history).toHaveLength(1);
-    expect(history[0]).toMatchObject({
-      k: "SEA-LAX-2027-03-05",
-      p: "alaska",
-      c: "business",
-      s: "seatsaero",
-      m: summary.milesCost,
-    });
   });
 
   it("reads its baseline with the EXACT pair test, not just the airport sets", async () => {
-    // A data-destroying trap, pinned. `loadPreviousForSource` carries indexable
+    // A data-destroying trap, pinned. `loadPrevious` carries indexable
     // `origin IN (...)`/`destination IN (...)` clauses so it can seek
-    // idx_snap_route_date instead of scanning — but those are a SUPERSET of the
+    // the primary key instead of scanning — but those are a SUPERSET of the
     // pairs the task touched, and `prunable` filters on (flightDate, program)
     // only. It has no pair test of its own.
     //
@@ -397,26 +337,20 @@ describe("applyTask — write-on-change", () => {
     // and applyTask DELETES them. Touch SFO->NRT, OAK->NRT and SFO->HND and the
     // cross product hands you OAK->HND — a real pair, another search's find.
     const { db, reads } = stubDb([]);
-    await applyTask(
-      db,
-      "run-1",
-      task({
+    await applyTask(db, task({
         source: "seatsaero",
         origin: "SFO",
         destination: "NRT",
         programs: ["alaska"],
         offers: [
-          offer({ source: "seatsaero", origin: "SFO", destination: "HND" }),
-          offer({ source: "seatsaero", origin: "OAK", destination: "NRT" }),
+          offer({ origin: "SFO", destination: "HND" }),
+          offer({ origin: "OAK", destination: "NRT" }),
         ],
       }),
     );
-    const baseline = reads.find((r) => r.sql.includes("FROM availability_snapshots"));
+    const baseline = reads.find((r) => r.sql.includes("FROM finds"));
     expect(baseline).toBeDefined();
-    // Once, not twice: the MAX(captured_at) self-join that carried a second
-    // copy of this test went with 0014, so there is one qualified pair test.
     expect(baseline!.sql).toContain("(s.origin || '-' || s.destination) IN");
-    expect(baseline!.sql).not.toContain("MAX(captured_at)");
     // And the pairs bound are the touched ones, never their cross product.
     expect(baseline!.args).toContain("SFO-NRT");
     expect(baseline!.args).toContain("SFO-HND");
@@ -450,7 +384,7 @@ describe("applyTask — write-on-change", () => {
     );
 
     const { db, inserts, deletes } = stubDb([enrichedRow]);
-    const out = await applyTask(db, "run-2", seatsAeroTask());
+    const out = await applyTask(db, seatsAeroTask());
 
     expect(inserts).toHaveLength(0);
     expect(out.snapshotsWritten).toBe(0);
@@ -465,7 +399,7 @@ describe("applyTask — write-on-change", () => {
     const { db, inserts } = stubDb([
       storedRow(summary, hashResult({ ...summary, milesCost: 999_999 })),
     ]);
-    const out = await applyTask(db, "run-3", seatsAeroTask());
+    const out = await applyTask(db, seatsAeroTask());
     expect(inserts).toHaveLength(1);
     expect(out.snapshotsWritten).toBe(1);
   });
@@ -478,7 +412,7 @@ describe("applyTask — write-on-change", () => {
 
   it("persists the enrichment handle and the detail level", async () => {
     const { db, inserts } = stubDb([]);
-    await applyTask(db, "run-4", seatsAeroTask());
+    await applyTask(db, seatsAeroTask());
     expect(inserts).toHaveLength(1);
     expect(tail(inserts[0]!).slice(0, 2)).toEqual(["avail-1", "summary"]);
   });
@@ -487,7 +421,7 @@ describe("applyTask — write-on-change", () => {
     // An enriched row arrives with real legs, and so does anything but
     // seats.aero's Cached-Search summaries — "itinerary" is the right default.
     const { db, inserts } = stubDb([]);
-    await applyTask(db, "run-5", task({ offers: [offer()] }));
+    await applyTask(db, task({ offers: [offer()] }));
     expect(tail(inserts[0]!).slice(0, 2)).toEqual([null, "itinerary"]);
   });
 
@@ -496,20 +430,14 @@ describe("applyTask — write-on-change", () => {
     // one and storing it as data would make "connecting, routing unknown"
     // indistinguishable from "one stop, we checked".
     const { db, inserts } = stubDb([]);
-    await applyTask(
-      db,
-      "run-6",
-      task({ source: "seatsaero", offers: [offer({ isDirect: false, stops: undefined })] }),
+    await applyTask(db, task({ source: "seatsaero", offers: [offer({ isDirect: false, stops: undefined })] }),
     );
     expect(tail(inserts[0]!)[2]).toBeNull();
   });
 
   it("keeps the carriers and the nonstop price the summary row reported", async () => {
     const { db, inserts } = stubDb([]);
-    await applyTask(
-      db,
-      "run-7",
-      task({
+    await applyTask(db, task({
         offers: [
           offer({
             airlines: ["AS", "CX", "JL"],
@@ -539,7 +467,6 @@ describe("applyTask — a task that asked about several city pairs", () => {
   const multi = (t: Partial<SourceTaskReport> = {}) =>
     task({
       source: "seatsaero",
-      taskKey: "seatsaero:PDX+SEA-HND+NRT:2027-03-05..2027-03-05",
       origin: "SEA",
       destination: "NRT",
       routes: PAIRS,
@@ -565,7 +492,7 @@ describe("applyTask — a task that asked about several city pairs", () => {
     // match no stored row — leaving the real pairs' rows outside the baseline
     // and so invisible to both write-on-change and the pruner.
     const { db, reads } = stubDb([]);
-    await applyTask(db, "run-multi", multi({ offers: [] }));
+    await applyTask(db, multi({ offers: [] }));
     const args = reads.flatMap((r) => r.args).map(String);
     expect(args.length).toBeGreaterThan(0);
     for (const a of args) expect(a).not.toContain(",");
@@ -581,7 +508,7 @@ describe("applyTask — a task that asked about several city pairs", () => {
     // The status gate sits upstream of the pair fan-out, and must stay there: a
     // blocked call covering four pairs looked at none of them.
     const { db, inserts, deletes, reads } = stubDb([]);
-    const out = await applyTask(db, "run-blocked", multi({ status: "blocked", offers: [] }));
+    const out = await applyTask(db, multi({ status: "blocked", offers: [] }));
     expect(deletes).toHaveLength(0);
     expect(inserts).toHaveLength(0);
     // It does not even read the baseline: the gate is upstream of everything.
@@ -592,7 +519,7 @@ describe("applyTask — a task that asked about several city pairs", () => {
   it("folds in a pair the source answered with but nobody asked for", async () => {
     // Co-terminal substitution still works on top of the cross product — the two
     // mechanisms compose rather than replacing each other.
-    const surprise = offer({ origin: "SEA", destination: "KIX", source: "seatsaero" });
+    const surprise = offer({ origin: "SEA", destination: "KIX" });
     const touched = routesTouched(multi(), [surprise]);
     expect(touched).toHaveLength(5);
     expect(touched.some((r) => r.destination === "KIX")).toBe(true);

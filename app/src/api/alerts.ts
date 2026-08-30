@@ -5,15 +5,15 @@
 import { req, SEARCH_TIMEOUT_MS } from "./client";
 import type {
   AlertSchedule,
-  SearchRun,
+  Run,
   AlertDelivery,
   TickResult,
 } from "../../../shared/src/wire/index.js";
 
 export const alertSchedule = () => req<AlertSchedule>("/alerts/schedule");
 
-/** Sweep runs — ordinary `search_runs` rows with `trigger='alert'`. */
-export const alertRuns = (limit = 25) => req<SearchRun[]>(`/alerts/runs?limit=${limit}`);
+/** Sweep runs — ordinary `runs` rows with `trigger='alert'`. */
+export const alertRuns = (limit = 25) => req<Run[]>(`/alerts/runs?limit=${limit}`);
 
 export const alertDeliveries = (limit = 25) =>
   req<AlertDelivery[]>(`/alerts/deliveries?limit=${limit}`);

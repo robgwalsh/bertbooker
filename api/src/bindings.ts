@@ -107,7 +107,7 @@ export interface Env {
   CLOUDFLARE_ACCOUNT_ID?: string;
   /** The daily ceiling the rows-read chip draws against. Default 5,000,000, the
    *  Workers FREE plan's per-day allowance, which is what this app runs on and
-   *  what `migrations/0005_read_indexes.sql` was written against.
+   *  what the index list in `migrations/0001_init.sql` was written against.
    *
    *  Configurable because the paid plan's numbers differ in both size and
    *  PERIOD — 25 billion rows read a MONTH, not a day. The chip's window is

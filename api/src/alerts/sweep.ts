@@ -1,10 +1,11 @@
 import { type DigestRoute, groupForRecipients, renderDigest } from "../alerts/digest.js";
 import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "../alerts/pace.js";
 import { parseAlertTypes, selectAlertable } from "../alerts/select.js";
-import type { ChangeSummary } from "../domain/diff.js";
+import { changeKey, type ChangeSummary } from "../domain/diff.js";
 import { planSeatsAeroChunks } from "../providers/seatsaero.js";
 import { queryGroupCount } from "../domain/routing.js";
 import { todayISO } from "../providers/window.js";
+import type { Cabin } from "../domain/types.js";
 import type { Env } from "../bindings.js";
 import { findsFrom, routeFindsScope } from "../db/finds.js";
 import { type MatchableFind, routeMatcher } from "../../../shared/src/match/routeMatch.js";
@@ -15,13 +16,11 @@ import { decideSweep, readBudgetState } from "./budget.js";
 /**
  * The scheduled sweep — the only unattended work in this codebase.
  *
- * Read `docs/ALERTS.md` before changing anything here, and
- * `migrations/0007_alerts.sql` for why this exists at all despite four comments
- * elsewhere forbidding it. The short version is that both objections were real
- * and both are answered rather than ignored: the budget guard returns scoped to
- * this file's caller (`./budget.ts`), and every sweep is an ordinary
- * `search_runs` row visible in the Alerts tab, because no email is ever sent
- * about a failure.
+ * Read `docs/ALERTS.md` before changing anything here. The two standing
+ * objections to unattended spending are answered rather than ignored: the budget
+ * guard is scoped to this file's caller (`./budget.ts`) and lives nowhere else,
+ * and every sweep is an ordinary `runs` row visible in the Alerts tab, because
+ * no email is ever sent about a failure.
  *
  * ## Why a tick is bounded in CALLS, not in routes
  *
@@ -129,12 +128,12 @@ function parseList(json: string | null, fallback?: string): string[] {
  * Every alert-enabled route, with the two things pacing needs alongside it: how
  * long since it was attempted, and what its last completed sweep actually spent.
  *
- * `observed_calls` is read off `search_runs.calls` for THIS route
- * (`route_id`, added in 0008 — the `origin`/`destination` scalars are only the
+ * `observed_calls` is read off `runs.calls` for THIS route
+ * by `route_id` — the `origin`/`destination` scalars are only the
  * route's primary airports, so two routes sharing a pair would otherwise be
  * priced off each other's measurements).
  */
-export async function alertRouteRows(env: Env, email: string): Promise<AlertRouteRow[]> {
+export async function alertRouteRows(env: Env): Promise<AlertRouteRow[]> {
   const { results } = await env.DB.prepare(
     `SELECT tr.id, tr.origin, tr.destination, tr.origins, tr.destinations,
             tr.date_start, tr.date_end, tr.cabins, tr.currencies, tr.direct_only,
@@ -144,15 +143,14 @@ export async function alertRouteRows(env: Env, email: string): Promise<AlertRout
             tr.alert_email, tr.alert_on, tr.alert_min_drop_pct,
             tr.alert_last_attempt_at, tr.alert_last_digest_at,
             tr.alert_consecutive_failures, tr.last_checked_at,
-            (SELECT hr.calls FROM search_runs hr
+            (SELECT hr.calls FROM runs hr
               WHERE hr.route_id = tr.id AND hr.trigger = 'alert'
                 AND hr.finished_at IS NOT NULL
               ORDER BY hr.started_at DESC LIMIT 1) AS observed_calls
        FROM tracked_routes tr
-      WHERE tr.user_email = ? AND tr.alerts_enabled = 1
+      WHERE tr.alerts_enabled = 1
       ORDER BY tr.id`,
   )
-    .bind(email)
     .all<AlertRouteRow>();
   return results ?? [];
 }
@@ -209,7 +207,7 @@ import type { TickResult } from "../../../shared/src/wire/alerts.js";
  *
  * Deliberately returns a summary rather than throwing on a route's failure: a
  * single unsearchable route must not stop the rest of the cycle, and its
- * failure is already durable on its own `search_runs` row.
+ * failure is already durable on its own `runs` row.
  *
  * `opts.force` is the local-dev lever behind `POST /api/alerts/run` — sweep this
  * route id whether or not it is due. It bypasses **cadence and nothing else**:
@@ -230,15 +228,14 @@ export async function runAlertTick(
   const result: TickResult = { sweptRouteIds: [], skipped: [], flushed: 0, pacing: "" };
 
   // `scheduled()` runs no middleware, so there is no `identity` to have done
-  // this. Unset means there is no account to attribute a run to and
-  // `search_runs.user_email` is NOT NULL — fail closed and quietly, exactly as
-  // the gate would.
+  // this. Unset means there is no address a digest could be sent to — fail
+  // closed and quietly, exactly as the gate would.
   if (!email) {
     result.pacing = "no_app_user_email";
     return result;
   }
 
-  const routes = await alertRouteRows(env, email);
+  const routes = await alertRouteRows(env);
   if (routes.length === 0) {
     result.pacing = "no_alert_routes";
     return result;
@@ -325,7 +322,7 @@ export async function runAlertTick(
     const decision = decideSweep({ ...budget, estimatedCost: cost, reserve, dailyBudget });
 
     if (!decision.go) {
-      // No run row: `search_runs.status` has no 'skipped', and a row that never
+      // No run row: `runs.status` has no 'skipped', and a row that never
       // spent anything would pollute the pacing measurements it feeds.
       result.skipped.push({ routeId: target.id, reason: decision.reason });
       // The guard's answer is about the day, not this route, so nothing later in
@@ -350,8 +347,13 @@ export async function runAlertTick(
   // has none. Only reachable when forced, and a forced sweep out of that state
   // is filing into the outbox for a cycle that does not exist — it flushes once
   // the pacing problem is fixed.
-  if (pacing.affordable && (await cycleComplete(env, email, pacing.intervalMinutes, now))) {
+  if (pacing.affordable && (await cycleComplete(env, pacing.intervalMinutes, now))) {
     result.flushed = await flushOutbox(env, email, now);
+    // The one place anything deletes a run row. Bounded by design: this is the
+    // only table in the app that grows on a clock rather than with the data, and
+    // every read of it (the Alerts tab, the pacing lookup, the budget guard's
+    // SUM) gets cheaper for it. Once per completed cycle, not per tick.
+    await pruneOldRuns(env, now);
   }
   return result;
 }
@@ -390,7 +392,7 @@ async function sweepRoute(
   // A paused sweep left a run to resume; picking it up is what keeps one route's
   // coverage on one run row.
   const open = await env.DB.prepare(
-    `SELECT id, tasks_planned, tasks_ok, tasks_failed FROM search_runs
+    `SELECT id, tasks_planned, tasks_ok, tasks_failed FROM runs
       WHERE route_id = ? AND trigger = 'alert' AND status = 'running'
       ORDER BY started_at DESC LIMIT 1`,
   )
@@ -459,7 +461,7 @@ async function sweepRoute(
       pointLimit: route.point_limit ?? null,
     },
   );
-  if (alertable.length) await fileOutbox(env, route.id, opened.runId, alertable, opts.now);
+  if (alertable.length) await fileOutbox(env, route.id, alertable);
   return pass.totals.calls;
 }
 
@@ -495,18 +497,28 @@ async function noteFailure(env: Env, routeId: number): Promise<void> {
 async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string>> {
   const from = findsFrom(routeFindsScope([route]));
   const { results } = await env.DB.prepare(
-    `SELECT f.route_key, f.program, f.cabin, f.origin, f.destination, f.flight_date,
+    `SELECT f.program, f.cabin, f.origin, f.destination, f.flight_date,
             f.transfer_currencies, f.is_direct, f.miles_cost, f.seats_available
        ${from.sql}`,
   )
     .bind(...from.binds)
-    .all<MatchableFind & { route_key: string; program: string }>();
+    .all<MatchableFind & { program: string }>();
 
   const matcher = routeMatcher(route);
   const keys = new Set<string>();
   for (const f of results ?? []) {
-    // Must match `changeKey` in api/src/domain/diff.ts exactly.
-    if (matcher.matches(f)) keys.add(`${f.route_key}|${f.program}|${f.cabin}`);
+    if (!matcher.matches(f)) continue;
+    // `changeKey` itself, not a copy of its format: this set is intersected
+    // against keys the diff produced, so the two spellings must be one.
+    keys.add(
+      changeKey({
+        origin: f.origin,
+        destination: f.destination,
+        flightDate: f.flight_date,
+        program: f.program,
+        cabin: f.cabin as Cabin,
+      }),
+    );
   }
   return keys;
 }
@@ -517,21 +529,18 @@ async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string
 async function fileOutbox(
   env: Env,
   routeId: number,
-  runId: string,
   changes: ChangeSummary[],
-  now: number,
 ): Promise<void> {
   const stmts = changes.map((c) =>
     env.DB.prepare(
       `INSERT INTO alert_outbox
          (route_id, change_key, type, origin, destination, flight_date, program,
-          cabin, miles_cost, seats, prev_miles, prev_seats, detected_at, run_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          cabin, miles_cost, seats, prev_miles, prev_seats)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (route_id, change_key) DO UPDATE SET
          type = excluded.type, miles_cost = excluded.miles_cost,
          seats = excluded.seats, prev_miles = excluded.prev_miles,
-         prev_seats = excluded.prev_seats, detected_at = excluded.detected_at,
-         run_id = excluded.run_id`,
+         prev_seats = excluded.prev_seats`,
     ).bind(
       routeId,
       c.key,
@@ -545,8 +554,6 @@ async function fileOutbox(
       c.seatsAvailable ?? null,
       c.previousMilesCost ?? null,
       c.previousSeats ?? null,
-      now,
-      runId,
     ),
   );
   for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
@@ -554,21 +561,41 @@ async function fileOutbox(
 
 /** Is the cycle over — nothing due, nothing mid-run? Only then does a digest
  *  describe a complete pass rather than an arbitrary slice of one. */
+/** How long a run row is kept. The Alerts tab shows 25, the pacing lookup wants
+ *  the most recent one per route, and the budget guard only ever asks about
+ *  today — so this is generous to every reader and still bounds the table at
+ *  roughly 1,500 rows instead of growing by ~50 a day forever. */
+const RUN_RETENTION_DAYS = 30;
+
+/** Delete run rows older than the retention window.
+ *
+ *  Deliberately unbounded by a LIMIT: at ~50 rows a day the steady-state delete
+ *  is a handful, and a first run after a long gap should get it over with rather
+ *  than leave a backlog that never drains. A run still `running` is spared
+ *  whatever its age — that is a paused search waiting to resume, and deleting it
+ *  would strand the sweep that owns it. */
+async function pruneOldRuns(env: Env, now: number): Promise<void> {
+  await env.DB.prepare(
+    `DELETE FROM runs WHERE started_at < ? AND status <> 'running'`,
+  )
+    .bind(now - RUN_RETENTION_DAYS * 86_400_000)
+    .run();
+}
+
 async function cycleComplete(
   env: Env,
-  email: string,
   intervalMinutes: number,
   now: number,
 ): Promise<boolean> {
   const row = await env.DB.prepare(
     `SELECT
        (SELECT COUNT(*) FROM tracked_routes
-         WHERE user_email = ? AND alerts_enabled = 1
+         WHERE alerts_enabled = 1
            AND (alert_last_attempt_at IS NULL OR alert_last_attempt_at <= ?)) AS due,
-       (SELECT COUNT(*) FROM search_runs
+       (SELECT COUNT(*) FROM runs
          WHERE trigger = 'alert' AND status = 'running') AS running`,
   )
-    .bind(email, now - intervalMinutes * 60_000)
+    .bind(now - intervalMinutes * 60_000)
     .first<{ due: number; running: number }>();
   return (row?.due ?? 0) === 0 && (row?.running ?? 0) === 0;
 }
@@ -583,27 +610,33 @@ async function cycleComplete(
  */
 async function flushOutbox(env: Env, email: string, now: number): Promise<number> {
   const { results } = await env.DB.prepare(
-    `SELECT o.*, tr.alert_email, tr.origin, tr.destination, tr.origins, tr.destinations,
-            tr.round_trip
+    // The aliases are load-bearing. `o.*` already yields `origin` and
+    // `destination` — the CHANGE's — and SQLite keeps the LAST column of a
+    // repeated name, so selecting `tr.origin` unaliased overwrote them with the
+    // route's primary pair and every line of every digest named the wrong city
+    // pair on any multi-airport, hub or round-trip route.
+    `SELECT o.*, tr.alert_email,
+            tr.origin AS route_origin, tr.destination AS route_destination,
+            tr.origins, tr.destinations, tr.round_trip
        FROM alert_outbox o
        JOIN tracked_routes tr ON tr.id = o.route_id
-      WHERE tr.user_email = ?
       ORDER BY o.route_id, o.flight_date`,
   )
-    .bind(email)
     .all<Record<string, unknown>>();
   if (!results?.length) return 0;
 
   const perRoute = new Map<number, DigestRoute>();
-  const runIds = new Set<string>();
   for (const row of results) {
     const routeId = Number(row.route_id);
-    runIds.add(String(row.run_id));
     let entry = perRoute.get(routeId);
     if (!entry) {
       entry = {
         routeId,
-        label: routeLabel(row as unknown as AlertRouteRow),
+        label: routeLabel({
+          ...row,
+          origin: row.route_origin,
+          destination: row.route_destination,
+        } as unknown as AlertRouteRow),
         recipient: (row.alert_email as string | null) ?? email,
         changes: [],
       };
@@ -629,11 +662,10 @@ async function flushOutbox(env: Env, email: string, now: number): Promise<number
   // facts and no failure email exists to tell them apart.
   const quiet = await env.DB.prepare(
     `SELECT tr.* FROM tracked_routes tr
-      WHERE tr.user_email = ? AND tr.alerts_enabled = 1
+      WHERE tr.alerts_enabled = 1
         AND tr.alert_last_digest_at IS NOT NULL
         AND tr.id NOT IN (SELECT route_id FROM alert_outbox)`,
   )
-    .bind(email)
     .all<AlertRouteRow>();
 
   const digestRoutes: DigestRoute[] = [
@@ -662,9 +694,9 @@ async function flushOutbox(env: Env, email: string, now: number): Promise<number
     const changeCount = input.groups.reduce((n, g) => n + g.changes.length, 0);
     await env.DB.prepare(
       `INSERT INTO alert_deliveries
-         (sweep_id, to_email, status, subject, change_count, route_ids_json,
-          run_ids_json, provider_message_id, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (sweep_id, to_email, status, subject, change_count,
+          provider_message_id, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (sweep_id, to_email) DO NOTHING`,
     )
       .bind(
@@ -673,8 +705,6 @@ async function flushOutbox(env: Env, email: string, now: number): Promise<number
         outcome.status,
         rendered.subject,
         changeCount,
-        JSON.stringify(input.groups.map((g) => g.routeId)),
-        JSON.stringify([...runIds]),
         outcome.status === "sent" ? (outcome.providerMessageId ?? null) : null,
         outcome.status === "sent" ? null : outcome.error,
       )

@@ -52,7 +52,7 @@ import {
 //
 // The other thing to internalise: these rows come out of seats.aero's **cache**,
 // not off the airline. `UpdatedAt` is therefore load-bearing — it becomes
-// `sourceFetchedAt`, and `findsCte` picks a winner by freshest
+// `sourceFetchedAt`, and it is what a reader compares by freshest
 // `source_fetched_at`, so a week-old cached row can never out-rank a fresh
 // row from another source. Never substitute the fetch time for it.
 // ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ export const SEATSAERO_TAKE_WITH_TRIPS = 500;
  * seats.aero `Source` string -> our `programs.code`.
  *
  * Only programs that exist in `PROGRAM_SEEDS` appear here, because
- * `availability_snapshots.program` is a foreign key — an unmapped source would
+ * `finds.program` is a foreign key — an unmapped source would
  * fail the insert rather than merely be uninteresting. Everything else is
  * dropped and counted (`normalizeSeatsAero` reports `droppedSources`), so a
  * program we could be storing and aren't shows up as a number rather than as
@@ -304,7 +304,7 @@ export interface NormalizeResult {
  * One availability object fans out to up to FOUR results — one per cabin with
  * space. The snapshot row is keyed (route, date, program, cabin), so this is a
  * fan-out into distinct rows rather than a collapse problem; there is no
- * `collapseBest` step because seats.aero has already collapsed the itineraries
+ * collapse step because seats.aero has already collapsed the itineraries
  * for us (which is also why there are no real segments).
  */
 export function normalizeSeatsAero(
@@ -424,7 +424,6 @@ export function normalizeSeatsAero(
         airlines,
         directAirlines,
         directMilesCost: nonstopExists ? directMilesCost : undefined,
-        source: sourceId,
         sourceRecordId,
         // A row is a summary only when no trip described it. With
         // `include_trips` that is now the exception — the search itself carries
@@ -464,7 +463,7 @@ export function normalizeSeatsAero(
 export * from "../../../shared/src/wire/seatsaero.js";
 
 /** The durable half of a call record: everything except the body. This is what
- *  goes into `search_tasks.capture_json`, matching the shape that column is
+ *  is streamed to whoever is watching, matching the shape the call inspector is
  *  documented to hold ("intercepted responses: url, status, bytes"). Bodies are
  *  session-only — they live in the stream and in the tab that asked. */
 export function callMetadata(c: SeatsAeroCall): Omit<SeatsAeroCall, "body"> {
@@ -498,14 +497,14 @@ export function planSeatsAeroChunks(
 
 /**
  * The task key for a chunk. Derived from the work, so a re-run is idempotent
- * against `search_tasks (run_id, source, task_key)` and two plans agree.
+ * across two plans of the same route.
  *
  * A key describes ONE CALL, and one call may cover many city pairs, so the
  * airports are joined with `+` and never with `,`. That is deliberate: a comma
  * here would make the key indistinguishable from the `origin-destination` form
  * of a single-pair task, and anything that later tried to read a pair back out
  * of a key would silently succeed with the wrong answer. Nothing should parse
- * this — but keys get eyeballed in `search_tasks`, and one that cannot be
+ * this — but a key gets eyeballed in a log line, and one that cannot be
  * misread is worth the character.
  *
  * The lists arrive sorted from `normalizeAirports`, which is what makes the key
@@ -810,7 +809,7 @@ export async function runSeatsAeroChunk(
 // `api/src/search/enrich.ts` and never by the search path.
 //
 // One availability id covers ALL FOUR CABINS of a (route, date, program), so a
-// single call expands up to four `availability_snapshots` rows. That is the
+// single call expands up to four `finds` rows. That is the
 // entire economics of the feature and the reason the id, not the find, is the
 // unit of work.
 //

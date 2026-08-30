@@ -37,9 +37,11 @@ row, one call — so it is never part of a search. A 200-row chunk enriched
 wholesale would spend a fifth of the day's allowance on decoration.
 
 **Rows come out of seats.aero's cache, not off the airline.** `UpdatedAt` is
-therefore load-bearing: it becomes `sourceFetchedAt`, and `findsCte` picks
-winners by freshest `source_fetched_at`. Substituting the fetch time would let a
-week-old cached row out-rank a fresher row from another source.
+therefore load-bearing: it becomes `sourceFetchedAt` and is stored as
+`finds.source_fetched_at` — when the DATA was current, never when we fetched it.
+Substituting the fetch time would make every row look freshly observed on every
+search, and there would be no way to tell a live quote from a week-old cached
+one.
 
 ---
 
@@ -120,10 +122,10 @@ that is left: the route lookup (404), the missing key (**503
 `no_seats_aero_key`**, never an empty result), the chunk plan (400
 `window_outside_horizon`), and the route spec (400 `bad_route_spec`).
 
-Then, per chunk: `runSeatsAeroChunk` → build a `SourceTaskReport` → `recordTask`
-→ `applyTask`. **The same ingest pipeline the alert sweep uses**, so both callers
-fill one database under one set of coverage rules, and a search that dies halfway
-has already stored what it found. A search is recorded as a `search_runs`
+Then, per chunk: `runSeatsAeroChunk` → build a `SourceTaskReport` → `applyTask`.
+**The same ingest pipeline the alert sweep uses**, so both callers fill one
+database under one set of coverage rules, and a search that dies halfway has
+already stored what it found. A search is recorded as a `runs`
 row like any other gathering run, distinguished only by `trigger = 'search'` —
 which is also how the Alerts tab lists sweeps (`trigger = 'alert'`) without
 listing hand-pressed searches.
@@ -144,8 +146,13 @@ streams the moment it lands, carrying timing, status, response headers and the
 body — bounded by `CAPTURE_BUDGET_BYTES` (6 MB across the whole search), past
 which calls still stream with `bodyOmitted` rather than vanishing. **The key is
 redacted in the provider** (`SEATSAERO_REDACTED`, now `shared/src/wire/seatsaero.ts`) before the record exists; never add it
-back. Bodies are session-only — `search_tasks.capture_json` keeps the durable
-half via `callMetadata`.
+back.
+
+**None of it is stored.** A call record is session state, streamed to whoever is
+watching and lost on reload. There was a `search_tasks` table holding a row per
+call — its status, timing, final URL and captured metadata — and nothing ever
+read one back, while it cost four rows written per call. The place to look at a
+call is the search that is making it.
 
 ### Resuming, not capping
 
@@ -165,10 +172,14 @@ frame rule. `searchRoute` in `app/src/api/search.ts` hides it by re-issuing with
 stream — but it still yields the frame so the UI can show the pause. The loop is
 bounded at 64 requests so a Worker that somehow always pauses cannot spin.
 
-Resuming reuses the **same run id**, because `search_tasks.run_id` is a foreign
-key to it and `(run_id, source, task_key)` is UNIQUE — which is what makes
-re-applying a resumed task an update rather than a duplicate. A second run row
-would split one search's tasks across two ids and defeat that.
+Resuming reuses the **same run id**, because the run row is where a resumed pass
+finds its place in the plan: `tasks_ok + tasks_failed` is the index to start
+from, and the counters accumulate rather than being overwritten. A second run row
+would restart the search from zero.
+
+That makes task ORDER load-bearing across passes. `planSeatsAeroChunks` sorts its
+airport lists so two plans of one route agree, and a plan that reordered between
+passes would re-run some chunks and silently skip others.
 
 If a platform limit is ever hit anyway, it degrades correctly rather than
 corrupting: the chunk throws → `failed` → claims no coverage → the run is
@@ -180,8 +191,8 @@ corrupting: the chunk throws → `failed` → claims no coverage → the run is
 
 `normalizeSeatsAero` is pure and is the whole of what the unit tests assert on.
 One availability object fans out to up to **four** results — one per cabin with
-space — because the snapshot row is keyed (route, date, program, cabin). There is
-no `collapseBest` step: seats.aero has already collapsed the itineraries.
+space — because a `finds` row is keyed (route, date, program, cabin). There is no
+further collapse step: seats.aero has already collapsed the itineraries.
 
 ### The program map is a live-verified list, and that is not ceremony
 
@@ -196,7 +207,7 @@ Every key in `SEATSAERO_PROGRAM_MAP` was verified live on 2026-08-09 against
 name is not its source key**: `british` not `britishairways`, `copa` not
 `connectmiles`. Qatar/British/Iberia all map onto one `avios` program code.
 
-Unmapped `Source` values are **dropped** — `availability_snapshots.program` is a
+Unmapped `Source` values are **dropped** — `finds.program` is a
 foreign key, so an unmapped source would fail the insert — and counted onto the
 task's notes, so unmapped breadth shows up as a number rather than as silence.
 
@@ -337,7 +348,7 @@ Three things enrichment deliberately does **not** do:
   looks at ONE row that was already looked at. Claiming here would license
   deleting every other row in that slice on the strength of a detail fetch that
   never asked about them.
-- **Writes no `search_runs` / `search_tasks` row.** The observable-task
+- **Writes no `runs` row.** The observable-task
   invariant is about unattended gathering, where a failure is otherwise
   indistinguishable from "no award space". A failure here goes straight back to
   the person who clicked, as a status code. What stays durable is `enriched_at` —
@@ -376,9 +387,9 @@ Two kinds of row are worth a call, and the second only exists since
 
 A chunk claims coverage for the pairs it asked about and the dates it actually
 saw. `SourceTaskReport.routes` carries the pair list; `origin`/`destination` stay
-**real airports** (the first of each list), because `search_tasks` stores them as
-NOT NULL scalars and the baseline read's pair filter would happily take an
-"airport" called `SEA,PDX` and match no stored row at all.
+**real airports** (the first of each list), because `runs` stores them as NOT
+NULL scalars and the baseline read's pair filter would happily take an "airport"
+called `SEA,PDX` and match no stored row at all.
 
 - **The empty pairs are claimed too, and must be.** "seats.aero answered a query
   covering PDX→HND and returned nothing" is a real `empty`; without the claim, a
@@ -438,7 +449,7 @@ that "who checks quota first" stays a one-file answer to `grep`. It extends the
 `undefined`-not-1000 reasoning above rather than contradicting it: on a day
 nothing has observed a number yet — most days — it neither refuses (the feature
 would die silently) nor assumes a full allowance (optimistic in the direction
-that overspends), but **self-accounts** from `SUM(search_runs.calls)` since
+that overspends), but **self-accounts** from `SUM(runs.calls)` since
 00:00 UTC, and lets the first real observation correct it. See `docs/ALERTS.md`
 §7.
 
@@ -507,7 +518,7 @@ file before committing it.
 | `api/src/domain/routing.ts` | a route as a set of pairs; round-trip spec; the call estimate |
 | `api/src/endpoints/search.ts` | the Search endpoint, the stream, resumption |
 | `api/src/search/enrich.ts` | Get Trips, the engine; `api/src/endpoints/enrich.ts` the two HTTP shapes |
-| `api/src/db/runs.ts` | the shared run/task/quota writers — `recordTask`, `recordQuota`, `finishRun`, `MAX_STORED_CHANGES` |
+| `api/src/db/runs.ts` | the run and quota writers — `recordQuota`, `finishRun`, `MAX_STORED_CHANGES` |
 | `api/src/search/run.ts` | the engine: `planSearchPass` / `openSearchRun` / `runSearchPass` |
 | `api/src/endpoints/quota.ts` | `GET /api/quota`, the chip's endpoint |
 | `app/src/api/search.ts`, `enrich.ts` | `searchRoute` / `enrichRoute` and the resume loop. The wire types they speak are `shared/src/wire/`, not copies |
@@ -516,16 +527,13 @@ file before committing it.
 Invariants worth restating, because each one silently corrupts data rather than
 failing:
 
-- **`SEATSAERO_SOURCE_ID` (`seatsaero`) must never be renamed.** It is a
-  permanent database value: every row it ever wrote carries it and pruning is
-  scoped by it. A new name would orphan all of them, and nothing would ever
-  prune rows that would sit there looking current forever. Renaming it would
-  require a migration touching every table that stores it. `app/src/lib/quota.ts`'s
-  `PRIMARY_METERED_SOURCE` derives from `SEATSAERO_SOURCE_ID` through
-  `shared/src/wire/seatsaero.ts` rather than repeating the literal, specifically
-  so the SPA's quota chip cannot drift out of sync with the database value by
-  hand (see `docs/HARVEST-POSTMORTEM.md` §7 for the incident that motivated
-  this).
+- **`SEATSAERO_SOURCE_ID` (`seatsaero`) is still a stored value, but only in one
+  place: `source_quota.source`.** `finds` carries no provenance column, so
+  renaming the id no longer orphans award rows — it orphans today's quota
+  reading, which self-corrects on the next call. `app/src/lib/quota.ts`'s
+  `PRIMARY_METERED_SOURCE` still derives from it through
+  `shared/src/wire/seatsaero.ts` rather than repeating the literal, so the SPA's
+  quota chip cannot drift out of sync with the value the Worker writes.
 - **`UpdatedAt` → `sourceFetchedAt`.** Never the fetch time.
 - **`raw_hash` is never touched by enrichment.**
 - **The program map is verified live**, and unmapped sources are dropped.
@@ -759,8 +767,8 @@ do.
 
 ### A route that carries its own hubs
 
-A tracked route may store `via` hubs (`migrations/0004_route_via.sql`), and it
-then plans **two queries per date chunk** rather than one:
+A tracked route may store `via` hubs, and it then plans **two queries per date
+chunk** rather than one:
 
 ```
 outbound   SFO -> ICN,DEL,HKG,KTM      origins × (destinations ∪ hubs)
@@ -809,5 +817,5 @@ and neither is a claim that anybody will sell you the whole thing as one ticket.
 
 - `CLAUDE.md` — the invariants in short form.
 - `docs/SOURCES.md` — the plug-in contract, and the ingest rules every source shares.
-- `docs/HARVEST-POSTMORTEM.md` — why this is the only source the Worker calls,
-  and why the ones that read carriers' own sites are gone.
+- `CLAUDE.md` — the host rule, and why this is the only data source the Worker
+  is allowed to call.

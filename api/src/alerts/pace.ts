@@ -55,13 +55,13 @@ export interface AlertRouteCost {
    * it was before, rather than newly broken.
    */
   groups?: number;
-  /** What the route's last sweep actually spent (`search_runs.calls`), when one
+  /** What the route's last sweep actually spent (`runs.calls`), when one
    *  has run. Undefined on a route that has never been swept. */
   observedCalls?: number;
 }
 
 /** Tasks one full sweep plans. The unit `routeSweepCost` counts in, and the
- *  number `search_runs.tasks_planned` holds. */
+ *  number `runs.tasks_planned` holds. */
 export function routeSweepTasks(route: AlertRouteCost): number {
   if (route.chunks <= 0) return 0;
   return route.chunks * Math.max(1, route.groups ?? 1);
@@ -226,7 +226,7 @@ export function routeDueAt(route: AlertRouteClock, intervalMinutes: number): num
  * elapsed rounds each wait up to the next tick *plus one more* whenever the due
  * time lands a hair past it. That is measured, not hypothetical: four routes the
  * Alerts tab paced at `every 15m` were swept every 30 minutes, exactly, for as
- * long as `search_runs` records.
+ * long as `runs` records.
  *
  * The hair is the sweeper's own write. `alert_last_attempt_at` is stamped with
  * the tick's clock, but `last_checked_at` — which `routeDueAt` takes as a floor —

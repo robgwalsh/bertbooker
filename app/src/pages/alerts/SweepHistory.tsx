@@ -8,12 +8,12 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 import { sinceLabel } from "../../lib/format";
-import type { SearchRun } from "../../api";
+import type { Run } from "../../api";
 
-/** Sweep runs — ordinary `search_runs` rows with `trigger='alert'`, so a sweep's
+/** Sweep runs — ordinary `runs` rows with `trigger='alert'`, so a sweep's
  *  failure is durable on its own row whether or not anything mailed about it.
  *  The Error column is the point of the table. */
-export function SweepHistory({ runs }: { runs: SearchRun[] }) {
+export function SweepHistory({ runs }: { runs: Run[] }) {
   return (
     <Paper variant="outlined" sx={{ mb: 3, overflowX: "auto" }}>
       {runs.length === 0 ? (

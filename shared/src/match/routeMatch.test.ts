@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { type MatchableFind, type MatchableRoute, matchesRoute } from "./routeMatch.js";
 
 /**
- * One witness per branch of the SQL `ROUTE_FINDS_MATCH` this replaces, in the
+ * One witness per branch of the SQL predicate this replaces, in the
  * same spirit as `api/src/db/finds.test.ts` pins one witness per branch of the
  * scope superset. The two files are a pair: that one proves the D1 read fetches
  * a find, this one proves the predicate then accepts it.

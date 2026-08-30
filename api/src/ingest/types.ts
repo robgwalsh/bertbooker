@@ -28,14 +28,19 @@ export function claimsCoverage(status: SourceTaskStatus): boolean {
   return COVERAGE_CLAIMING_STATUSES.includes(status);
 }
 
-/** One completed unit of work, with whatever it found. */
+/** One completed unit of work, with whatever it found.
+ *
+ *  This is now purely an in-process hand-off: one producer (the Worker's own
+ *  seats.aero search) builds it and `applyTask` consumes it. Nothing about a
+ *  task is stored — the fields that used to carry a task row's forensics
+ *  (`taskKey`, `attempts`, `finalUrl`, `httpStatus`, `capture`) went with the
+ *  table, and what a person needs to debug a bad call is streamed to them as it
+ *  happens instead. */
 export interface SourceTaskReport {
   source: string;
-  /** Stable within a run — the idempotency key for re-POSTing a batch. */
-  taskKey: string;
-  /** The task's representative city pair. `search_runs` and `search_tasks`
-   *  store these as NOT NULL scalars, so they are always a REAL airport each —
-   *  never a comma-joined list, whatever the task actually asked about. */
+  /** The task's representative city pair. `runs` stores these as NOT NULL
+   *  scalars, so they are always a REAL airport each — never a comma-joined
+   *  list, whatever the task actually asked about. */
   origin: string;
   destination: string;
   /**
@@ -60,12 +65,7 @@ export interface SourceTaskReport {
   status: SourceTaskStatus;
   startedAt: number;
   finishedAt: number;
-  attempts?: number;
   error?: string;
-  finalUrl?: string;
-  httpStatus?: number;
-  /** Whatever the source wants kept for forensics on a bad task. */
-  capture?: unknown;
   /** Narrower than `dates` when the source answered for only part of the window.
    *  Defaults to `dates`. Over-claiming here deletes real finds. */
   coveredDates?: string[];

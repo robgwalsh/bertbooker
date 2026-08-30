@@ -62,7 +62,8 @@ function HeaderTable({ headers }: { headers: Record<string, string> }) {
  * handed.
  *
  * The body is session state, streamed alongside the results — it is not stored,
- * and a reload loses it. `search_tasks.capture_json` keeps the metadata.
+ * and a reload loses it. Nothing durable holds it: the database records that a
+ * run happened, never the calls it made.
  */
 export function CallDialog({ call, onClose }: { call: SearchCall | null; onClose: () => void }) {
   const [copied, setCopied] = useState(false);

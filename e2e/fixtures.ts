@@ -64,11 +64,17 @@ const PIXEL = Buffer.from(
  * exposed by `--test-scheduled` in the `dev:api` script and fires a REAL alert
  * tick — a sweep, an ingest, and an email.
  *
- * None of these is something a UI test needs, and all three are one stray click
+ * None of these is something a UI test needs, and every one is a stray click
  * away in the pages under test. Blocked, and loudly.
  */
 const METERED_PATTERNS: RegExp[] = [
   /\/api\/tracked-routes\/[^/]+\/search/,
+  // BOTH enrich paths. The per-route one below is the bulk button; this is the
+  // single find's, which names a row by its coordinates and spends one
+  // `/trips/{id}` call on it. It was missing from this list, so the one control
+  // a test is likeliest to click by accident was the one that could actually
+  // spend quota.
+  /\/api\/finds\/enrich/,
   /\/api\/tracked-routes\/[^/]+\/enrich/,
   // Fetching one source's route graph for the Tools page's Data coverage tab.
   // One call of the same 1000, and it is a single button on a page a test

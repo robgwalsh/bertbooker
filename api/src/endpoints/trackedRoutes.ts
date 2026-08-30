@@ -31,9 +31,8 @@ export const trackedRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
 trackedRoutes.get("/api/tracked-routes", async (c) => {
   const email = c.get("userEmail");
   const { results } = await c.env.DB.prepare(
-    "SELECT * FROM tracked_routes WHERE user_email = ? ORDER BY created_at DESC",
+    "SELECT * FROM tracked_routes ORDER BY created_at DESC",
   )
-    .bind(email)
     .all<TrackedRoute>();
   return c.json(results);
 });
@@ -83,7 +82,7 @@ interface RouteBody {
   /** Show only nonstop finds under this route. A read filter; see the migration. */
   directOnly?: boolean;
   /** The most miles an award may cost to be shown. A read filter; see
-   *  migrations/0007. Three-valued like the list filters above: absent keeps
+   *  Three-valued like the list filters above: absent keeps
    *  what is stored, `null` clears the limit, a number sets it. */
   pointLimit?: number | null;
   /** Search BOTH directions. A gathering setting, not a read filter — turning
@@ -238,7 +237,7 @@ async function validateAlerts(
  *
  * `cabins`, `currencies` and `programs` were stringified straight out of the
  * request body with no cap on length and no check on content at all. They are
- * re-parsed by `json_each` in every `ROUTE_FINDS_MATCH` scan and by every
+ * re-parsed by `json_each` in every scan and by every
  * sweep, so a multi-megabyte array is not merely an odd-looking row: it is a
  * cost paid on every read of the Routes page, for as long as the route exists,
  * by a route that looks entirely normal in the UI.
@@ -383,17 +382,16 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
 
   const res = await c.env.DB.prepare(
     `INSERT INTO tracked_routes
-       (user_email, origin, destination, origins, destinations, via,
-        date_start, date_end, cabin, cabins, min_seats, programs, currencies, kind, direct_only,
+       (origin, destination, origins, destinations, via,
+        date_start, date_end, cabins, min_seats, currencies, direct_only,
         point_limit, round_trip, alerts_enabled, alert_email, alert_on, alert_min_drop_pct)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      RETURNING id`,
   )
     .bind(
-      email,
-      // Legacy scalars (NOT NULL), kept as the route's PRIMARY airport — the same
-      // representative-value trick `cabin` uses below. `search_runs` and other
-      // readers still key off these.
+      // The scalars are NOT NULL and stay the route's PRIMARY airport of each
+      // side. `runs` records them the same way, so a run can be read back
+      // against the route it was of.
       spec.origins[0]!,
       spec.destinations[0]!,
       JSON.stringify(spec.origins),
@@ -401,22 +399,17 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
       viaColumn(via),
       b.dateStart,
       b.dateEnd,
-      // Legacy scalar `cabin` (NOT NULL): kept in sync as a representative value
-      // for any SELECT * reader; `cabins` is the authoritative filter now.
-      cabins?.length === 1 ? cabins[0] : "any",
       // Store NULL (not "[]") when no filter, so downstream "no filter" checks
-      // and the Routes page join treat an empty selection as "any cabin".
+      // treat an empty selection as "any cabin".
       cabins ? JSON.stringify(cabins) : null,
       clampMinSeats(b.minSeats, 2),
-      b.programs?.length ? JSON.stringify(b.programs) : null,
       // Same NULL-when-empty rule for the currency filter ("any currency").
       b.currencies?.length ? JSON.stringify(b.currencies) : null,
-      b.kind ?? "flight",
       b.directOnly ? 1 : 0,
       // NULL = no limit, which is what a route with no opinion gets.
       clampPointLimit(b.pointLimit, null),
       // Unlike every other flag bound here, this one changes what a search
-      // GATHERS: both directions in the one call. See migrations/0004.
+      // GATHERS: both directions in the one call.
       b.roundTrip ? 1 : 0,
       // ...and so does this one: it enrolls the route in the cron sweep.
       b.alertsEnabled ? 1 : 0,
@@ -463,9 +456,9 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
   if (!lists.ok) return c.json({ error: "bad_list", message: lists.message }, 400);
 
   const row = await c.env.DB.prepare(
-    "SELECT * FROM tracked_routes WHERE id = ? AND user_email = ?",
+    "SELECT * FROM tracked_routes WHERE id = ?",
   )
-    .bind(id, email)
+    .bind(id)
     .first<Record<string, unknown>>();
   if (!row) return c.json({ error: "not_found" }, 404);
 
@@ -562,11 +555,11 @@ trackedRoutes.patch("/api/tracked-routes/:id", async (c) => {
             -- A settings change is a fresh start for the back-off too; otherwise
             -- fixing a broken window would still wait out the old penalty.
             alert_consecutive_failures = 0
-      WHERE id = ? AND user_email = ?`,
+      WHERE id = ?`,
   )
     .bind(
-      // The legacy scalars stay the PRIMARY airport of each side, exactly as on
-      // insert: they are NOT NULL and other readers still key off them.
+      // The scalars stay the PRIMARY airport of each side, exactly as on insert:
+      // they are NOT NULL and `runs` records them the same way.
       spec.origins[0]!,
       spec.destinations[0]!,
       JSON.stringify(spec.origins),
@@ -629,9 +622,9 @@ trackedRoutes.get("/api/tracked-routes/:id/paths", async (c) => {
   if (id === null) return c.json({ error: "bad_id" }, 400);
   const row = await c.env.DB.prepare(
     `SELECT origin, destination, origins, destinations, round_trip
-       FROM tracked_routes WHERE id = ? AND user_email = ?`,
+       FROM tracked_routes WHERE id = ?`,
   )
-    .bind(id, email)
+    .bind(id)
     .first<Record<string, unknown>>();
   if (!row) return c.json({ error: "not_found" }, 404);
 
@@ -659,8 +652,8 @@ trackedRoutes.delete("/api/tracked-routes/:id", async (c) => {
   // a 200. See `rowIdParam`.
   const id = rowIdParam(c.req.param("id"));
   if (id === null) return c.json({ error: "bad_id" }, 400);
-  await c.env.DB.prepare("DELETE FROM tracked_routes WHERE id = ? AND user_email = ?")
-    .bind(id, email)
+  await c.env.DB.prepare("DELETE FROM tracked_routes WHERE id = ?")
+    .bind(id)
     .run();
   return c.json({ ok: true });
 });

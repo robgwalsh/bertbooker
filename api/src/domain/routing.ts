@@ -35,7 +35,7 @@ export type { RouteLegRole, RoutePair, RouteSpec } from "../../../shared/src/wir
 /** Uppercase, trim, drop blanks, dedupe, and sort.
  *
  *  Sorting is not cosmetic: `seatsAeroTaskKey` is built from these lists, and
- *  `search_tasks` is unique on `(run_id, source, task_key)`. Without a stable
+ *  a resumed pass indexes into this list by count. Without a stable
  *  order the same route searched twice would produce two different keys for the
  *  same work. */
 export function normalizeAirports(codes: readonly string[] | null | undefined): string[] {
@@ -130,7 +130,7 @@ export function searchSpec(spec: RouteSpec, roundTrip = false): Required<RouteSp
 export interface RouteLegGroup {
   /** `direct` is the whole of a route with no hubs. The other two are the halves
    *  of a route with them, and the name reaches `seatsAeroTaskKey` so two groups
-   *  over one date range cannot collide on `search_tasks`'s unique key. */
+   *  over one date range stay distinguishable. */
   role: RouteLegRole;
   origins: string[];
   destinations: string[];
@@ -249,7 +249,7 @@ export interface CallEstimate {
    *  ends below are missing without it. */
   groups: number;
   /** Tasks the search plans — `chunks * groups`, and the unit everything
-   *  downstream counts in. `search_runs.tasks_planned` is this number. */
+   *  downstream counts in. `runs.tasks_planned` is this number. */
   tasks: number;
   /** One call per TASK — what a search costs when every query fits in a single
    *  page. */

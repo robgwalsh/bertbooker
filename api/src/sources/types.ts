@@ -37,7 +37,7 @@ export interface SourceQuery {
  * one API call, one date range. Small enough that its failure is informative,
  * large enough that the metadata isn't noise.
  *
- * Each task becomes a row in `search_tasks` with its own status, timing and
+ * Each task is reported with its own status, timing and
  * error. That is the property the whole design rests on: "11 of 14 came back and
  * three were refused" has to be queryable, not a log line.
  */
@@ -93,16 +93,17 @@ export interface SourceCtx {
  * that judges the CLIENT. A source that fails that test does not get added.
  */
 export interface SourceDescriptor {
-  /** Stable id, and the value stored in `availability_snapshots.source`.
+  /** Stable id, for the registry and for run logs.
    *
-   *  It is a PERMANENT STORED VALUE. Renaming one without migrating that table
-   *  orphans every row it ever wrote: prunes are scoped per source, so nothing
-   *  would ever clean them and they would read as current forever. */
+   *  It is NOT stored. `finds` carries no provenance column: there is one
+   *  source, and adding a second is a schema change rather than a config change.
+   *  So retiring this one is deleting the rows in `finds`, not migrating a
+   *  column full of its name. */
   readonly id: string;
   /** Human label for the UI and for run logs. */
   readonly label: string;
   /** programs.code values this source can emit. Every one MUST exist in
-   *  `PROGRAM_SEEDS` — `availability_snapshots.program` is a foreign key, so a
+   *  `PROGRAM_SEEDS` — `finds.program` is a foreign key, so a
    *  typo here is a write that fails at runtime. */
   readonly programs: string[];
   /** How far ahead this source can see. Establish it empirically; a guess that

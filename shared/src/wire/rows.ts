@@ -2,6 +2,7 @@
 //
 // These are the shapes with no other written-down form. Their authority is SQL:
 // a column list in a route handler, or `FIND_COLUMNS` in `api/src/db/finds.ts`.
+// The table each one asserts about is named on it.
 // TypeScript cannot check an interface against a SQL string, so `.all<T>()` in
 // the Worker is an ASSERTION, not a validation — each type below names the
 // statement it is asserting about, and that comment is the only thing keeping
@@ -33,7 +34,7 @@ export interface TrackedRoute {
    * monitored on — SFO-KTM is in nobody's graph — comes back empty from every
    * search forever while still being reachable with a stop, and the alternative
    * was a sibling route per leg cluttering the rail. Ignored on a round trip;
-   * see migrations/0004_route_via.sql.
+   * Ignored on a round trip.
    */
   via: string | null;
   date_start: string;
@@ -73,42 +74,37 @@ export interface TrackedRoute {
   alert_consecutive_failures: number;
 }
 
-// Asserts about the shape migrations/0001_init.sql defines for search_runs.
-// One row per gather, whoever asked for it: the Worker writes `search` for a
-// button press and `alert` for the cron.
-export interface SearchRun {
+/**
+ * A row of `runs` — one gather, whoever asked for it: `search` for a button
+ * press, `alert` for the cron.
+ *
+ * `tasks_ok` and `tasks_failed` are not decoration. Their sum is the index a
+ * resumed pass starts the plan from, which is why they accumulate across passes
+ * rather than being overwritten.
+ */
+export interface Run {
   id: string;
-  user_email: string;
-  trigger: "local" | "search" | "alert";
+  trigger: "search" | "alert";
+  /** The tracked route this run was of. `origin`/`destination` are only that
+   *  route's PRIMARY airports, so two routes sharing a pair are otherwise
+   *  indistinguishable. */
+  route_id: number | null;
   origin: string;
   destination: string;
-  date_start: string;
-  date_end: string;
-  programs_json: string | null;
-  sources_json: string;
   status: RunStatus;
   started_at: number;
   finished_at: number | null;
-  duration_ms: number | null;
   tasks_planned: number;
   tasks_ok: number;
   tasks_failed: number;
   offers_found: number;
-  snapshots_written: number;
-  snapshots_pruned: number;
-  /** Outbound metered calls this run actually spent (migrations/0006). NULL on
-   *  runs written before it existed, and on local runs, which spend none. */
+  /** Outbound metered calls this run actually spent. NULL means nobody counted. */
   calls: number | null;
-  /** The tracked route this run was of (migrations/0008). NULL for a `local`
-   *  run, which is a city pair someone typed rather than a saved route. */
-  route_id: number | null;
   changes_json: string | null;
   error: string | null;
-  host: string | null;
-  runner_version: string | null;
 }
 
-// migrations/0001_init.sql — what a metered source has left today. The
+// A row of `source_quota` — what a metered source has left today. The
 // vendor's rate-limit header is only visible to whoever made the call, so it is
 // written down here to be readable afterwards (and from a phone). `day` is UTC,
 // because that is when seats.aero's allowance resets. A display, not a guard —
@@ -121,27 +117,24 @@ export interface SourceQuota {
   observed_at: number;
 }
 
-/** migrations/0007_alerts.sql — alert_deliveries. Every digest we tried to send,
- *  including the ones that never went out. With no failure email, this is the
- *  only trace a dropped digest leaves. */
+/** A row of `alert_deliveries`. Every digest we tried to send, including the
+ *  ones that never went out — with no failure email, this is the only trace a
+ *  dropped digest leaves. `(sweep_id, to_email)` is the key, and the reason
+ *  there is no `id`. */
 export interface AlertDelivery {
-  id: number;
   sweep_id: string;
   to_email: string;
   status: "sent" | "failed" | "skipped";
   subject: string | null;
   change_count: number;
-  route_ids_json: string;
-  run_ids_json: string;
   provider_message_id: string | null;
   error: string | null;
   created_at: number;
 }
 
 /**
- * One current find, as `findsCte` projects it. The authority is `FIND_COLUMNS`
- * in `api/src/db/finds.ts`, and every read of a stored find goes through that one
- * CTE so no two surfaces can disagree about what a current find is.
+ * One current find — a row of `finds`, as `FIND_COLUMNS` projects it
+ * (`api/src/db/finds.ts`).
  *
  * `cabin` is `string` and NOT the `Cabin` union, deliberately: this is a
  * database row, the column is untyped TEXT, and the app's key-collision test
@@ -176,11 +169,6 @@ export interface Find {
   /** What the NONSTOP costs when one exists and is dearer than `miles_cost`
    *  (which quotes the cheapest itinerary of any shape). */
   direct_miles_cost?: number | null;
-  /** The cheapest this slot has ever been observed at, across every source and
-   *  every search — from `price_history` (migrations/0009), by a correlated
-   *  seek in `findsCte`. Null when nothing was ever recorded for it, which is
-   *  a different thing from "this is the cheapest". */
-  best_miles_ever?: number | null;
   duration_minutes?: number | null;
   booking_url?: string | null;
   segments_json?: string; // JSON array of Segment (flight numbers, times, aircraft)
@@ -195,8 +183,7 @@ export interface Find {
    *  same wasted API call again. */
   enriched_at?: number | null;
   /** The source's own id for the availability record. Non-null is what makes a
-   *  summary row enrichable at all; seats.aero rows written before 0011 have
-   *  none until the next search rewrites them. */
+   *  summary row enrichable at all. */
   source_record_id?: string | null;
 }
 
@@ -293,27 +280,4 @@ export interface RouteInput {
    *  permanently silent". */
   alertOn?: AlertType[] | null;
   alertMinDropPct?: number;
-}
-
-/**
- * One observation of what a slot cost, as `readSlotHistory` projects it
- * (`api/src/db/priceHistory.ts`).
- *
- * **A NULL `miles_cost` is a real point, not a missing one:** it records that a
- * source covered this slot and reported no offer for it. Rendering it as a zero
- * would claim a free seat, and bridging over it would claim the award never went
- * away.
- *
- * `source_fetched_at` is null on exactly those points — there is no vendor
- * timestamp for a row the vendor did not send — so `captured_at`, when we
- * observed the absence, is the only clock a gone point has.
- */
-export interface PricePoint {
-  miles_cost: number | null;
-  seats_available: number | null;
-  cash_fees_cents: number | null;
-  fees_currency: string | null;
-  source: string;
-  source_fetched_at: number | null;
-  captured_at: number;
 }

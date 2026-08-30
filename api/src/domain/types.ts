@@ -16,15 +16,13 @@ export type { Alliance, Cabin, Currency, Segment } from "../../../shared/src/wir
 /** The four cabins in ascending value order — useful for "best cabin" logic. */
 export const CABIN_ORDER: readonly Cabin[] = ["economy", "premium", "business", "first"];
 
+/** A program is an airline's or a hotel's. Nothing SEARCHES a hotel program —
+ *  the Library page is what renders them. */
 export type ProgramKind = "airline" | "hotel";
-
-/** What a search is looking for. Distinct from ProgramKind: a "flight" search
- *  spans airline programs, a "hotel" search spans hotel programs. */
-export type SearchKind = "flight" | "hotel";
 
 /** A normalized search request, independent of any provider's query format. */
 export interface SearchParams {
-  origin: string; // IATA (airport or hotel-city code)
+  origin: string; // IATA
   destination: string; // IATA
   dateStart: string; // ISO date (YYYY-MM-DD)
   dateEnd: string; // ISO date (inclusive)
@@ -36,12 +34,10 @@ export interface SearchParams {
    *  ["chase_ur","bilt"]); undefined/empty = any the couple can book. */
   currencies?: string[];
   minSeats: number; // couple => 2
-  kind: SearchKind;
-  hotelId?: string; // when kind === "hotel"
 }
 
 /** One bookable award result for a single date/program/cabin. Mirrors a row
- *  in the `availability_snapshots` D1 table. */
+ *  in the `finds` D1 table. */
 export interface AvailabilityResult {
   origin: string;
   destination: string;
@@ -78,10 +74,6 @@ export interface AvailabilityResult {
   /** Deep link to book this award on the airline/loyalty program's own site,
    *  when the source provides one. Falls back to a flight search in the UI. */
   bookingUrl?: string;
-  /** Source id that produced this result. Today always `"seatsaero"`.
-   *  A PERMANENT STORED VALUE — `availability_snapshots.source` — and prunes are
-   *  scoped by it, so renaming or retiring one is a migration. */
-  source: string;
   /** The SOURCE's own id for the availability record this came out of — the
    *  handle a later per-itinerary detail fetch needs. seats.aero's Availability
    *  `ID`; unset for sources that expose no such id.

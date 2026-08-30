@@ -53,7 +53,7 @@ export class BlockedError extends Error {
  * docs/SEATS-AERO.md §9. `challenged` is the one that's vestigial: it was the
  * vocabulary of the carrier scrapers this app no longer runs, and nothing
  * `detectBlock` produces below can trigger it anymore. It stays as a status
- * only because `search_tasks.status` still declares it as a DB-level enum
+ * only because `SourceTaskStatus` still declares it
  * value.
  */
 export function classifyError(err: unknown): { status: SourceTaskStatus; message: string } {
@@ -79,10 +79,10 @@ export function classifyError(err: unknown): { status: SourceTaskStatus; message
  * the wire and is exactly the sort of thing that ends up in a screenshot.
  *
  * Everything else is unbounded. A D1 failure arrives as `D1_ERROR: NOT NULL
- * constraint failed: availability_snapshots.<column>`, a bind overflow as "too
+ * constraint failed: finds.<column>`, a bind overflow as "too
  * many SQL variables", a parser bug as whatever the runtime said. That is
  * internal schema and internal structure, and it was being streamed to the
- * client AND persisted into `search_runs.error`, which the Alerts tab renders
+ * client AND persisted into `runs.error`, which the Alerts tab renders
  * straight back. Those become one fixed sentence.
  *
  * Nothing is lost for debugging: callers still record `classifyError`'s raw

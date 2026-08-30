@@ -204,7 +204,7 @@ export function stitchJourneys(
       for (const b of candidates) {
         // The cap is about the COST ON THE ROW, and the row's cost is the sum.
         // `legFilter` already dropped legs over it one at a time — that is the
-        // route's own filter, mirroring ROUTE_FINDS_MATCH — but two affordable
+        // route's own filter, mirroring `routeMatcher` — but two affordable
         // legs still add up to a journey that is not, and printing 131,000 mi
         // under a chip reading "100,000 mi max" is the app contradicting itself
         // on one screen. Applied here rather than after `sort` so `considered`
@@ -250,7 +250,7 @@ export function stitchJourneys(
  * A route's finds, split into the ones it is NAMED for and the legs it monitors
  * on the way.
  *
- * `ROUTE_FINDS_MATCH` returns both under one route now, which is what makes a
+ * `routeMatcher` returns both under one route now, which is what makes a
  * journey possible without a second request — but a leg is not an answer to the
  * question the route asks. SFO->ICN under a route to KTM is a row that looks
  * like a find and is half of one, and listing it beside the direct results is
@@ -270,7 +270,7 @@ export function splitDirectAndLegs(
   const legs: Find[] = [];
   for (const f of finds) {
     // A round trip's return leg is direct too — it is the route's own pair,
-    // reversed, and `ROUTE_FINDS_MATCH` returns it for exactly that reason.
+    // reversed, and `routeMatcher` returns it for exactly that reason.
     const isDirect =
       (from.has(f.origin) && to.has(f.destination)) ||
       (route.round_trip === 1 && to.has(f.origin) && from.has(f.destination));
@@ -282,7 +282,7 @@ export function splitDirectAndLegs(
 /**
  * The route's filters, as a predicate over any find.
  *
- * `ROUTE_FINDS_MATCH` (`api/src/db/finds.ts`) already applied each route's
+ * `routeMatcher` already applied each route's
  * filters to its OWN finds server-side. A journey borrows legs from other
  * routes, so those filters have to be applied again here or a route filtered to
  * business could be shown an economy leg. This mirrors that SQL exactly.

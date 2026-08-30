@@ -91,7 +91,7 @@ interface RoundTripCommon {
    *
    * Compared against `totalMiles`, the SUM — the number this pane prints in its
    * Cost column. Each leg was already capped server-side by
-   * `ROUTE_FINDS_MATCH`, so this only ever removes trips whose two affordable
+   * `routeMatcher`, so this only ever removes trips whose two affordable
    * halves add up to one that is not; without it a route chipped "100,000 mi
    * max" would print a 180,000 mi trip and contradict itself on one screen.
    */

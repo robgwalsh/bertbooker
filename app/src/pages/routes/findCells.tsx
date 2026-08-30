@@ -5,7 +5,6 @@ import { itineraryLegs } from "./Itinerary";
 import type { Journey } from "../../lib/multiLeg";
 import type { RoundTripPair } from "../../lib/roundtrip";
 import { dollars, miles, money } from "../../lib/format";
-import { vsBest } from "../../lib/priceHistory";
 
 // The cell BODIES that both layouts draw.
 //
@@ -32,12 +31,6 @@ export function FindCost({ f }: { f: Find }) {
   // more than an order of magnitude, and it is a number people act on.
   const fees = f.cash_fees_cents > 0 ? `+ ${money(f.cash_fees_cents, f.fees_currency)}` : "";
 
-  // Read off the row, which `findsCte` filled from price_history — no fetch, so
-  // a page of two hundred of these costs nothing. Null when the slot has no
-  // recorded history, and "no cheapest known" must not render as "this is the
-  // cheapest".
-  const best = vsBest(f.miles_cost, f.best_miles_ever);
-
   return (
     <>
       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
@@ -62,23 +55,6 @@ export function FindCost({ f }: { f: Find }) {
             sx={{ display: "block", fontVariantNumeric: "tabular-nums", cursor: "help" }}
           >
             nonstop {miles(f.direct_miles_cost)}
-          </Typography>
-        </Tooltip>
-      )}
-      {best && (
-        <Tooltip
-          title={
-            best.isBest
-              ? "The lowest this slot has been recorded at since we started watching it."
-              : `The lowest recorded for this slot is ${miles(f.best_miles_ever!)}.`
-          }
-        >
-          <Typography
-            variant="caption"
-            color={best.isBest ? "success.main" : "text.secondary"}
-            sx={{ display: "block", cursor: "help", fontWeight: best.isBest ? 700 : 400 }}
-          >
-            {best.isBest ? "cheapest seen" : `+${best.pctAbove}% over best`}
           </Typography>
         </Tooltip>
       )}

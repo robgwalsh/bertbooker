@@ -207,7 +207,7 @@ describe("normalizeSeatsAero — trips embedded in the search", () => {
 
   it("still drops an unmapped Source and counts it", () => {
     // `azul` carries trips like everything else; being described is not being
-    // storable — availability_snapshots.program is a foreign key.
+    // storable — finds.program is a foreign key.
     expect(norm.offers.some((o) => o.program === "azul")).toBe(false);
     expect(norm.droppedSources.azul).toBe(1);
   });

@@ -20,7 +20,7 @@ beforeEach(() => __resetRegistryForTests());
 
 describe("registerSource", () => {
   it("rejects a program that is not seeded", () => {
-    // This is the registry's whole live job. `availability_snapshots.program` is
+    // This is the registry's whole live job. `finds.program` is
     // a foreign key, so an unseeded program would otherwise surface as a write
     // failing mid-search rather than as a bad registration — and because
     // `sources/index.ts` registers at import time, this fires on Worker boot.
@@ -31,7 +31,7 @@ describe("registerSource", () => {
   });
 
   it("rejects a duplicate id from a different source", () => {
-    // Two services writing rows under one `availability_snapshots.source` would
+    // Two services writing rows under one `finds.source` would
     // make a prune delete the wrong data.
     registerSource(descriptor({ id: "dup" }));
     expect(() => registerSource(descriptor({ id: "dup", label: "Other" }))).toThrow(/duplicate/);
@@ -58,7 +58,7 @@ describe("the built-in catalogue", () => {
   });
 
   it("keeps the id the database stores", () => {
-    // `seatsaero` is written into `availability_snapshots.source`, and prunes
+    // `seatsaero` is written into `finds.source`, and prunes
     // are scoped per source — so renaming it without migrating that table
     // orphans every row it ever wrote. It was `api:seatsaero` once, and that
     // rename took a migration touching four tables. See docs/SEATS-AERO.md.

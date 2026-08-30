@@ -4,16 +4,14 @@ import type { ChangeSummary, ChangeType } from "../domain/diff.js";
  * Which of a sweep's changes are worth an email.
  *
  * Pure, and deliberately does NOT re-implement the route's read filters. That
- * question — *would this route's own pane show this find?* — is answered in SQL
- * by intersecting with the finds query (`ROUTE_FINDS_MATCH` in
- * `api/src/db/finds.ts`), and the caller hands the answer in as
- * `findKeys`.
+ * question — *would this route's own pane show this find?* — is answered by
+ * `routeMatcher` (`shared/src/match/routeMatch.ts`), the same predicate the
+ * Routes page runs, and the caller hands the answer in as `findKeys`.
  *
  * The reason is worth stating, because writing the filter here would have been
- * the obvious thing to do. "Can the couple book this?" is the currency clause in
- * `ROUTE_FINDS_MATCH`, and a copy here would be blind to the cross-source
- * collapse — so it could fire on a snapshot another source has already
- * superseded: an email about a seat the app itself does not show.
+ * the obvious thing to do: a second copy of "can the couple book this?" would
+ * drift from the one the page uses, and an alert that fires on a find the
+ * route's own pane hides is indistinguishable from a bug in either half.
  */
 
 /** The four transitions `diffAvailability` classifies. */

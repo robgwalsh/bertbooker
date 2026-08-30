@@ -33,7 +33,7 @@ const norm = normalizeSeatsAero(resp, "seatsaero", 999);
 
 describe("SEATSAERO_PROGRAM_MAP", () => {
   it("only maps to programs that exist in PROGRAM_SEEDS", () => {
-    // availability_snapshots.program is a FK — an unseeded code fails the insert
+    // finds.program is a FK — an unseeded code fails the insert
     // rather than merely being uninteresting.
     const seeded = new Set(PROGRAM_SEEDS.map((s) => s.code));
     for (const code of SEATSAERO_PROGRAMS) expect(seeded.has(code)).toBe(true);
@@ -237,7 +237,7 @@ describe("normalizeSeatsAero", () => {
 
   it("takes sourceFetchedAt from UpdatedAt, not from the fetch time", () => {
     // The cache timestamp is what lets a fresher row from another source
-    // out-rank these in findsCte. Substituting the fetch time would make every
+    // out-rank these. Substituting the fetch time would make every
     // cached row look brand new.
     const as = norm.offers.find((o) => o.program === "alaska")!;
     expect(as.sourceFetchedAt).toBe(Date.parse("2026-08-09T13:58:49.539607Z"));
@@ -644,7 +644,7 @@ describe("runSeatsAeroChunk — the call record", () => {
   });
 
   it("callMetadata drops the body and keeps everything else", async () => {
-    // This is what reaches search_tasks.capture_json — durable, small, and still
+    // This is what reaches the call inspector — small, and still
     // free of the key.
     const { impl } = stubFetch([oneShot]);
     const out = await runSeatsAeroChunk(chunk(), {

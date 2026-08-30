@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, Vars } from "../bindings.js";
 import type { Find, RoutesData, TrackedRoute } from "../../../shared/src/wire/index.js";
 import type { ScopedRoute } from "../db/finds.js";
-import { BEST_MILES_EVER, FIND_COLUMNS, findsFrom, routeFindsScope } from "../db/finds.js";
+import { FIND_COLUMNS, findsFrom, routeFindsScope } from "../db/finds.js";
 import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 
 /**
@@ -22,7 +22,6 @@ export const routes = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 // ---- The Routes page: monitors + best current finds ----
 routes.get("/api/routes", async (c) => {
-  const email = c.get("userEmail");
   // TWO round trips, not one `batch()`, and the second depends on the first:
   // the finds query is SCOPED to the airports and date windows these routes
   // actually cover, and there is no way to read route rows out of a batch that
@@ -68,9 +67,8 @@ routes.get("/api/routes", async (c) => {
         " last_checked_at," +
         " alerts_enabled, alert_email, alert_on, alert_min_drop_pct," +
         " alert_last_attempt_at, alert_last_digest_at, alert_consecutive_failures" +
-        " FROM tracked_routes WHERE user_email = ? ORDER BY created_at DESC",
+        " FROM tracked_routes ORDER BY created_at DESC",
   )
-    .bind(email)
     .all<TrackedRoute & ScopedRoute>();
 
   // The route-set and date columns the scope needs are already in the list
@@ -87,7 +85,7 @@ routes.get("/api/routes", async (c) => {
   // nested loop — cost O(routes x finds), measured at 49,512 rows, 57% of the
   // whole query, and the only term that grew when a route was added.
   const findRows = await c.env.DB.prepare(
-    `SELECT ${FIND_COLUMNS}, ${BEST_MILES_EVER} ${pageFinds.sql}`,
+    `SELECT ${FIND_COLUMNS} ${pageFinds.sql}`,
   )
     .bind(...pageFinds.binds)
     .all<Find>();

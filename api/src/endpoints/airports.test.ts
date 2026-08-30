@@ -7,7 +7,7 @@ import { ftsMatchQuery } from "./airports.js";
  * fts5 has a query language, so an unescaped token is not merely a bad search —
  * `NEAR`, `OR`, `*`, `^`, `:` and `"` all parse, and a malformed expression is a
  * 500 rather than an empty result. These pin the sanitizing, not the search
- * quality; that is the FTS index's job (migration 0006).
+ * quality; that is the FTS index's job.
  */
 describe("ftsMatchQuery", () => {
   it("prefix-matches each token, which is what an autocomplete is", () => {

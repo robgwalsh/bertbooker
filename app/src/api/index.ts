@@ -31,9 +31,7 @@ export type {
   TrackedRoute,
   RouteInput,
   Find,
-  PriceHistory,
-  PricePoint,
-  SearchRun,
+  Run,
   SourceQuota,
   QuotaPage,
   D1Usage,
@@ -133,7 +131,6 @@ import {
 } from "./trackedRoutes";
 import { searchRoute } from "./search";
 import { enrichFind, enrichRoute } from "./enrich";
-import { findHistory } from "./findHistory";
 import { alertDeliveries, alertRunTick, alertRuns, alertSchedule } from "./alerts";
 import { addAlertRecipient, alertRecipients, deleteAlertRecipient } from "./settings";
 import {
@@ -185,10 +182,6 @@ export const api = {
 
   /** Enrich a whole route's summary finds. A stream — see `enrichRoute`. */
   enrichRoute,
-
-  /** What one slot has cost over time. Free — it reads `price_history` and
-   *  reaches no vendor. */
-  findHistory,
 
   quota,
 

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { rowIdParam } from "./params.js";
+import { rowIdParam } from "../http/params.js";
 import type { Env, Vars } from "../bindings.js";
 import type { AlertRecipient, AlertRecipients } from "../../../shared/src/wire/index.js";
 

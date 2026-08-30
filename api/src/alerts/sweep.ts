@@ -4,7 +4,7 @@ import { parseAlertTypes, selectAlertable } from "../alerts/select.js";
 import { changeKey, type ChangeSummary } from "../domain/diff.js";
 import { planSeatsAeroChunks } from "../providers/seatsaero.js";
 import { queryGroupCount } from "../domain/routing.js";
-import { todayISO } from "../providers/window.js";
+import { todayISO } from "../domain/window.js";
 import type { Cabin } from "../domain/types.js";
 import type { Env } from "../bindings.js";
 import { findsFrom, routeFindsScope } from "../db/finds.js";

@@ -1,4 +1,4 @@
-import { addDaysISO } from "../providers/window.js";
+import { addDaysISO } from "../domain/window.js";
 
 /**
  * The read side of the pivot: how a set of tracked routes becomes a bounded

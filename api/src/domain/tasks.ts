@@ -1,4 +1,4 @@
-import type { AvailabilityResult } from "../domain/types.js";
+import type { AvailabilityResult } from "./types.js";
 
 // What a completed unit of gathering work looks like on its way into the
 // database. One producer — the Worker's own seats.aero search — hands these to

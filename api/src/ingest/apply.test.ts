@@ -8,7 +8,7 @@ import {
   prunable,
   routesTouched,
 } from "./apply.js";
-import { claimsCoverage, type SourceTaskReport, type SourceTaskStatus } from "./types.js";
+import { claimsCoverage, type SourceTaskReport, type SourceTaskStatus } from "../domain/tasks.js";
 
 const offer = (o: Partial<AvailabilityResult> = {}): AvailabilityResult => ({
   origin: "SEA",

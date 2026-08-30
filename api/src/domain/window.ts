@@ -1,15 +1,15 @@
-// Date-window math shared by every provider.
+// ISO date and date-window math. Pure, and unit-tested.
 //
-// Award sources all have the same two shapes of limit: a rolling horizon past
-// which they have no data, and a maximum span (or result cap) per request. So
-// every provider does the same two things — clamp the tracked window to its
-// horizon, then tile the remainder into request-sized chunks. These helpers are
-// pure and unit-tested so each provider only supplies its own constants.
+// Two shapes of limit turn up wherever a window is planned: a rolling horizon
+// past which a source has no data, and a maximum span (or result cap) per
+// request. So the same two things keep happening — clamp the tracked window to
+// the horizon, then tile the remainder into request-sized chunks — and they live
+// here so a caller supplies only its own constants.
 //
-// Extracted from a provider module rather than left inside one, and deliberately
-// NOT re-exported from seatsaero.ts: providers/index.ts does `export *` from
-// every provider module, and the same name exported by two modules silently
-// disappears from the barrel.
+// It sits in `domain/` rather than in `providers/`, where it used to, because
+// only one of its six callers is a provider: the search planner, the read scope
+// (`db/finds.ts`), the route validator and the alert sweep all do date
+// arithmetic and none of them makes an HTTP call.
 
 /**
  * Is this the fixed-width `YYYY-MM-DD` every helper here and the schema assume?

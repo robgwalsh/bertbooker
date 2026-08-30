@@ -11,7 +11,7 @@
 
 // Type-only, so this stays a leaf module at runtime and there is no cycle with
 // ingest/types.ts.
-import type { SourceTaskStatus } from "../ingest/types.js";
+import type { SourceTaskStatus } from "../domain/tasks.js";
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 

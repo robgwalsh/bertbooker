@@ -1,7 +1,7 @@
 import type { ChangeSummary } from "../domain/diff.js";
 import { planRoute, type RouteLegGroup, type RoutePair } from "../domain/routing.js";
 import { applyTask } from "../ingest/apply.js";
-import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../ingest/types.js";
+import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../domain/tasks.js";
 import { datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk } from "../providers/seatsaero.js";
 import {
   classifyError,
@@ -9,7 +9,7 @@ import {
   type FetchLike,
   makeTransport,
 } from "../providers/transport.js";
-import { todayISO } from "../providers/window.js";
+import { todayISO } from "../domain/window.js";
 import { finishRun, recordQuota, type SearchTotals } from "../db/runs.js";
 
 /** Declared in `../db/runs.ts`, beside the `runs` writer that consumes

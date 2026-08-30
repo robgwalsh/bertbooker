@@ -1,5 +1,5 @@
 import type { ChangeSummary } from "../domain/diff.js";
-import type { SourceQuotaObservation } from "../ingest/types.js";
+import type { SourceQuotaObservation } from "../domain/tasks.js";
 
 /**
  * The writers for a gathering run's bookkeeping — `runs` and `source_quota`.

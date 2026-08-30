@@ -1,7 +1,7 @@
 import { changeKey, diffAvailability, summarizeChange, type ChangeSummary } from "../domain/diff.js";
 import { collapseBy } from "../domain/collapse.js";
 import type { AvailabilityResult } from "../domain/types.js";
-import { claimsCoverage, type ApplyTaskResult, type SourceTaskReport } from "./types.js";
+import { claimsCoverage, type ApplyTaskResult, type SourceTaskReport } from "../domain/tasks.js";
 
 // The write side of the pivot: one completed unit of gathering becomes rows in
 // `finds`, plus a diff for the run summary and the alert digest.

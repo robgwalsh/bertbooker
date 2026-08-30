@@ -1,5 +1,5 @@
 import type { AvailabilityResult } from "../domain/types.js";
-import type { SourceQuotaObservation, SourceTaskStatus } from "../ingest/types.js";
+import type { SourceQuotaObservation, SourceTaskStatus } from "../domain/tasks.js";
 
 /**
  * The source plug-in contract.

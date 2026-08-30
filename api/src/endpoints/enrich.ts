@@ -7,7 +7,7 @@ import {
   makeTransport,
 } from "../providers/transport.js";
 import type { Env, Vars } from "../bindings.js";
-import { rowIdParam } from "./params.js";
+import { rowIdParam } from "../http/params.js";
 import { type ScopedRoute, withinRouteScope } from "../db/finds.js";
 import { currentRows, enrichAvailability } from "../search/enrich.js";
 import { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";

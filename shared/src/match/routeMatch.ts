@@ -135,8 +135,8 @@ function hubSet(json: string | null): Set<string> {
  * cannot shift the calendar day — the result is compared against `flight_date`,
  * which has no time in it at all.
  *
- * Mirrors `addDaysISO` in api/src/providers/window.ts and app/src/lib/routeShape.ts.
- * Kept as a copy for the same reason routeShape.ts states: `providers/window.ts`
+ * Mirrors `addDaysISO` in api/src/domain/window.ts and app/src/lib/routeShape.ts.
+ * Kept as a copy for the same reason routeShape.ts states: `domain/window.ts`
  * is Worker-side and not part of what the SPA may import.
  */
 export function addDaysISO(iso: string, days: number): string {

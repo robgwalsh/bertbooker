@@ -5,9 +5,7 @@ import { alpha, useTheme } from "@mui/material/styles";
 import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
 import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
-import { api } from "../api";
-// The numbers behind these chips live in `lib/quota.ts` — pure, and therefore
-// testable, which a `.tsx` file cannot be under the `*.test.ts` glob.
+import { api } from "../../api";
 import {
   D1_ROWS_READ_METER,
   quotaDetailLines,
@@ -16,11 +14,9 @@ import {
   QUOTA_CHIP_ID,
   summarizeD1Usage,
   summarizeQuota,
-} from "../lib/quota";
-import { compactCount } from "../lib/format";
+} from "../../lib/quota";
+import { compactCount } from "../../lib/format";
 
-/** One meter. Every chip in the cluster is this, so none can drift from the
- *  others in padding, tone or shape. */
 function MeterChip({
   icon,
   color,
@@ -89,35 +85,6 @@ function MeterTooltip({
 
 /**
  * What is left of today's three daily allowances, as chips in the title bar.
- *
- * They sit in the app bar rather than on a page because none of them is a
- * property of any one screen — Search spends the seats.aero one from Routes and
- * every enrich icon in the finds table spends it too, and the two D1 meters are
- * spent by *looking at anything at all* — and because a number you have to
- * scroll to is a number you check after the fact.
- *
- * **The seats.aero meter is the one this app spends on purpose. The D1 meters
- * are the ones that have actually bitten**: the read-index work
- * records 18,357,629 rows read in 24h against a free-plan ceiling of 5,000,000,
- * found by hand with `wrangler d1 insights` long after the fact. A query
- * rewrite that triples rows read is otherwise invisible until D1 starts
- * refusing queries.
- *
- * All three count DOWN — remaining over limit — so one glance rule covers the
- * cluster. The D1 halves are a subtraction we did; `summarizeD1Usage` owns it
- * and the tooltip states the observed spend.
- *
- * Two payloads, two polls, on purpose. `/api/quota` is a D1 read that three
- * other surfaces invalidate after every spend; `/api/d1-usage` waits on
- * Cloudflare. Sharing a request would put a five-second timeout in front of the
- * seats.aero number every time someone enriches a row, and a Cloudflare outage
- * would blank a chip that is still perfectly knowable.
- *
- * **This displays and does not enforce.** Nothing here or downstream refuses a
- * search when a meter is low — see the `source_quota` note in
- * migrations/0001_init.sql. Code that gates a call on any of these numbers does
- * not belong here — only `alerts/budget.ts` reads quota before spending; see
- * docs/ALERTS.md.
  */
 export function QuotaIndicator() {
   const q = useQuery({
@@ -142,11 +109,6 @@ export function QuotaIndicator() {
 
   const now = Date.now();
   return (
-    // The id rides the wrapper, not one chip: it is the landing zone the unlock
-    // splash flies into, and that is this whole cluster. `QuotaSplash` measures
-    // this element and scales by its width, so adding meters widens the landing
-    // zone — which it already handles — but MOVING this id, or wrapping the
-    // cluster in anything, does not.
     <Stack id={QUOTA_CHIP_ID} direction="row" spacing={1} sx={{ alignItems: "center" }}>
       {summaries.map((s) => (
         <MeterChip

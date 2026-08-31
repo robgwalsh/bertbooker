@@ -4,12 +4,6 @@ import type { ReachVerdict, RouteFetchRecord } from "../../../api";
 
 /**
  * What a source last said, as a chip.
- *
- * The whole vocabulary turns on one distinction: **`empty` is a SUCCESS**, and
- * it is the most informative answer this surface produces — seats.aero returns
- * `200 []` for a source name it does not recognise. Painting it as an error
- * would destroy exactly the signal the pane exists to show, so it gets its own
- * wording and its own colour, and neither is the failure one.
  */
 export function FetchStatusChip({ fetch }: { fetch: RouteFetchRecord | null }) {
   const theme = useTheme();

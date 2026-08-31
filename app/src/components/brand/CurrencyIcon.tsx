@@ -13,17 +13,6 @@ import {
 /**
  * A transfer currency as its issuer's mark — the one shape every "who can book
  * this" surface uses.
- *
- * It replaced a text chip, and the lost name is what that cost: a row of chips
- * reading Chase / Cap One / Bilt / Citi / Amex was among the widest cells in a
- * finds row and the least varied, but a card you recognize by its logo needs no
- * word beside it. So **the tooltip is the label, not decoration** — it is built in
- * here rather than left to callers, because an unnamed mark in a row that never
- * spells the name out is unreadable to anyone who doesn't already know it.
- *
- * The footprint is fixed whether the favicon resolves or not — the fallback dot
- * centres inside the same square — so a column of these stays aligned instead
- * of jittering row to row.
  */
 export function CurrencyIcon({
   code,
@@ -32,9 +21,6 @@ export function CurrencyIcon({
 }: {
   code: string;
   size?: number;
-  /** Extra clause for the tooltip, e.g. a filter's meaning or a transfer ratio.
-   *  It joins the name rather than replacing it, and it is why callers don't wrap
-   *  these in a Tooltip of their own — nested tooltips fire together. */
   note?: string;
 }) {
   const [broken, setBroken] = useState(false);
@@ -49,9 +35,6 @@ export function CurrencyIcon({
   const showIcon = Boolean(domain) && !broken;
   return (
     <Tooltip title={label}>
-      {/* `role="img"` so the name survives for a screen reader too: without it
-          the label lives only in a hover tooltip, and the cell announces as an
-          empty div. */}
       <Box
         role="img"
         aria-label={label}
@@ -64,10 +47,6 @@ export function CurrencyIcon({
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          // Issuer favicons are drawn for white backgrounds, so the tile stays
-          // white in every theme — it is the mark's own paper, not a surface of
-          // ours. Only its edge follows the theme, which is what keeps a white
-          // tile from dissolving into a light theme's near-white page.
           bgcolor: showIcon ? "#ffffff" : "transparent",
           border: showIcon ? `1px solid ${theme.palette.divider}` : "none",
         }}

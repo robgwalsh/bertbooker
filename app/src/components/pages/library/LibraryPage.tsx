@@ -48,11 +48,6 @@ export const DEFAULT_LIBRARY_TAB = LIBRARY_TABS[0].key;
 
 /**
  * The Library's shell: the nav, and whichever section's route is open.
- *
- * A document, not a workbench — so unlike the Routes page it asks `PagePad` for
- * the page margin and the scroll container. It owns no queries: those belong to
- * the panel, so that switching sections cannot be blocked by a fetch the
- * section you are opening does not need.
  */
 export function LibraryPage() {
   return (
@@ -70,8 +65,6 @@ export function LibraryPage() {
             </SectionNavLink>
           ))}
         </SectionNav>
-        {/* minWidth: 0 keeps the wide tables and the map from forcing the flex
-            row (and with it the whole page) into a horizontal scroll. */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Outlet />
         </Box>
@@ -82,11 +75,6 @@ export function LibraryPage() {
 
 /**
  * The open section.
- *
- * `$tab` is untrusted input like any other piece of a URL, so an unrecognised
- * value falls back to the default section rather than rendering an empty pane —
- * the same rule `validateRoutesSearch` follows for the Routes page's search
- * params.
  */
 export function LibraryPanel() {
   const { tab } = useParams({ from: "/library/$tab" });

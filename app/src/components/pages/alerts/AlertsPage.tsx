@@ -54,10 +54,6 @@ export function AlertsPage() {
   const tick = useMutation({
     mutationFn: (routeId?: number) => api.alertRunTick(routeId),
     onSuccess: () => {
-      // A sweep ingests finds and spends calls, so it moves more than this page:
-      // `alert-schedule` is also what the tab-strip health dot reads
-      // (router.tsx), and the last two mirror what `useRouteSearch` invalidates
-      // after a hand-pressed Search.
       for (const key of [
         ["alert-schedule"],
         ["alert-runs"],

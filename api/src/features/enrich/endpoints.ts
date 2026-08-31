@@ -16,11 +16,6 @@ import { ENRICH_MAX_PER_RUN } from "../../../../shared/src/wire/enrich.js";
 /**
  * The two HTTP shapes over `search/enrich.ts` — one find, or a whole route.
  *
- * Split from the engine for the same reason `features/search/endpoints.ts` is split from
- * `features/search/run.ts`: these two handlers answer very differently (a single-shot
- * JSON reply and a 100-line NDJSON stream) over one implementation of "buy the
- * itinerary behind this row".
- *
  * **Everything fallible happens before the stream opens** in the second one.
  * After the first byte the response is committed to 200 and an `error` frame is
  * all that is left, so a missing `SEATS_AERO_API_KEY` is a 503 and an unknown
@@ -56,22 +51,6 @@ enrich.post("/api/finds/enrich", async (c) => {
   const apiKey = c.env.SEATS_AERO_API_KEY;
   if (!apiKey) return c.json({ error: "no_seats_aero_key" }, 503);
 
-  // THE ROW MUST BE ONE OF THE CALLER'S TO ASK ABOUT.
-  //
-  // This is the only endpoint that names an availability row by its coordinates
-  // instead of by a route id, and `currentRows` selects on those coordinates
-  // alone — it never joins `tracked_routes`. So any (origin, destination, date,
-  // program) in the database could be enriched: one metered seats.aero call and
-  // a write to `finds`, repeatable without limit because the
-  // per-row retry here is deliberately not gated on `enriched_at`. That made it
-  // the cheapest way to drain the day's Partner-API quota, which in turn
-  // silently disables the alert sweep for the rest of the UTC day.
-  //
-  // Checked against the same superset the Routes page reads through, so hub legs
-  // and round-trip reversals still enrich — see `withinRouteScope`.
-  //
-  // Note what this is NOT: `search`'s deliberate no-budget rule is untouched.
-  // Spending is still first-come; this only says whose rows you may spend it on.
   const scopeRows = await selectScopedRoutes(c.env.DB);
   if (!withinRouteScope(scopeRows, origin, destination, flightDate)) {
     // The same 404 an unknown row gets, deliberately: whether a row exists that

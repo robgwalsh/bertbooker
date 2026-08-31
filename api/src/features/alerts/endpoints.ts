@@ -10,7 +10,7 @@ import { allowedRecipients } from "./recipients.js";
 import { isLocalRequest } from "../../middleware/security.js";
 import { ALERT_DEFAULTS, runAlertTick } from "./tick.js";
 import { alertRouteCosts, alertRouteRows, routeLabel } from "./alertRoutes.js";
-import { decideSweep, readBudgetState } from "./budget.js";
+import { decideSweep, readBudgetState } from "./scheduler-budget.js";
 
 /**
  * What the Alerts tab reads, and — in local dev only — the one control it has.

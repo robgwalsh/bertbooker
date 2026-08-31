@@ -2,7 +2,7 @@ import { dueRoutes, routeSweepCost, sweepPacing } from "./pace.js";
 import { parseAlertTypes, selectAlertable } from "./select.js";
 import { alertRouteCosts, alertRouteRows, parseList, type AlertRouteRow } from "./alertRoutes.js";
 import { cycleComplete, flushOutbox, pruneOldRuns } from "./outbox.js";
-import { decideSweep, readBudgetState } from "./budget.js";
+import { decideSweep, readBudgetState } from "./scheduler-budget.js";
 import { changeKey } from "../../models/change.js";
 import { todayISO } from "../../util/dates.js";
 import type { Cabin } from "../../models/availability.js";

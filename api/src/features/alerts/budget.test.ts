@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ASSUMED_DAILY_LIMIT, decideSweep, utcDay, utcDayStart } from "./budget.js";
+import { ASSUMED_DAILY_LIMIT, decideSweep, utcDay, utcDayStart } from "./scheduler-budget.js";
 
 // Follows the gate.test.ts precedent: this workspace has no D1 or Worker test
 // harness, so only the pure exported half is tested — which is deliberately

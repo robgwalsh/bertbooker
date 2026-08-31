@@ -6,15 +6,7 @@
 import { AIRLINE_ICAO } from "../data/airlineIcao";
 import type { Segment } from "../api";
 
-/** Square carrier logo by IATA code, from Kiwi's public image CDN.
- *
- *  Keyed on the code the segment already carries, so — unlike a hand-maintained
- *  domain→favicon map — a regional operator flying a single leg (Envoy, SkyWest,
- *  Republic) still gets a real mark. Unknown codes redirect to a generic plane
- *  tile rather than 404ing, so onError is a backstop for network failure rather
- *  than the normal miss path. */
-export const airlineLogoUrl = (iata: string) =>
-  `https://images.kiwi.com/airlines/64x64/${iata}.png`;
+
 
 /**
  * A segment's display code, e.g. "AS 505".
@@ -73,53 +65,6 @@ export function parseSegments(json?: string): Segment[] {
   }
 }
 
-/** A carrier serving a find's cabin, and whether it is one of the ones flying
- *  it nonstop. */
-export interface CarrierMark {
-  code: string;
-  nonstop: boolean;
-}
 
-/** Parse one of the stored carrier blobs (`airlines`, `direct_airlines`)
- *  defensively (never throws). */
-function parseCarriers(json?: string | null): string[] {
-  if (!json) return [];
-  try {
-    const arr = JSON.parse(json);
-    return Array.isArray(arr) ? arr.filter((c): c is string => typeof c === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
-/**
- * Every carrier competing for a find's cabin, nonstop operators first.
- *
- * `direct_airlines` is documented as a SUBSET of `airlines`
- * (`api/src/providers/seatsaero.ts`), and is one in every captured fixture. This
- * unions them anyway: the blobs are two independent columns, the union costs a
- * `Set`, and it degrades to the same answer when the subset property holds. A
- * filter would silently drop a nonstop carrier if it ever did not.
- *
- * Nonstop first because that is the ordering somebody scanning for "can I avoid
- * the connection" is reading for; alphabetical within each half so a row's marks
- * don't reshuffle between searches.
- *
- * `omit` drops carriers the caller already shows some other way — a drawn
- * itinerary names its own operators leg by leg, so repeating them below it says
- * nothing, and what is left is exactly the competition the card cannot show.
- */
-export function carrierMarks(
-  airlines?: string | null,
-  directAirlines?: string | null,
-  omit?: Iterable<string>,
-): CarrierMark[] {
-  const direct = new Set(parseCarriers(directAirlines));
-  const all = new Set([...parseCarriers(airlines), ...direct]);
-  for (const c of omit ?? []) all.delete(c);
-  const sorted = [...all].sort();
-  return [
-    ...sorted.filter((c) => direct.has(c)).map((code) => ({ code, nonstop: true })),
-    ...sorted.filter((c) => !direct.has(c)).map((code) => ({ code, nonstop: false })),
-  ];
-}
+

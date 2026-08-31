@@ -33,28 +33,3 @@ export function PagePad({ children }: { children: React.ReactNode }) {
     </Box>
   );
 }
-
-// Consistent responsive grid wrapper (avoids MUI <Grid> API churn across majors).
-// Currently unused — its only caller was a Point balances section on what is now
-// the Routes page.
-// Kept because it is the house answer to "lay out N cards" and the next thing
-// that needs one should not re-derive the auto-fill/minmax incantation.
-export function CardGrid({
-  min = 200,
-  children,
-}: {
-  min?: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box
-      sx={{
-        display: "grid",
-        gap: 2,
-        gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))`,
-      }}
-    >
-      {children}
-    </Box>
-  );
-}

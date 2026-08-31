@@ -522,7 +522,7 @@ file before committing it.
 | `api/src/features/search/run.ts` | the engine: `planSearchPass` / `openSearchRun` / `runSearchPass` |
 | `api/src/features/usage/quotaEndpoints.ts` | `GET /api/quota`, the chip's endpoint |
 | `app/src/api/search.ts`, `enrich.ts` | `searchRoute` / `enrichRoute` and the resume loop. The wire types they speak are `shared/src/wire/`, not copies |
-| `app/src/pages/routes/useRouteSearch.ts`, `useRouteEnrich.ts` | the two stream hooks, owned by the **page** so a search survives navigating away |
+| `app/src/components/pages/routes/useRouteSearch.ts`, `useRouteEnrich.ts` | the two stream hooks, owned by the **page** so a search survives navigating away |
 
 Invariants worth restating, because each one silently corrupts data rather than
 failing:

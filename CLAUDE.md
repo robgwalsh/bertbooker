@@ -255,17 +255,17 @@ The rule for each directory is about *who is allowed to import it*.
 
 | | |
 | --- | --- |
-| `main.tsx`, `router.tsx`, `index.css` | the entry points. The shell wires pages together and owns nothing else — it takes the Routes page's URL contract from `pages/routes/searchParams.ts` rather than declaring it. |
+| `main.tsx`, `router.tsx`, `index.css` | the entry points. `router.tsx` wires pages together and owns nothing else — it takes the Routes page's URL contract from `components/pages/routes/searchParams.ts` rather than declaring it, and its root route renders `components/layout/Layout.tsx`. |
 | `api/` | **the one boundary crossing.** See *The wire contract*. |
 | `lib/` | pure logic, no JSX, no React. **`lib/` is where a thing goes when it wants a test**, because `vitest.config.ts` globs `*.test.ts` only — a `*.test.tsx` is not skipped, it is silently never collected, and the run stays green. |
 | `hooks/` | shared React hooks — the two named viewport seams, the airport-name lookup, the debounce. |
-| `components/` | presentation used by more than one page. |
-| `pages/<page>/` | **page-private, co-located with its only consumer.** A helper that ends up serving two pages leaves `pages/` for `components/` — `SectionHeader` and `TransferCurrencies` both made that trip. |
+| `components/` | presentation used by more than one page — `brand/` (the issuer/carrier/cabin marks), `layout/` (the app shell: `Layout`, `NavLink`, `SignOut`, `AlertsHealthDot`) and `settings/` (`SettingsDialog`, `SystemSettings`) are its own sub-slices for the same reason `pages/<page>/` is one below. |
+| `components/pages/<page>/` | **page-private, co-located with its only consumer.** A helper that ends up serving two pages leaves `pages/<page>/` for `components/` (or one of its named sub-slices) — `SectionHeader` and `TransferCurrencies` both made that trip. |
 | `theme/` | `themes.ts` is the palette catalog, `build.ts` is the only place the app's shape is decided. |
 | `data/` | **generated, and path-pinned** — `scripts/build-world-geometry.mjs` writes `worldGeometry.ts` by that exact path. Do not move this directory. |
 
 **The shell pads nothing and scrolls nothing; each page owns both.** `Layout`
-(`router.tsx`) is a fixed-height flex column and the document never scrolls.
+(`components/layout/Layout.tsx`) is a fixed-height flex column and the document never scrolls.
 Pages that are DOCUMENTS wrap themselves in `PagePad`, which supplies the page
 margin and is their scroll container. The Routes page does not: it is a
 workbench, a full-height sidebar beside an editor pane, each with its own
@@ -496,12 +496,12 @@ constrains. When you touch the file, read it there.
 | `cash_fees_cents` is NOT always USD — use `money()`, never sum fees across currencies | `app/src/lib/format.ts` |
 | preferences: client-only, deliberately not a table and deliberately not the URL | `app/src/lib/preferences.ts` |
 | the two named viewport seams, and why they pass `noSsr` | `app/src/hooks/useBreakpoints.ts` |
-| `QuotaIndicator` unrendered below `sm`, never `display: none` | `app/src/router.tsx`, at the render site |
+| `QuotaIndicator` unrendered below `sm`, never `display: none` | `app/src/components/layout/Layout.tsx`, at the render site |
 | the app bar's three meters, and why D1's two are a separate payload and poll | `app/src/components/QuotaIndicator.tsx`, `app/src/lib/quota.ts` |
 | why an absent D1 reading is never a zero, and the third host it needs | `api/src/providers/cloudflareAnalytics.ts`, `api/src/features/usage/d1UsageEndpoints.ts` |
 | the app bar's width is MEASURED, not assumed | `e2e/mobile.spec.ts` |
-| card layouts must not drift from the columns they replace; the shared React key | `app/src/pages/routes/findCells.tsx`, `findKey.ts` |
-| `showMap` defaults ON while an added option would default off | `app/src/pages/routes/FindsTable.tsx` |
+| card layouts must not drift from the columns they replace; the shared React key | `app/src/components/pages/routes/findCells.tsx`, `findKey.ts` |
+| `showMap` defaults ON while an added option would default off | `app/src/components/pages/routes/FindsTable.tsx` |
 | touch targets bend on `(pointer: coarse)`, not on width | `app/src/theme/build.ts` |
 | `accent` as a ground, stated interaction states, `readable()`, and the two deliberate exceptions | `app/src/theme/themes.ts`, `app/src/theme/build.ts` |
 | a section nav's links are the page's, and only the frame is shared | `app/src/components/SectionNav.tsx` |

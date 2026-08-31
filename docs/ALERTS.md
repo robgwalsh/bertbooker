@@ -44,7 +44,7 @@ Where things live:
 | `api/src/features/alerts/pace.ts` | cost, cadence, due-ness, back-off, baseline — all pure |
 | `api/src/features/alerts/select.ts` | which changes are worth an email — pure |
 | `api/src/features/alerts/digest.ts` | grouping and rendering — pure |
-| `app/src/pages/alerts/AlertsPage.tsx`, `app/src/lib/alerts.ts` | the safety surface |
+| `app/src/components/pages/alerts/AlertsPage.tsx`, `app/src/lib/alerts.ts` | the safety surface |
 | `api/wrangler.toml` `[triggers]` | `crons = ["*/30 * * * *"]` |
 | `migrations/0001_init.sql` | `alert_*` columns, `alert_outbox`, `alert_deliveries`, `alert_recipients` |
 
@@ -686,7 +686,7 @@ button that appears only to fail is worse than no button.
 
 ### The page is the feature's safety mechanism, not its status board
 
-`app/src/pages/alerts/AlertsPage.tsx` is ordered **problems, cadence, routes, history** —
+`app/src/components/pages/alerts/AlertsPage.tsx` is ordered **problems, cadence, routes, history** —
 anything that would make the mail stop is above the fold. That ordering is why
 the page is a composition of six named sections rather than one long body: the
 sequence *is* the design, so it should be legible in one screen of code

@@ -20,22 +20,6 @@ export type { Alliance, Cabin, Currency, Segment } from "../../../shared/src/wir
 /** The four cabins in ascending value order — useful for "best cabin" logic. */
 export const CABIN_ORDER: readonly Cabin[] = ["economy", "premium", "business", "first"];
 
-/** A normalized search request, independent of any provider's query format. */
-export interface SearchParams {
-  origin: string; // IATA
-  destination: string; // IATA
-  dateStart: string; // ISO date (YYYY-MM-DD)
-  dateEnd: string; // ISO date (inclusive)
-  /** Restrict to these cabins; undefined/empty = any cabin. */
-  cabins?: Cabin[];
-  /** Restrict to these program codes; undefined = all supported. */
-  programs?: string[];
-  /** Restrict to space bookable with these transfer currencies (e.g.
-   *  ["chase_ur","bilt"]); undefined/empty = any the couple can book. */
-  currencies?: string[];
-  minSeats: number; // couple => 2
-}
-
 /** One bookable award result for a single date/program/cabin. Mirrors a row
  *  in the `finds` D1 table. */
 export interface AvailabilityResult {

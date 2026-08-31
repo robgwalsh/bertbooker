@@ -194,7 +194,7 @@ export function AirportMultiAutocomplete({
   /** The Autocomplete's ROOT element, not its input. The route form focuses one
    *  named field on open and scrolls it into view, and it does that from each
    *  control's root so that a text field, a select and a switch are all one
-   *  case — see `focusRef` in pages/routes/RoutesPage.tsx. */
+   *  case — see `focusRef` in components/pages/routes/RoutesPage.tsx. */
   rootRef?: React.Ref<HTMLDivElement>;
 }) {
   const [input, setInput] = useState("");

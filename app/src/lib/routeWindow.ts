@@ -1,6 +1,6 @@
 // The date window a NEW route gets, and the one date helper two pages share.
 //
-// It moved here out of `pages/routes/dates.ts` when the Tools page gained a
+// It moved here out of `components/pages/routes/dates.ts` when the Tools page gained a
 // "Track these legs" button: a leg discovered through the route graph becomes a
 // tracked route, and it must get the same window a hand-made one does or the two
 // surfaces would quietly disagree about what "a new route" means. `usDate` stays

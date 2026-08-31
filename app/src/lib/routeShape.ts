@@ -6,7 +6,7 @@ import type { TrackedRoute } from "../api";
  *
  * A separate module from the page that uses them so `roundtrip.ts` — and its
  * test — can parse a route without pulling MUI, Emotion and the router into the
- * graph. `pages/routes/RoutesPage.tsx` imports them back; this is a move, not a copy.
+ * graph. `components/pages/routes/RoutesPage.tsx` imports them back; this is a move, not a copy.
  *
  * The date helpers mirror `addDaysISO` / `daysBetween` in
  * `api/src/util/dates.ts`, and are deliberately kept as copies:

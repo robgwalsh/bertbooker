@@ -14,7 +14,6 @@
   "bugs": {
     "url": "https://github.com/robgwalsh/bertbooker/issues"
   },
-  "//layout": "ONE package for the whole repo. `api/` is the Worker, `app/` is the SPA, and `shared/` is `src/wire/` and nothing else — the request/response contract both import by relative path. There are no npm workspaces and no path aliases: a plain `../../shared/src/wire/…` specifier with a `.js` suffix resolves identically in tsc, wrangler's esbuild, Vite and vitest. The SPA used to import NOTHING from `shared/` and hand-mirror ~25 wire types instead; it now imports the wire barrel from `app/src/api/*`, which re-exports so no page or component names a path in `shared/`. `shared/` also used to hold the domain model, sources, ingest and the seats.aero provider, with a list of modules the SPA was forbidden to touch; all of that was Worker-only and now lives in `api/src/`, so the rule is simply that the SPA imports `shared/` and never `api/`. `shared/tsconfig.wire.json` enforces it — no DOM, no workers-types.",
   "scripts": {
     "db:apply:local": "wrangler d1 migrations apply bertbooker_db --local --persist-to .wrangler-local --config api/wrangler.toml",
     "db:apply:remote": "wrangler d1 migrations apply bertbooker_db --remote --config api/wrangler.toml",
@@ -28,7 +27,6 @@
     "probe:seatsaero-trips": "node scripts/probe-seatsaero-trips.mjs",
     "probe:seatsaero-search": "node scripts/probe-seatsaero-search.mjs",
     "predev:api": "node scripts/free-port.mjs 8787",
-    "//dev:api": "Goes through scripts/dev-api.mjs, which launches the same `wrangler dev` with its arguments below but shuts it down properly on Ctrl+C — read that file's header before changing this line back. --test-scheduled exposes GET /__scheduled so the alerts cron can be fired by hand; wrangler dev NEVER runs crons on their real schedule. It only adds a route, so it is safe to leave on.",
     "dev:api": "node scripts/dev-api.mjs --config api/wrangler.toml --persist-to .wrangler-local --port 8787 --test-scheduled",
     "dev:api:stop": "node scripts/free-port.mjs 8787",
     "dev:app": "vite --config app/vite.config.ts",

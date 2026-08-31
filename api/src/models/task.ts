@@ -32,14 +32,6 @@ export function claimsCoverage(status: SourceTaskStatus): boolean {
   return COVERAGE_CLAIMING_STATUSES.includes(status);
 }
 
-/** One completed unit of work, with whatever it found.
- *
- *  This is now purely an in-process hand-off: one producer (the Worker's own
- *  seats.aero search) builds it and `applyTask` consumes it. Nothing about a
- *  task is stored — the fields that used to carry a task row's forensics
- *  (`taskKey`, `attempts`, `finalUrl`, `httpStatus`, `capture`) went with the
- *  table, and what a person needs to debug a bad call is streamed to them as it
- *  happens instead. */
 export interface SourceTaskReport {
   source: string;
   /** The task's representative city pair. `runs` stores these as NOT NULL

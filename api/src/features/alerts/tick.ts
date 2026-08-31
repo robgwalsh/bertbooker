@@ -19,42 +19,6 @@ import { insertOutboxChanges } from "../../db/alertOutbox.js";
 import { routeMatcher } from "../../../../shared/src/match/routeMatch.js";
 import { openSearchRun, planSearchPass, runSearchPass } from "../search/run.js";
 
-/**
- * The cron tick — the scheduling half of the sweep, and the only unattended work
- * in this codebase.
- *
- * Read `docs/ALERTS.md` before changing anything here. The two standing
- * objections to unattended spending are answered rather than ignored: the budget
- * guard is scoped to this file's caller (`./budget.ts`) and lives nowhere else,
- * and every sweep is an ordinary `runs` row visible in the Alerts tab, because
- * no email is ever sent about a failure.
- *
- * What a tick DECIDES is here; what it eventually SAYS is `./outbox.ts`.
- *
- * ## Why a tick is bounded in CALLS, not in routes
- *
- * A Cron Trigger with an interval under one hour gets **30 seconds of CPU**
- * (an hourly one would get 15 minutes). Waiting on seats.aero is I/O and costs
- * no CPU, but parsing does — a page is up to 500 rows carrying trips, measured
- * at ~9.9 KB each. So the tick's ceiling is `ALERT_MAX_CALLS_PER_TICK`, and a
- * route needing more resumes on the next tick through the same `run_continue`
- * mechanism the HTTP search uses.
- *
- * This used to sweep **one route** per tick, which read as the same bound and
- * was not. Calls are what cost CPU; routes are a proxy that is only right when a
- * route costs a whole tick's worth. Four narrow routes cost one call each, so
- * the tick spent 1 of its 25 and the set round-robined at four times the cadence
- * `sweepPacing` claimed — measured at 96 calls a day against a 600 budget, with
- * the Alerts tab quoting `every 15m` for a set actually swept hourly. Worse, the
- * digest never flushed: `cycleComplete` wants every route attempted inside one
- * interval, and one-route-per-tick cannot deliver that for more than one route.
- *
- * **The ceiling did not move.** A single route could already spend all 25 calls
- * in one tick, so sweeping four routes for four calls is strictly less work than
- * the shape already permitted. What changed is that the budget stops going
- * unused. Raising `ALERT_MAX_CALLS_PER_TICK` itself is still the thing that
- * needs the cron interval raised first.
- */
 
 const DEFAULT_DAILY_BUDGET = 600;
 const DEFAULT_MANUAL_RESERVE = 300;
@@ -334,28 +298,6 @@ async function noteFailure(env: Env, routeId: number): Promise<void> {
   await bumpAlertFailures(env.DB, routeId);
 }
 
-/**
- * The `changeKey`s that survive THIS route's own filters.
- *
- * The same predicate the Routes page applies — `routeMatcher`, out of
- * `shared/src/match/routeMatch.ts` — so an alert can never fire on a find the
- * route's own pane would hide. That sharing is the load-bearing part and it is
- * why the predicate is one module rather than one copy each: the sweep sends no
- * mail when it finds nothing, so a drift in that direction reports itself to
- * nobody.
- *
- * **Scoped to this one route**, which is the whole reason this function stopped
- * being the most expensive statement in the app: it used to pass an empty
- * `FindsScope`, so it collapsed every snapshot of every route to answer about
- * one — 171,471 rows read for a route whose entire input was 23. `AlertRouteRow`
- * carries every column `routeFindsScope` AND `routeMatcher` need, so this costs
- * no extra query.
- *
- * Nine columns, not the twenty-one the Routes page projects: the answer is a
- * membership set, and everything else this used to compute was thrown away.
- * Which nine is `selectMatchableFinds`' business now; what stays here is the
- * matcher and the key-building it feeds.
- */
 async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string>> {
   const results = await selectMatchableFinds(env.DB, route);
 
@@ -363,8 +305,6 @@ async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string
   const keys = new Set<string>();
   for (const f of results) {
     if (!matcher.matches(f)) continue;
-    // `changeKey` itself, not a copy of its format: this set is intersected
-    // against keys the diff produced, so the two spellings must be one.
     keys.add(
       changeKey({
         origin: f.origin,

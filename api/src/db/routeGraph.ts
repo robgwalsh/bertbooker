@@ -389,20 +389,6 @@ export function routeFilter(query: QueryReader): {
 
 /**
  * Join `airports` by IATA code, one row per code.
- *
- * This used to be `(SELECT … FROM airports WHERE iata != '' GROUP BY iata)`,
- * inlined at each use, guarding against duplicate codes multiplying a pair into
- * several edges. The guard cost more than the thing it guarded against: SQLite
- * MATERIALIZEs that subquery per use — twice per route query and FOUR times per
- * geo request, since the shared `from` fragment is used by the count and the
- * rows — and each materialization walks all 72,454 entries of
- * `idx_airports_iata`. It measured 34,574 rows read to return 200.
- *
- * It was also guarding against nothing: the seed has **9,054 rows with an IATA
- * code and 9,054 distinct codes**. `scripts/build-airports.mjs` now refuses to
- * write a seed that would break that, so the invariant is enforced where the
- * data is made rather than re-derived in every query that reads it. A plain join
- * is then two `idx_airports_iata` seeks per row.
  */
 const airportJoin = (alias: string, col: string) =>
   `LEFT JOIN airports ${alias} ON ${alias}.iata = ${col} AND ${alias}.iata != ''`;

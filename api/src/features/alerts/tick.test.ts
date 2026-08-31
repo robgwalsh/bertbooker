@@ -113,10 +113,6 @@ describe("runAlertTick — the tick sweeps to its CALL cap, not to one route", (
   });
 
   it("sweeps EVERY due route when they fit in the tick's call budget", async () => {
-    // The bug. Four one-call routes fit 25 times over, and the tick used to
-    // spend one call and leave 24 unspent — which is how a set the pacer put on
-    // a 15-minute cadence got swept hourly, and 96 calls a day went out of a
-    // 600-call budget.
     const result = await runAlertTick(env([4, 5, 7, 8].map((id) => routeRow(id))));
     expect(result.sweptRouteIds).toEqual([4, 5, 7, 8]);
   });

@@ -1,23 +1,5 @@
 import type { Env } from "../bindings.js";
 
-/**
- * What our own D1 queries have cost today, read from Cloudflare's GraphQL
- * Analytics API.
- *
- * THIS IS THE THIRD HOST THIS WORKER TALKS TO, and it is a deliberate addition
- * to a rule that used to name two — see the host note in `wrangler.toml`. It
- * passes that rule's test (a service may authenticate the CREDENTIAL, and may
- * not judge the CLIENT: this one scores a bearer token and has no opinion about
- * datacenter IPs), and it belongs to neither of the two categories the rule
- * lists. It is not inbound data — nothing here reaches the ingest pipeline, and
- * no row of award space comes from it. It is not outbound notification. It is
- * observability about ourselves, and it is read-only in the strongest sense: an
- * Account Analytics: Read token can change nothing at all.
- *
- * Split into a pure parser and a fetch around it, the way `seatsaero.ts` is, so
- * the shape-handling has a test that reaches it without a network.
- */
-
 const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
 
 /** Cloudflare's own numbers lag by a few minutes, so asking more often than

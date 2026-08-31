@@ -203,30 +203,6 @@ export async function selectAirportGeo(
 
 /**
  * Resolve a set of IATA codes in one round trip.
- *
- * Deliberately NOT routed through `airportFilter`: that builder is a *search*,
- * tuned for ranking partial matches and owning the "no query → major airports"
- * default. This is an exact lookup for codes we already hold — the Routes page
- * naming the airports on a tracked route, the trip list plotting them on a map —
- * and wants none of that. Answers with whatever it finds; a code with no row is
- * simply absent, which the caller renders as the bare code rather than as an
- * error.
- *
- * Coordinates ride along with the names because both callers key off the same
- * code set: a second endpoint for lat/lon would double the round trips to say
- * something about airports this one has already found.
- *
- * CHUNKED, not truncated, and the distinction is why the caller's cap can sit at
- * 400. This binds one parameter per code, and D1 allows 100 per query
- * (`db/finds.ts` works through the arithmetic) — so a caller naming more than
- * 100 distinct airports used to get a D1 error, i.e. a 500 for asking about a
- * big page. Lowering the cap instead would have traded a loud failure for a
- * silent one: a map that lost a stop.
- *
- * `batch` so this is still ONE round trip, which is the property
- * `useAirportNames` exists for. Each code falls in exactly one chunk, so
- * concatenating preserves the per-code ordering the tie-break sets up, and the
- * caller's first-row-wins-per-code still selects the same row.
  */
 export async function selectAirportsByIata(
   db: D1Database,

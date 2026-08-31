@@ -48,12 +48,6 @@ export async function alertRouteRows(env: Env): Promise<AlertRouteRow[]> {
 
 /**
  * What each route costs a sweep, keyed by id.
- *
- * ONE implementation with two callers — the scheduler and the Alerts tab —
- * because `docs/ALERTS.md` §4 is explicit that a page quoting a cadence the
- * scheduler does not keep is worse than no number at all. It used to be a bare
- * chunk count duplicated in both; hubs made the cost `chunks × queries` and gave
- * the duplication somewhere new to drift.
  */
 export function alertRouteCosts(
   rows: readonly AlertRouteRow[],

@@ -149,14 +149,6 @@ describe("POST /api/auth/login — the session cookie", () => {
 
   /**
    * The regression this is really about.
-   *
-   * `Secure` used to be derived from the request's SCHEME, on the reasoning
-   * that production is always https. Nothing enforced that, so a plaintext
-   * request to the apex got a session cookie with no `Secure` at all — readable
-   * and replayable by anyone on the path, having just watched the password go by
-   * in the clear on the very same request. It is keyed on whether the edge
-   * served the request now, so a plaintext production request cannot produce a
-   * naked cookie however it arrives.
    */
   it("still marks it Secure on a PLAINTEXT production request", async () => {
     const res = await postLogin(

@@ -245,18 +245,6 @@ function unionScope(routes: readonly ScopedRoute[]): FindsScope {
 /**
  * The origin set, destination set and date range a set of routes can produce
  * finds across.
- *
- * Extracted so `routeFindsScope` and `withinRouteScope` cannot drift. Those two
- * ask the same question in opposite directions — "which finds might these routes
- * have?" and "might these routes have this find?" — and the second is an
- * AUTHORIZATION check. Built on its own hand-copied idea of what a route covers,
- * it would start refusing legitimate hub legs the first time either the `via` or
- * the `round_trip` handling moved, and it would do it as a 404 on a button that
- * used to work.
- *
- * `null` rather than a pair of empty sets, because the two callers must answer a
- * degenerate input differently: no usable routes means "read everything" to one
- * and "permit nothing" to the other.
  */
 function scopeSets(routes: readonly ScopedRoute[]): {
   origins: Set<string>;
@@ -371,14 +359,6 @@ export async function selectRouteFinds(
 
 /**
  * The columns `routeMatcher` reads, for ONE route.
- *
- * Nine, not the twenty-one `FIND_COLUMNS` projects: the answer the sweep wants
- * is a membership set, and everything else this used to compute was thrown away.
- *
- * Scoped to the one route, which is why this stopped being the most expensive
- * statement in the app: it used to pass an empty `FindsScope`, so it read every
- * find of every route to answer about one — 171,471 rows read for a route whose
- * entire input was 23.
  */
 export async function selectMatchableFinds(
   db: D1Database,

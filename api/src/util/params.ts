@@ -1,28 +1,4 @@
 /**
- * READING A REQUEST'S PARAMETERS — a path segment, and a query string.
- *
- * In `util/` for the same reason `./dates.ts` is: neither knows anything about
- * award travel, and both would read the same in any application. What they do
- * know about is HTTP, and the point of both exports is to keep that knowledge
- * from spreading — `rowIdParam` so a handler validates before the database is
- * touched, `QueryReader` so a WHERE builder in `db/` never has to take a Hono
- * `Context`.
- *
- * ## rowIdParam
- *
- * One helper, one reason. Every handler that owns an `:id` used to write
- * `Number(c.req.param("id"))` and bind the result straight into SQL, which for
- * `/api/tracked-routes/abc` binds `NaN`. D1 compares that against nothing, so
- * the handler did not fail — it succeeded emptily: PATCH and the search
- * endpoints answered `404 not_found` (right answer, wrong reason), and DELETE
- * answered `{ ok: true }` for a row that never existed, which is a lie told with
- * a 200.
- *
- * A malformed id is a malformed REQUEST, so it is a 400 and it is decided before
- * the database is touched.
- */
-
-/**
  * How a handler hands a query string to something that must not know about HTTP.
  *
  * The WHERE builders in `db/` are shaped by the request's query string, and they

@@ -73,11 +73,6 @@ test.describe("at 390px", () => {
   for (const path of ["/library", "/tools"]) {
     test(`${path}'s section nav is a horizontal strip, not a 190px column`, async ({ page }) => {
       await page.goto(path);
-      // GEOMETRY, because there is no longer an attribute to ask. This used to
-      // read MUI's `aria-orientation` off a `<Tabs>`; the nav is anchors now
-      // (each section is a route), so the only thing that distinguishes a strip
-      // from a column is its box. A 190px `md` column would fail this outright,
-      // and so would a column that had simply been left at its content width.
       const nav = page.getByTestId("section-nav");
       await expect(nav).toBeVisible();
       const box = await nav.boundingBox();

@@ -61,15 +61,6 @@ trackedRoutes.post("/api/tracked-routes", async (c) => {
   const lists = validateLists(b);
   if (!lists.ok) return c.json({ error: "bad_list", message: lists.message }, 400);
 
-  // THE DATE WINDOW, checked here and not only on PATCH.
-  //
-  // This endpoint used to bind `b.dateStart` / `b.dateEnd` verbatim. `c.req
-  // .json<T>()` does no runtime checking — `T` is an assertion about the parsed
-  // value, not a validation of it — so any string at all was stored. It was then
-  // read back by `addDaysISO` through `routeFindsScope` (db/finds.ts), where it
-  // threw. One malformed POST therefore 500'd `GET /api/routes` — the main page —
-  // along with every search and every cron tick, permanently, and the only
-  // repair was deleting the row by hand. Cheap to store, expensive to survive.
   if (!isIsoDate(b.dateStart) || !isIsoDate(b.dateEnd)) {
     return c.json(
       { error: "bad_window", message: "Give a start and end date as YYYY-MM-DD." },

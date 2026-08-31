@@ -6,31 +6,6 @@ import { findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
 import type { MatchableRoute } from "../../../shared/src/match/routeMatch.js";
 import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
 
-/**
- * The scope is the one part of the read path that can lose data silently.
- *
- * `findsFrom` used to collapse every snapshot in the database to answer about
- * one route — 171,471 rows read for a route whose entire input was 23. Narrowing
- * that is where nearly all of this app's D1 bill went, and the narrowing is only
- * safe while it stays a **superset** of everything `routeMatcher` accepts. A
- * branch added there without a matching widening in `routeFindsScope` drops
- * finds out of the Routes page and out of alert digests — and a digest that finds
- * nothing sends no mail, so nothing would report it.
- *
- * So these tests RUN the scope, against a real SQLite engine, and check what it
- * admits against what `routeMatcher` accepts. They deliberately do not
- * re-implement either side: a second copy of the match rule is exactly what
- * `routeMatch.ts`'s docblock exists to prevent, and it would agree with itself
- * while both drifted from the thing that ships.
- *
- * This replaced a helper that split `scope.binds` by counting `?` in a `where`
- * array whose shape it had memorised. That worked while the shape was three
- * fixed clauses and became a liar the moment it was a disjunction — it read the
- * cabin binds as destinations and still passed. `node:sqlite` costs nothing here
- * and cannot be fooled that way; see `db/findsSql.test.ts`, which uses it
- * for the same reason.
- */
-
 /** Only the columns the scope constrains. Every one is NOT NULL in 0001, which
  *  is the property `pushFilters` relies on to match the matcher's reading. */
 const DDL = `CREATE TABLE finds (
@@ -464,19 +439,6 @@ describe("routeFindsScope — the bind budget", () => {
 
 /**
  * The authorization question behind `POST /api/finds/enrich`.
- *
- * That endpoint is the only one that names an availability row by its
- * COORDINATES rather than by a route id, and then spends a metered seats.aero
- * call on it and writes back. It used to accept any (origin, destination, date,
- * program) in the database — the cheapest way to drain the day's Partner-API
- * quota, which in turn silently disables the alert sweep for the rest of the
- * UTC day.
- *
- * `withinRouteScope` shares `scopeSets` with `routeFindsScope` on purpose, so
- * the check and the read path cannot drift. These pin BOTH directions: that it
- * refuses what no route asked about, and — the failure mode that would actually
- * get noticed — that it still permits the hub legs and round-trip reversals the
- * Routes page legitimately shows.
  */
 describe("withinRouteScope", () => {
   const route = (over: Partial<ScopedRoute> = {}): ScopedRoute => ({
@@ -547,16 +509,10 @@ describe("findsFrom — the best-ever seek", () => {
   ]);
 
   it("adds no bind, so every caller's .bind() line is unchanged", () => {
-    // The scope's binds are consumed exactly once, and a correlated subquery
-    // that took a bind of its own would land among them and shift every
-    // placeholder after it. Callers append their own binds after these.
     expect(findsFrom(scope).binds).toEqual(scope.binds);
   });
 
   it("reads one bare table, with no join and no subquery", () => {
-    // There is one row per slot, so a find IS a row. Every join and correlated
-    // subquery this used to carry existed to collapse history that no longer
-    // exists, and each was measured in tens of thousands of rows read.
     const { sql } = findsFrom(scope);
     expect(sql).toContain("FROM finds f");
     for (const forbidden of ["JOIN", "SELECT", "GROUP BY"]) expect(sql).not.toContain(forbidden);

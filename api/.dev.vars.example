@@ -2,9 +2,6 @@
 #
 #   cp api/.dev.vars.example api/.dev.vars
 #
-# This is the WORKER's environment, and it is the only one — there used to be a
-# repo-root `.env` for a gatherer that ran outside Cloudflare, and workerd never
-# read it. Both are gone.
 #
 # `wrangler dev` does NOT reload this file. Edit a value and the old one keeps
 # working until you restart the API.

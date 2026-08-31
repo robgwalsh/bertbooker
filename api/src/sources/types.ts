@@ -69,10 +69,6 @@ export interface SourceResult {
    * finds, under-claiming costs a stale row. When unsure, narrow it.
    */
   coveredDates?: string[];
-  /** Forensics. NOT stored: the task row that used to carry these went with the
-   *  `search_tasks` table, and what a person needs to debug a bad call is
-   *  streamed to them as it happens instead. Kept on the contract because a
-   *  generic runner would still want somewhere to put them. */
   finalUrl?: string;
   httpStatus?: number;
   capture?: unknown;

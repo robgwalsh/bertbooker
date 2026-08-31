@@ -36,26 +36,6 @@ import type { TrackedRoute } from "../../../api/index";
 
 /**
  * A route's READ FILTERS, edited where they are stated.
- *
- * These five decide what the route's pane SHOWS, and nothing else. Gathering is
- * wide and unfiltered — every cabin, every program, connecting and nonstop, at
- * any price is fetched, stored and claims coverage — so a filter here only ever
- * hides rows that are already in D1. Narrowing is one click and widening back is
- * one click; neither spends a metered call and neither needs a search. That is
- * the whole reason they are chips instead of a dialog: the settings that cost
- * nothing should be the ones that are easiest to reach, which is exactly
- * backwards from where they used to live.
- *
- * The rail states some of the same facts and deliberately does NOT do this —
- * `RouteFilters` shows a chip only when it constrains, because there you are
- * choosing between routes and an "Any cabin" chip on each of eight is eight
- * chips of nothing. Muted always-visible chips earn their width only on the one
- * route you have open.
- *
- * EVERY chip is rendered, set or not, because an unset filter you cannot see is
- * one you cannot turn on. Unset chips are muted and compact; a set one is full
- * size. The difference is the point — a set filter is a fact about this route,
- * an unset one is an offer.
  */
 export function RouteFilterChips({ route }: { route: TrackedRoute }) {
   const phone = useIsPhone();
@@ -83,9 +63,6 @@ export function RouteFilterChips({ route }: { route: TrackedRoute }) {
         help="Cabins, cards, seats, routing and a points ceiling — all five decide what this route SHOWS. Everything they hide is still stored, so changing one costs no search."
         label={active ? `Filters · ${active}` : "Filters"}
         set={active > 0}
-        // A dialog, not the popover the single chips use: five controls fill a
-        // phone, and a surface that covers the screen with nothing but a scrim
-        // to dismiss it is a surface you have to guess your way out of.
         dialogTitle="Filters"
       >
         {() => (
@@ -133,9 +110,6 @@ export function RouteFilterChips({ route }: { route: TrackedRoute }) {
       <FilterChip
         {...shared}
         field="currencies"
-        // The chip's own content is `BookableCurrencies`, and each icon inside it
-        // builds its own tooltip naming the card. A second tooltip out here would
-        // fire with them — see the rule in `brand.tsx`.
         help={currencies.length ? "" : "Cards: only space bookable with these."}
         label="Any card"
         set={currencies.length > 0}
@@ -160,8 +134,6 @@ export function RouteFilterChips({ route }: { route: TrackedRoute }) {
         {(close) => <SeatsToggle {...shared} minSeats={minSeats} onDone={close} />}
       </FilterChip>
 
-      {/* The one filter with no popover: two states, so the chip IS the control.
-          A popover holding a single switch would be a click to reach a click. */}
       <FilterChip
         {...shared}
         field="directOnly"
@@ -194,14 +166,6 @@ interface Shared {
 
 /**
  * One filter's chip, and the surface it opens.
- *
- * A `Popover` rather than a `Menu`: three of the five bodies are not lists — a
- * boolean, a toggle group and a number field — and `Menu`'s typeahead eats the
- * keystrokes the number field needs.
- *
- * `children` takes the close function because two of the bodies are single-shot:
- * picking a seat count or clearing the ceiling answers the question, and leaving
- * the surface open afterwards makes you dismiss something you are done with.
  */
 function FilterChip({
   filters,

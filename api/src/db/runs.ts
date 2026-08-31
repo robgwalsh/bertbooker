@@ -4,20 +4,6 @@ import type { SearchTotals } from "../models/run.js";
 
 /**
  * The `runs` table — a gathering run's bookkeeping.
- *
- * A run row is written by both callers of the search engine and read by the
- * Alerts tab, the pacing model and the budget guard. It is the only table in
- * this app that grows on a CLOCK rather than with the data, which is why
- * `deleteOldRuns` exists at the bottom.
- *
- * These statements live here rather than in the search engine because they are
- * not search logic: they take a run id and a report and write a row. Keeping
- * them there meant the enrichment path had to import the whole search engine to
- * record a quota observation it read off a `/trips/{id}` response header.
- *
- * `source_quota` used to live in this file too. It is `db/sourceQuota.ts` now —
- * one module per table — and the one statement the two still share is
- * `spentSinceStatement`, which the budget guard batches against a quota read.
  */
 
 /** How many change summaries a run keeps. Display only — the authoritative

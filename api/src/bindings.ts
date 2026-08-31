@@ -87,18 +87,7 @@ export interface Env {
 
   // ---- D1 usage reporting (the two right-hand chips in the app bar). ----
 
-  /** A Cloudflare API token with **Account Analytics: Read** and nothing else,
-   *  used to ask Cloudflare's GraphQL Analytics API what our own queries have
-   *  cost today (`providers/cloudflareAnalytics.ts`).
-   *
-   *  This is the credential behind the one host in this worker that is neither
-   *  a data source nor a delivery channel — see the host note in wrangler.toml.
-   *  It reads account analytics and can change nothing.
-   *
-   *  Unset => `GET /api/d1-usage` answers with no `usage` at all and the SPA
-   *  draws no D1 chips. Absent, never zero: zero rows read would render as a
-   *  full allowance, which is the wrong reassurance to give when the truth is
-   *  that nobody asked. That is the ordinary local-dev state. */
+  /** A Cloudflare API token with **Account Analytics: Read** */
   CLOUDFLARE_API_TOKEN?: string;
   /** The account the token above belongs to, as its 32-hex account tag. Both
    *  halves are required; either one missing behaves as unset. It is not in

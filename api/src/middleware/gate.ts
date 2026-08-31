@@ -54,21 +54,6 @@ const COOKIE_NAME = "bertbooker_session";
  *  because it also invalidated every session in existence — bump it, never
  *  reuse a retired value. */
 const KEY_CONTEXT = "bertbooker-session-v1";
-
-/** Deliberate cost on a wrong password.
- *
- *  This comment used to claim the delay was "the only thing blunting online
- *  guessing," on the reasoning that each attempt costs the attacker a fixed
- *  quarter-second of wall clock. **That is not what it does, and the claim is
- *  what let the gap survive review.** A Worker serves requests concurrently, so
- *  this sleep is per-connection latency, not a serialization point — and it is
- *  I/O wait, so it costs the attacker no CPU either. A few hundred parallel
- *  connections turn it into no throttle at all.
- *
- *  It is kept because it is still worth something against a naive sequential
- *  script, and it costs a legitimate typo a quarter second. The actual throttle
- *  is `LOGIN_LIMITER` below, and the actual bound on a distributed attack is a
- *  WAF rule outside this repo — see the binding's docblock in bindings.ts. */
 const BAD_PASSWORD_DELAY_MS = 250;
 
 const encoder = new TextEncoder();

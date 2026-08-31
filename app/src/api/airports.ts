@@ -3,7 +3,7 @@ import type {
   AirportGeo,
   AirportInfo,
   AirportName,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 /**
  * Search criteria shared by the airports table and the airports map.

@@ -8,7 +8,7 @@ import {
   replaceSourceRoutes,
 } from "./routeGraph.js";
 import type { SeatsAeroGraphRoute } from "../providers/seatsaero.js";
-import type { RouteFetchRecord } from "../../../shared/src/wire/index.js";
+import type { RouteFetchRecord } from "../models/wire/index.js";
 
 // A deliberately dumb D1 stub, in the style of `features/search/apply.test.ts`: it routes
 // on substring matches in the SQL and records the bound arguments. It is not a

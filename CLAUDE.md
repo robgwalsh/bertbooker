@@ -116,9 +116,9 @@ npm run db:seed:airports:local  # loads the table AND rebuilds what is derived
 npm run build:world             # regenerates app/src/data/worldGeometry.ts, the
                                 # basemap the route maps draw (needs internet)
 
-npm test                    # ONE vitest run over shared/, api/ and app/ (vitest.config.ts)
+npm test                    # ONE vitest run over api/ and app/ (vitest.config.ts)
                             # — offline, no servers, no browser
-npm run typecheck           # five tsc projects: shared, shared/wire, api, app, e2e
+npm run typecheck           # four tsc projects: api/models/wire, api, app, e2e
 
 # Seeing the app. HEADLESS: no window opens, so a run cannot be disturbed by —
 # or disturb — whoever is using the machine. Reuses dev:api/dev:app if they are
@@ -147,16 +147,13 @@ gated by the shared-password gate (`middleware/gate.ts`) and nothing else —
 there is no Cloudflare Access in front of it, so `APP_USER_EMAIL` is the single
 shared identity everyone who knows the password signs in as.
 
-**Three directories, one `package.json`, no workspaces and no path aliases.**
-`api/` and `app/` both cross into `shared/` with plain relative specifiers
-(`../../shared/src/wire/index.js`), which resolve identically in `tsc`,
+**Two directories, one `package.json`, no workspaces and no path aliases.**
+`app/` crosses into `api/` with a plain relative specifier
+(`../../../api/src/models/wire/index.js`), which resolves identically in `tsc`,
 wrangler's esbuild, Vite and vitest — which is why no alias is configured
-anywhere.
+anywhere. `api/src/models/wire/` is the ONLY thing under `api/src` the SPA may
+ever reach into — see *The wire contract*.
 
-- **`shared/`** — `src/wire/` (the API contract) and `src/match/` (the one
-  route-matching predicate, run by BOTH the Worker and the SPA, and the only
-  runtime code here). **Not a package** — no
-  `package.json`, no `exports` map, nothing emitted.
 - **`api/`** — the only worker, and its `wrangler.toml`. Identity is
   `APP_USER_EMAIL`; it *deliberately ignores*
   `Cf-Access-Authenticated-User-Email`, which with no Access in front is a
@@ -172,18 +169,16 @@ anywhere.
 
 ### The wire contract
 
-**`shared/src/wire/` is the one definition of every API request and response**,
-read by the Worker that produces it and the SPA that consumes it. It is also the
-whole of `shared/`, which is what makes "the SPA imports the wire contract" a
-fact about the tree rather than a rule with an exception list. Three rules:
+**`api/src/models/wire/` is the one definition of every API request and
+response**, read by the Worker that produces it and the SPA that consumes it —
+the one subdirectory of `api/src` the SPA may reach into at all. Three rules:
 
-- **The SPA imports `shared/`, never `api/`.** The import happens in
-  `app/src/api/*`, which re-exports the types so no page or component names a
-  path in `shared/`.
+- **The SPA imports `api/src/models/wire/`, never anything else under
+  `api/`.** The import happens in `app/src/api/*`, which re-exports the types
+  so no page or component names a path into `api/` directly.
 - **Every wire declaration is DECLARED in `wire/`, not borrowed from elsewhere.**
-  Modules there import only each other; the backend module re-exports the
-  declaration, so `api/` imports its own domain vocabulary from
-  `api/src/models/*`.
+  Modules there import only each other; the rest of `api/src/models/*`
+  re-exports what it needs from `wire/` alongside its own domain vocabulary.
 - **The Worker is annotated against it** — `const body: T = {…}` on hand-built
   literals, `.all<T>()` on D1 reads. That is what turns the types from
   documentation into a guarantee. Note the honest limit: **`.all<T>()` is an
@@ -191,14 +186,20 @@ fact about the tree rather than a rule with an exception list. Three rules:
   column list, so each row type in `wire/rows.ts` names the statement it asserts
   about and that comment is the only thing keeping the two honest.
 
-`shared/tsconfig.wire.json` enforces the first two. It is the narrowest project
-in the repo — no DOM, no `@cloudflare/workers-types` — and the only pass that
-catches a wire file reaching `fetch`/`Response`. This isn't theoretical: a
-single type imported from a Worker-only file is enough to drag the whole
-1361-line `providers/seatsaero.ts` into the SPA's bundle. `shared/tsconfig.json`
-then checks the same files a second time *with* DOM and workers-types: that pass
-proves they compose with the Worker's code, the narrow one proves they need none
-of it.
+`api/src/models/wire/tsconfig.wire.json` enforces the first two. It is the
+narrowest project in the repo — no DOM, no `@cloudflare/workers-types` — and
+the only pass that catches a wire file reaching `fetch`/`Response`. This isn't
+theoretical: a single type imported from a Worker-only file is enough to drag
+the whole 1361-line `providers/seatsaero.ts` into the SPA's bundle.
+`api/tsconfig.json` then checks the same files a second time *with* DOM and
+workers-types, as part of the whole of `api/src`: that pass proves they compose
+with the Worker's code, the narrow one proves they need none of it.
+
+This is also why `api/src/models/wire/index.ts` is a barrel even though
+"no barrel in `api/src/`" is the rule everywhere else — it exists so
+`app/src/api/*` has one import path for the whole wire vocabulary, the same
+reason it was a barrel back when it lived under a separate `shared/`
+directory.
 
 ### Inside `api/src/`
 
@@ -215,11 +216,12 @@ below `endpoints/` imports upward.
 | `endpoints/` | **every route this Worker serves.** One `Hono` sub-app per file, each registering ABSOLUTE `/api/...` paths and exporting the name `index.ts` mounts. Eleven files: `quota`, `d1-usage`, `search`, `enrich`, `alerts`, `reference`, `airports`, `graph`, `routes-page`, `tracked-routes`, `settings`. |
 | `middleware/` | the request pipeline: `gate.ts` (password + `/api/auth/*`), `identity.ts`, `security.ts`. |
 | `db/` | **every SQL statement in the Worker, one module per table.** Each function owns its SQL text and the comments explaining it, takes `db: D1Database` first, and returns rows. Nothing here takes a `Context` or an `Env`, and nothing decides anything the data does not: the clamps, the merges, the hash comparisons and the coverage claim all stay in the caller. |
-| `models/` | **the vocabulary: one file per model, each owning its shape AND the rules that define it.** `availability.ts`, `change.ts`, `offer.ts`, `task.ts`, `program.ts`, `airline.ts`, `route.ts`, plus the persisted shapes `trackedRoute.ts`, `find.ts`, `routeGraph.ts`, `run.ts`. A rule lives with its shape because in every case the rule IS the meaning — a `price_drop` is whatever `diffAvailability` calls one. **Worker-only:** if the SPA renders it, it is a wire type and lives in `shared/src/wire/`, which is why there is no `airport.ts`. |
+| `models/` | **the vocabulary: one file per model, declaring its shape and nothing else — no logic.** `availability.ts`, `change.ts`, `offer.ts`, `task.ts`, `program.ts`, `airline.ts`, `route.ts`, plus the persisted shapes `trackedRoute.ts`, `find.ts`, `routeGraph.ts`, `run.ts`. Every rule that used to live beside its shape here has moved to the `features/` slice that reads it — a `price_drop` is whatever `diffAvailability` (`features/search/apply.ts`) calls one, `models/change.ts` just declares what one looks like. **`wire/` is the one subdirectory `app/` may import** — see *The wire contract*. **Worker-only otherwise:** if the SPA renders it and it isn't in `wire/`, it doesn't belong here — which is why there is no `airport.ts`. |
 | `util/` | **what has no opinion about award travel.** `dates.ts` (ISO date and window math) and `params.ts` (an `:id` segment as a rowid or a 400, and the query-string accessor `db/`'s WHERE builders take instead of a `Context`). The bar is that it could be lifted into an unrelated codebase unchanged — anything that could not is a model, not a util. Neither is middleware: neither ever sees a `Context`. |
-| `providers/`, `sources/` | the outbound HTTP clients, and the source contract and registry. |
+| `providers/`, `sources/` | the outbound HTTP clients, and the source contract and registry. `collapse.ts` is the one non-fetch exception: `betterOffer`/`collapseBy`, the shared award-value ranking, lives here rather than in a `features/` slice because its two callers are `providers/seatsaero.ts` and `features/search/apply.ts` — putting it in `features/` would make `providers/` import upward, the one edge nothing else in the tree has. |
+| `features/routing/` | `plan.ts` — turning a tracked route's spec into the queries a search issues and what they cost (`planRoute`, `searchPairs`, `queryGroupCount`, `estimateSearchCalls`, `normalizeSpec`). Every function here is an opinion about award search, and FOUR other slices call in — `search`, `alerts`, `trackedRoutes`, `graph` — with none of them owning it, which is why it is its own slice. |
 | `features/trackedRoutes/` | `routeBody.ts` is everything the Worker accepts and every clamp on the way to a stored value; `autoVia.ts` is the hub suggestion. |
-| `features/search/` | searching a route and persisting the result: `run.ts` (plan/open/run, two callers and one behaviour) and `apply.ts` (the ingest pipeline). |
+| `features/search/` | searching a route and persisting the result: `run.ts` (plan/open/run, two callers and one behaviour) and `apply.ts` (the ingest pipeline — also where `claimsCoverage`, `changeKey`, `diffAvailability` and `summarizeChange` live now). |
 | `features/enrich/` | `engine.ts` — buying the itinerary behind a row. Two very different HTTP shapes sit over it in `endpoints/enrich-endpoints.ts`. |
 | `features/graph/` | the seats.aero route graph: `pathSearch.ts` (impure, over D1), `paths.ts` (pure ranking), `reach.ts` (pure verdicts). |
 | `features/alerts/` | the scheduled sweep and the digest. `tick.ts` is what a tick DECIDES, `outbox.ts` is what it eventually SAYS, `alertRoutes.ts` is what both read; `pace.ts`, `select.ts`, `digest.ts`, `scheduler-budget.ts` are pure. |
@@ -231,9 +233,11 @@ airports, programs, currencies, airlines and the two meters are HTTP shape over
 
 Four rules keep the shape honest, and each is one grep:
 
-- **`models/` and `util/` import only `shared/` and themselves.**
-  `grep -rn 'from "\.\./' api/src/models api/src/util` must return nothing but
-  `shared/src`. They are the sinks, and that is what keeps the graph acyclic.
+- **`models/` and `util/` import only themselves.**
+  `grep -rn 'from "\.\./' api/src/models api/src/util` must return nothing at
+  all — `models/*.ts` reaches `wire/` with a same-directory `./wire/...`
+  specifier, never `../`. They are the sinks, and that is what keeps the graph
+  acyclic.
 - **`db/` declares no types.** A statement lives there; the shape it returns
   lives in `models/`, and each names the other so the pair is edited together.
   `grep -nE '^export (interface|type)' api/src/db/*.ts` must return nothing.
@@ -242,11 +246,15 @@ Four rules keep the shape honest, and each is one grep:
   index.ts and nothing else. An endpoint module is a mount, never a library, and
   the arrow only ever points down: `endpoints/` reaches into `features/`, `db/`
   and `models/`, and none of them reaches back.
-- **A slice may import another slice.** There are four such edges today —
-  `trackedRoutes/autoVia.ts` into graph, `trackedRoutes/routeBody.ts` into
-  alerts (the alert types and the recipient allowlist), and `alerts/tick.ts`
-  into `search/run.ts` (the engine it re-runs) — and each is a public surface
-  two features must not fork.
+- **A slice may import another slice.** There are a handful of such edges
+  today — `trackedRoutes/autoVia.ts` into graph, `trackedRoutes/routeBody.ts`
+  into alerts (the alert types and the recipient allowlist), and
+  `alerts/tick.ts` into both `search/run.ts` (the engine it re-runs) and
+  `search/apply.ts` (`changeKey`, so the sweep keys its own reads the same way
+  ingest keys its writes) — and each is a public surface two features must not
+  fork. `features/routing/` is a different shape: `search`, `alerts`,
+  `trackedRoutes` and `graph` all call into its `plan.ts`, which is a hub every
+  slice may depend on rather than a feature-to-feature edge.
 
 A feature keeps MORE THAN ONE endpoint file where it has more than one mount,
 and every sub-app keeps its exported name, because:
@@ -302,16 +310,18 @@ not ink; interaction states are stated, not derived).
 These constrain code anywhere, or span files with no single owner. Everything
 else lives at its point of use — see *Where the depth lives*.
 
-- **`.js` import specifiers resolve to `.ts`.** `shared/` and `api/` use ESM
-  `./foo.js` imports pointing at `foo.ts`, and both `api/` and `app/` reach
-  `shared/` the same way. esbuild (wrangler) and Vite (vitest) rewrite the
+- **`.js` import specifiers resolve to `.ts`.** `api/` and `app/` use ESM
+  `./foo.js` imports pointing at `foo.ts`, including where `app/` reaches into
+  `api/src/models/wire/`. esbuild (wrangler) and Vite (vitest) rewrite the
   extension. Keep the `.js` suffix on relative imports.
-- **There is no barrel in `api/src/`, and that is deliberate.** A barrel that
-  re-exports the whole domain hides which subsystem an imported symbol comes
-  from. Imports name the owning module (`../../providers/seatsaero.js`,
-  `../../models/route.js`). Don't reintroduce one — `api/src/index.ts` is the
-  composition root and `api/src/sources/index.ts` is a registration side effect,
-  and those are the only two `index.ts` files in the tree.
+- **There is no barrel in `api/src/`, and that is deliberate — with one named
+  exception.** A barrel that re-exports the whole domain hides which subsystem
+  an imported symbol comes from. Imports name the owning module
+  (`../../providers/seatsaero.js`, `../../models/route.js`). Don't reintroduce
+  one — `api/src/index.ts` is the composition root, `api/src/sources/index.ts`
+  is a registration side effect, and `api/src/models/wire/index.ts` exists so
+  `app/src/api/*` has one import path for the whole wire vocabulary (see *The
+  wire contract*). Those are the only three `index.ts` files in the tree.
 - **`api/src/index.ts` imports `./sources/index.js` for its SIDE EFFECT**, and
   that line is the whole of a real check: `registerSource` validates every
   program the source declares against `PROGRAM_SEEDS` at module scope, and
@@ -340,7 +350,7 @@ else lives at its point of use — see *Where the depth lives*.
   to argue rather than a tidy-up. There is no history table: what a slot cost
   last week is not recorded anywhere, deliberately.
 - **The find query is the one read of a stored find**, so no two surfaces can
-  disagree about what a current find is, and **`shared/src/match/routeMatch.ts`
+  disagree about what a current find is, and **`api/src/features/search/routeMatch.ts`
   is the one answer to "does this find belong to this route"** — the Routes page
   and the alert sweep run the same predicate, because an alert that fires on a
   find the route's pane hides is indistinguishable from a bug in either half,
@@ -488,10 +498,10 @@ constrains. When you touch the file, read it there.
 | write-on-change, the stored-vs-recomputed baseline hash, why `collapseBy` is required, co-terminal answers and `routesTouched` | `api/src/features/search/apply.ts` |
 | what claims coverage, and what a task may report | `api/src/models/task.ts`, `api/src/sources/types.ts` |
 | the read scope's superset ladder, and the one rule a pushed-down filter must obey | `api/src/db/finds.ts` |
-| what makes a find belong to a route, and the three places it differs from the SQL it replaced | `shared/src/match/routeMatch.ts` |
+| what makes a find belong to a route, and the three places it differs from the SQL it replaced | `api/src/features/search/routeMatch.ts` |
 | the run retention sweep, and why a `running` row is spared | `api/src/features/alerts/outbox.ts`, `docs/ALERTS.md` §12 |
 | why `finds` is one b-tree, and what an index added to it would cost | `migrations/0001_init.sql` |
-| hub routes planning two seats.aero queries per date chunk, chunk-major task order, `autoVia`, `splitDirectAndLegs` | `api/src/models/route.ts` |
+| hub routes planning two seats.aero queries per date chunk, chunk-major task order, `autoVia`, `splitDirectAndLegs` | `api/src/features/routing/plan.ts` |
 | a connection is LEGS, not a trip; the depth ladder and why the mixed tier stops at one stop | `api/src/features/graph/paths.ts` |
 | `empty` is a SUCCESS — why the fetch itself is recorded, and why rendering it as an error destroys the signal | `api/src/endpoints/graph-endpoints.ts`, `docs/SEATS-AERO.md` §12 |
 | the JSON-parameter bulk write | `api/src/db/routeGraph.ts` |

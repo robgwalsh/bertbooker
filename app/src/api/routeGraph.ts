@@ -7,7 +7,7 @@ import type {
   RouteGraphGeo,
   RouteGraphRow,
   RouteGraphSource,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 /**
  * The seats.aero route graph — which pairs each program is monitored on.

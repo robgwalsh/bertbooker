@@ -3,7 +3,7 @@ import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "../
 import { parseAlertTypes } from "../features/alerts/select.js";
 import { todayISO } from "../util/dates.js";
 import type { Env, Vars } from "../bindings.js";
-import type { AlertSchedule } from "../../../shared/src/wire/index.js";
+import type { AlertSchedule } from "../models/wire/index.js";
 import { selectAlertRuns } from "../db/runs.js";
 import { selectDeliveries } from "../db/alertDeliveries.js";
 import { allowedRecipients } from "../features/alerts/recipients.js";

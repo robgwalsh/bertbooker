@@ -1,7 +1,8 @@
-import type { AvailabilityResult, Cabin, Segment } from "../models/availability.js";
+import type { AvailabilityResult, Cabin, Currency, Segment } from "../models/availability.js";
 import type { SourceQuotaObservation } from "../models/task.js";
-import { currenciesForProgram } from "../models/program.js";
-import { collapseBy, type Collapsible } from "../models/offer.js";
+import { PROGRAM_SEEDS } from "../models/program.js";
+import { collapseBy } from "./collapse.js";
+import type { Collapsible } from "../models/offer.js";
 import { BlockedError, makeTransport, type FetchLike } from "./transport.js";
 import { addDaysISO, chunkDateRange, effectiveSearchWindow } from "../util/dates.js";
 // Re-exported at the bottom of this file as well; imported here because
@@ -17,7 +18,7 @@ import {
   SEATSAERO_SOURCE_ID,
   type SeatsAeroCall,
   type SeatsAeroChunk,
-} from "../../../shared/src/wire/seatsaero.js";
+} from "../models/wire/seatsaero.js";
 
 // ---------------------------------------------------------------------------
 // seats.aero Partner API.
@@ -287,6 +288,18 @@ export function parseQuotaHeaders(
 
 // --- normalize -------------------------------------------------------------
 
+/** Which of the couple's currencies can book this program — i.e. the
+ *  `bookableWith` for a result from a single-program source (an airline's own
+ *  site), which has no `transfer[]` array of its own to derive it from.
+ *
+ *  Seed-derived. The editable `programs` D1 table is the runtime truth, but
+ *  providers have no DB access, so this is the best available approximation.
+ *  Deliberately excludes "direct": including it would mark every single-program
+ *  result bookable regardless of actual balances. */
+export function currenciesForProgram(code: string): Currency[] {
+  return PROGRAM_SEEDS.find((s) => s.code === code)?.transferPartners.map((t) => t.currency) ?? [];
+}
+
 export interface NormalizeResult {
   offers: AvailabilityResult[];
   /** seats.aero `Source` values we had no `programs.code` for, with counts.
@@ -460,7 +473,7 @@ export function normalizeSeatsAero(
 // an app import path — it is 1436 lines and speaks `fetch`. Re-exported here so
 // this module's public surface, and therefore the root barrel's, is unchanged:
 // every existing `api/` import still resolves against this file.
-export * from "../../../shared/src/wire/seatsaero.js";
+export * from "../models/wire/seatsaero.js";
 
 /** The durable half of a call record: everything except the body. This is what
  *  is streamed to whoever is watching, matching the shape the call inspector is

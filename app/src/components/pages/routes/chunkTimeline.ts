@@ -13,7 +13,7 @@ import type { ChunkState } from "./useRouteSearch";
  * around: `empty` is an answer ("nobody is selling award space on these dates"),
  * everything below it is the absence of an answer. They produce identical
  * results and must never read alike, because only `empty` licenses believing it.
- * Mirrors `SourceTaskStatus`, declared in shared/src/wire/domain.ts.
+ * Mirrors `SourceTaskStatus`, declared in api/src/models/wire/domain.ts.
  */
 export const CHUNK_STATUS: Record<
   ChunkState["status"],

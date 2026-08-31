@@ -1,20 +1,19 @@
 // WHAT THE COUPLE CAN PAY WITH, and what each loyalty program takes. Seed data
-// and the one lookup over it: `currenciesForProgram` is the inverse index of
-// `transferPartners`, and belongs beside the array it reads rather than in a
-// util, because it is only meaningful about THIS array.
+// only — `currenciesForProgram`, the inverse index of `transferPartners`, now
+// lives in `api/src/providers/seatsaero.ts`, its only real caller.
 //
 // `seed/programs.sql` mirrors `PROGRAM_SEEDS` — keep them in step when adding or
 // editing a program. The seed lives outside `migrations/` so it stays
 // re-runnable, and `sources/registry.ts` validates every program a source
 // declares against this array at boot.
 import type { Alliance, Currency } from "./availability.js";
-// `CurrencyInfo` is declared in `shared/src/wire/reference.ts`, because
+// `CurrencyInfo` is declared in `api/src/models/wire/reference.ts`, because
 // `GET /api/currencies` answers `c.json(CURRENCIES)` verbatim — the wire type IS
 // the element type of `CURRENCIES` below, and annotating that array against it
 // is what keeps the served shape and the declared one in step.
-import type { CurrencyInfo } from "../../../shared/src/wire/reference.js";
+import type { CurrencyInfo } from "./wire/reference.js";
 
-export type { CurrencyInfo } from "../../../shared/src/wire/reference.js";
+export type { CurrencyInfo } from "./wire/reference.js";
 
 export interface TransferPartner {
   currency: Currency;
@@ -45,18 +44,6 @@ export interface ProgramSeed {
 // in-program.
 
 const p = (currency: Currency, ratio = "1:1"): TransferPartner => ({ currency, ratio });
-
-/** Which of the couple's currencies can book this program — i.e. the
- *  `bookableWith` for a result from a single-program source (an airline's own
- *  site), which has no `transfer[]` array of its own to derive it from.
- *
- *  Seed-derived. The editable `programs` D1 table is the runtime truth, but
- *  providers have no DB access, so this is the best available approximation.
- *  Deliberately excludes "direct": including it would mark every single-program
- *  result bookable regardless of actual balances. */
-export function currenciesForProgram(code: string): Currency[] {
-  return PROGRAM_SEEDS.find((s) => s.code === code)?.transferPartners.map((t) => t.currency) ?? [];
-}
 
 /**
  * Every program the app knows how to name, and what can transfer into it.

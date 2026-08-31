@@ -9,7 +9,7 @@ import {
 } from "../db/alertRecipients.js";
 import { countRoutesUsingRecipient } from "../db/trackedRoutes.js";
 import type { Env, Vars } from "../bindings.js";
-import type { AlertRecipients } from "../../../shared/src/wire/index.js";
+import type { AlertRecipients } from "../models/wire/index.js";
 
 /**
  * The deployment's own settings, as opposed to a route's.

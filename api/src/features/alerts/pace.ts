@@ -1,8 +1,8 @@
 // From `wire/`, not `providers/seatsaero.js` — see the note in `../routing.ts`.
 // Keeping this file free of the provider is what lets `SweepPacing` be part of
 // the wire contract the SPA reads.
-import { SEATSAERO_MAX_PAGES } from "../../../../shared/src/wire/seatsaero.js";
-import type { SweepPacing } from "../../../../shared/src/wire/alerts.js";
+import { SEATSAERO_MAX_PAGES } from "../../models/wire/seatsaero.js";
+import type { SweepPacing } from "../../models/wire/alerts.js";
 
 /**
  * How often the scheduler may re-search the routes that ask for alerts.
@@ -94,7 +94,7 @@ export function routeSweepCost(route: AlertRouteCost): number {
 // Declared in `../wire/alerts.ts` beside `AlertSchedulePacing`, the flattened
 // form of it that goes over the wire, and re-exported here so `sweepPacing()`
 // below and its callers are unchanged.
-export type { SweepPacing } from "../../../../shared/src/wire/alerts.js";
+export type { SweepPacing } from "../../models/wire/alerts.js";
 
 /**
  * Divide the day's alert allowance among the routes that want it.

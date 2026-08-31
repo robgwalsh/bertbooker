@@ -1,7 +1,8 @@
 import type { ChangeSummary } from "../../models/change.js";
-import { planRoute, type RouteLegGroup, type RoutePair } from "../../models/route.js";
+import type { RouteLegGroup, RoutePair } from "../../models/route.js";
+import { planRoute } from "../routing/plan.js";
 import { applyTask } from "./apply.js";
-import { runStatus, type SourceTaskReport } from "../../models/task.js";
+import type { RunStatus, SourceTaskReport } from "../../models/task.js";
 import { datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk } from "../../providers/seatsaero.js";
 import {
   classifyError,
@@ -22,12 +23,12 @@ export type { SearchTotals } from "../../models/run.js";
 
 /** What the SPA sees. Newline-delimited JSON, one object per line.
  *
- *  DEFINED IN `shared/src/wire/search.ts` and re-exported here for this
+ *  DEFINED IN `api/src/models/wire/search.ts` and re-exported here for this
  *  module's consumers (`endpoints/search-endpoints.ts` re-exports it again). */
-export type { SearchEvent } from "../../../../shared/src/wire/search.js";
+export type { SearchEvent } from "../../models/wire/search.js";
 // Again as a plain import: `export … from` re-exports without binding the name
 // in this module, and the run loop below is typed in terms of it.
-import type { SearchEvent } from "../../../../shared/src/wire/search.js";
+import type { SearchEvent } from "../../models/wire/search.js";
 
 /**
  * Response bytes one search will stream back for display, across all its calls.
@@ -116,6 +117,20 @@ export interface SearchPassResult {
   /** Set when the pass died rather than completed — the caller has already been
    *  handed an `error` frame if it was streaming. */
   error?: string;
+}
+
+/** ok + at least one failure = partial. It matters that a run with any failed
+ *  task never reads as a clean sweep: a silent partial looks exactly like "there
+ *  is no award space". Shared by the search endpoint and the alert sweep. */
+export function runStatus(
+  ok: number,
+  failed: number,
+  planned: number,
+): Exclude<RunStatus, "running"> {
+  if (planned === 0) return "ok";
+  if (failed === 0) return "ok";
+  if (ok === 0) return "failed";
+  return "partial";
 }
 
 /** A JSON-array column, falling back to the scalar beside it. NULL means "use

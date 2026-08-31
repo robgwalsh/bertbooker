@@ -149,8 +149,8 @@ function stopsOf(f: Find): number {
  * Cheapest miles wins; ties break on more seats, then fewer stops, then shorter.
  *
  * Deliberately the same ORDER as `betterOffer` in
- * `api/src/models/offer.ts`, and deliberately not a call to it: the SPA
- * imports nothing from `shared/`, and its `Collapsible` is the camelCase
+ * `api/src/providers/collapse.ts`, and deliberately not a call to it: the SPA
+ * has no access to it, and its `Collapsible` is the camelCase
  * normalized shape requiring `segments`, which the wire `Find` does not carry
  * (it has `segments_json`). Satisfying that type with `segments: []` would make
  * every leg here look like nine stops. If the ranking in collapse.ts changes,

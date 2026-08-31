@@ -3,7 +3,7 @@ import { parseAlertTypes, selectAlertable } from "./select.js";
 import { alertRouteCosts, alertRouteRows, parseList, type AlertRouteRow } from "./alertRoutes.js";
 import { cycleComplete, flushOutbox, pruneOldRuns } from "./outbox.js";
 import { decideSweep, readBudgetState } from "./scheduler-budget.js";
-import { changeKey } from "../../models/change.js";
+import { changeKey } from "../search/apply.js";
 import { todayISO } from "../../util/dates.js";
 import type { Cabin } from "../../models/availability.js";
 import type { Env } from "../../bindings.js";
@@ -16,7 +16,6 @@ import {
 } from "../../db/trackedRoutes.js";
 import { selectResumableAlertRun } from "../../db/runs.js";
 import { insertOutboxChanges } from "../../db/alertOutbox.js";
-import { routeMatcher } from "../../../../shared/src/match/routeMatch.js";
 import { openSearchRun, planSearchPass, runSearchPass } from "../search/run.js";
 
 
@@ -37,11 +36,12 @@ export const ALERT_DEFAULTS = (env: Env) => ({
   maxCallsPerTick: num(env.ALERT_MAX_CALLS_PER_TICK, DEFAULT_MAX_CALLS_PER_TICK),
 });
 
-/** Defined in `shared/src/wire/alerts.ts` — the SPA reads it as
+/** Defined in `api/src/models/wire/alerts.ts` — the SPA reads it as
  *  `AlertTickResult`. Re-exported here so this module's consumers are
  *  unchanged. */
-export type { TickResult } from "../../../../shared/src/wire/alerts.js";
-import type { TickResult } from "../../../../shared/src/wire/alerts.js";
+export type { TickResult } from "../../models/wire/alerts.js";
+import type { TickResult } from "../../models/wire/alerts.js";
+import { routeMatcher } from "../search/routeMatch.js";
 
 /**
  * One cron tick.

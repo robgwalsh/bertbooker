@@ -1,4 +1,4 @@
-import type { AirportGeo, AirportInfo, AirportName } from "../../../shared/src/wire/index.js";
+import type { AirportGeo, AirportInfo, AirportName } from "../models/wire/index.js";
 import type { QueryReader } from "../util/params.js";
 
 /**
@@ -91,13 +91,6 @@ function airportFilter(
   const where: string[] = [];
   const binds: unknown[] = [];
 
-  // `iata > ''` selects the same 9,054 rows as `iata IS NOT NULL AND iata != ''`
-  // — NULL compares NULL and drops out, and every `iata` here is text or NULL, so
-  // SQLite's cross-type ordering cannot widen it. The difference is that `!=` is
-  // not sargable and `>` is, so the planner takes `idx_airports_iata` as a range
-  // seek instead of scanning all 72,454 rows. That matters when there is no `q`
-  // to drive the fts subquery, because then this clause is the whole WHERE:
-  // measured 81,508 rows read against 18,108. With a `q` both forms measure 227.
   if (iataOnly) where.push("iata > ''");
   if (scheduledOnly) where.push("scheduled = 1");
   if (continent) {
@@ -113,40 +106,12 @@ function airportFilter(
     binds.push(...types);
   }
 
-  // FULL TEXT, replacing an eight-way OR per token.
-  //
-  // That chain was `iata = ? OR iata LIKE ? OR icao LIKE ? OR ident LIKE ? OR
-  // name LIKE '%?%' OR city LIKE '%?%' OR country = ? OR region LIKE '%?%'`.
-  // Three of those disjuncts had a LEADING wildcard, which no index can serve,
-  // and one unindexable disjunct inside an OR forces the whole chain to a table
-  // scan: 72,865 rows read to return 8, on every settled keystroke. See
-  // the FTS index.
-  //
-  // fts5 keeps the semantics that mattered. Within a token the match is across
-  // every indexed column — which is what the OR spelled out by hand — and
-  // between tokens the default connective is AND, which is what pushing one
-  // clause per token into `where` did. What changes: `name`/`city`/`region` go
-  // from SUBSTRING to WORD-PREFIX, so "ternational" stops matching
-  // "International" while "francisco" still matches "San Francisco Intl". That
-  // is a better answer for an autocomplete, but it is a change.
-  //
-  // A `rowid IN (…)` predicate rather than a JOIN, deliberately: `airports_fts`
-  // shares SIX column names with `airports`, so joining it would make `country =
-  // ?`, `iata > ''` and every other clause in this builder ambiguous. As a
-  // subquery, this builder's contract is unchanged — one more entry in `where`,
-  // its bind pushed in SQL order — and both callers need no edit. `rowid` is
-  // unambiguous in both: neither joins anything.
   if (q) {
     const match = ftsMatchQuery(q);
     if (match) {
       where.push("rowid IN (SELECT rowid FROM airports_fts WHERE airports_fts MATCH ?)");
       binds.push(match);
     } else {
-      // `q` was punctuation only. It matched nothing under the LIKE chain
-      // either, and saying so explicitly matters: `q` is non-empty, so the
-      // `defaultToMajors` branch below will not catch it, and without this the
-      // query would fall through to an unfiltered ranked top-N — a list of big
-      // airports presented as if they were results.
       where.push("1 = 0");
     }
   }

@@ -4,7 +4,7 @@ import { MAX_VIA } from "../../models/route.js";
 import { CABIN_ORDER } from "../../models/availability.js";
 import { CURRENCIES } from "../../models/program.js";
 import type { Env } from "../../bindings.js";
-import type { RouteInput } from "../../../../shared/src/wire/index.js";
+import type { RouteInput } from "../../models/wire/index.js";
 
 /**
  * What the Worker ACCEPTS for a route, and everything that turns it into what
@@ -20,7 +20,7 @@ import type { RouteInput } from "../../../../shared/src/wire/index.js";
  * field as optional and merges against the stored row.
  *
  * **Deliberately NOT the same type as `RouteInput`** in
- * `shared/src/wire/rows.ts`, which is what the SPA's form sends. This is what
+ * `api/src/models/wire/rows.ts`, which is what the SPA's form sends. This is what
  * the Worker ACCEPTS, and it is a wider, older shape in three ways that all
  * still matter: the pre-sets scalar `origin`/`destination`; `programs` and
  * `kind`, which no current client sends; and `null` as an explicit "clear this

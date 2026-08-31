@@ -1,4 +1,4 @@
-import type { AlertRecipient } from "../../../shared/src/wire/index.js";
+import type { AlertRecipient } from "../models/wire/index.js";
 
 /**
  * The `alert_recipients` table — the addresses this deployment may email.

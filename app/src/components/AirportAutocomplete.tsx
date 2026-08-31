@@ -186,7 +186,7 @@ export function AirportMultiAutocomplete({
   value: string[];
   onChange: (codes: string[]) => void;
   /** Refuses to add past this. The caps exist because a wide route paginates —
-   *  see MAX_ORIGINS in shared/src/wire/routing.ts. */
+   *  see MAX_ORIGINS in api/src/models/wire/routing.ts. */
   max: number;
   placeholder?: string;
   helperText?: string;

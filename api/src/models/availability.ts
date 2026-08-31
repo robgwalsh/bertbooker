@@ -3,19 +3,16 @@
 // seats.aero's payload looks like.
 //
 // `Cabin`, `Segment`, `Currency` and `Alliance` are DECLARED in
-// `shared/src/wire/domain.ts` and re-exported here — the SPA reads all four, and
+// `api/src/models/wire/domain.ts` and re-exported here — the SPA reads all four, and
 // the wire contract is where the shared half of this vocabulary lives. That is
 // the rule for this whole directory: **a model here is Worker-only. If the SPA
-// renders it, it is a wire type and it lives in `shared/src/wire/`.** Which is
+// renders it, it is a wire type and it lives in `api/src/models/wire/`.** Which is
 // why there is no `airport.ts` — `AirportInfo`, `AirportName` and `AirportGeo`
 // are all rendered, so all three are wire types.
 //
-// `routeKey` is here rather than in a util because it is this shape's identity,
-// not a string helper: it names the slot a find occupies.
+import type { Cabin, Currency, Segment } from "./wire/domain.js";
 
-import type { Cabin, Currency, Segment } from "../../../shared/src/wire/domain.js";
-
-export type { Alliance, Cabin, Currency, Segment } from "../../../shared/src/wire/domain.js";
+export type { Alliance, Cabin, Currency, Segment } from "./wire/domain.js";
 
 /** The four cabins in ascending value order — useful for "best cabin" logic. */
 export const CABIN_ORDER: readonly Cabin[] = ["economy", "premium", "business", "first"];
@@ -79,9 +76,4 @@ export interface AvailabilityResult {
   /** Which of the couple's currencies can book this (from the source's transfer
    *  data). Empty/undefined when unknown. Powers "bookable with my points". */
   bookableWith?: Currency[];
-}
-
-/** Canonical key for a route+date, used for caching and snapshot grouping. */
-export function routeKey(origin: string, destination: string, flightDate: string): string {
-  return `${origin}-${destination}-${flightDate}`;
 }

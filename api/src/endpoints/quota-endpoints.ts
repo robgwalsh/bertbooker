@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env, Vars } from "../bindings.js";
-import type { QuotaPage } from "../../../shared/src/wire/index.js";
+import type { QuotaPage } from "../models/wire/index.js";
 import { selectQuotaSince } from "../db/sourceQuota.js";
 
 /**

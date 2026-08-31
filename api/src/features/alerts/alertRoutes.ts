@@ -1,6 +1,6 @@
 import type { AlertRouteCost } from "./pace.js";
 import { planSeatsAeroChunks } from "../../providers/seatsaero.js";
-import { queryGroupCount } from "../../models/route.js";
+import { queryGroupCount } from "../routing/plan.js";
 import type { Env } from "../../bindings.js";
 import { selectAlertRoutes } from "../../db/trackedRoutes.js";
 import type { AlertRouteRow } from "../../models/trackedRoute.js";

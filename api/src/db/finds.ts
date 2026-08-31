@@ -2,8 +2,8 @@ import { addDaysISO } from "../util/dates.js";
 import type { AvailabilityResult } from "../models/availability.js";
 import type { EnrichTargetRow, EnrichableRow, FindsScope } from "../models/find.js";
 import type { FilteredRoute, RouteFilters, ScopedRoute } from "../models/trackedRoute.js";
-import type { Find } from "../../../shared/src/wire/index.js";
-import type { MatchableFind } from "../../../shared/src/match/routeMatch.js";
+import type { Find } from "../models/wire/index.js";
+import type { MatchableFind } from "../features/search/routeMatch.js";
 
 /**
  * The `finds` table — every read of a stored find, and every write of one.
@@ -17,7 +17,7 @@ import type { MatchableFind } from "../../../shared/src/match/routeMatch.js";
  * The file is in two halves. The first is how a set of tracked routes becomes a
  * bounded WHERE (`routeFindsScope`), which is the interesting part: it decides
  * how few rows the database has to touch, and it is a claim about
- * `shared/src/match/routeMatch.ts` that `finds.test.ts` proves. The second half
+ * `api/src/features/search/routeMatch.ts` that `finds.test.ts` proves. The second half
  * issues the statements — two projections over that scope, the ingest baseline,
  * the ingest upsert and prune, and the two enrichment lookups and writes.
  *
@@ -68,7 +68,7 @@ function codeList(json: string | null, fallback?: string): string[] {
  * every find `routeMatcher` could accept for any of them.
  *
  * It lives beside the predicate it is a claim about even though the two are in
- * different files: this bounds the read, `shared/src/match/routeMatch.ts`
+ * different files: this bounds the read, `api/src/features/search/routeMatch.ts`
  * narrows what comes back, and **a branch added there without a matching
  * widening here silently drops finds.**
  *
@@ -202,7 +202,7 @@ function pushFilters(r: RouteFilters, parts: string[], binds: unknown[]): void {
 /**
  * A FILTER column's list, or `null` for "no filter" — the distinction `codeList`
  * throws away and this depends on. Mirrors `filterSet` in
- * `shared/src/match/routeMatch.ts`, deliberately including its reading of
+ * `api/src/features/search/routeMatch.ts`, deliberately including its reading of
  * malformed JSON as no filter.
  */
 function filterList(json: string | null | undefined): string[] | null {

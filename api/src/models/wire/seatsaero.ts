@@ -1,7 +1,7 @@
 // The seats.aero constants and call records that the SPA needs to READ.
 //
 // These lived in `providers/seatsaero.ts` until the wire module existed, and
-// moving them is not tidying — it is what makes `shared/src/wire/` importable at
+// moving them is not tidying — it is what makes `api/src/models/wire/` importable at
 // all. That file is 1436 lines and reaches `fetch`/`Headers`/`Response`, and two
 // modules that look pure imported a single constant out of it:
 // `routing.ts` and `alerts/pace.ts` both took `SEATSAERO_MAX_PAGES`. So

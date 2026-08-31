@@ -296,7 +296,7 @@ or unrecognisable array back out is therefore evidence of corruption, and
 
 **A change must also be one the route's own pane would show.** After the sweep,
 `routeFindKeys` reads the route's current finds and runs
-`shared/src/match/routeMatch.ts` — the *same* predicate the Routes page runs —
+`api/src/features/search/routeMatch.ts` — the *same* predicate the Routes page runs —
 and `selectAlertable` intersects the changes against that key set. An alert that
 fires on a find the route's pane hides is indistinguishable from a bug in either
 half, and since no mail is sent when nothing is found, the other direction

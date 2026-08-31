@@ -2,7 +2,7 @@ import { req } from "./client";
 import type {
   AlertRecipientInput,
   AlertRecipients,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 export const alertRecipients = () => req<AlertRecipients>("/settings/recipients");
 

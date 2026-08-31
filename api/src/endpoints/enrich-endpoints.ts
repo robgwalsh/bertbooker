@@ -11,7 +11,7 @@ import { rowIdParam } from "../util/params.js";
 import { selectEnrichableRows, selectEnrichTargets, withinRouteScope } from "../db/finds.js";
 import { selectRouteWindow, selectScopedRoutes } from "../db/trackedRoutes.js";
 import { enrichAvailability } from "../features/enrich/engine.js";
-import { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";
+import { ENRICH_MAX_PER_RUN } from "../models/wire/enrich.js";
 
 /**
  * Seats.aero sometimes includes full itinerary info for flights, sometimes doesnt. When it doesn't you have to make
@@ -19,8 +19,8 @@ import { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";
  */
 export const enrich = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-export type { EnrichEvent } from "../../../shared/src/wire/enrich.js";
-import type { EnrichEvent } from "../../../shared/src/wire/enrich.js";
+export type { EnrichEvent } from "../models/wire/enrich.js";
+import type { EnrichEvent } from "../models/wire/enrich.js";
 
 enrich.post("/api/finds/enrich", async (c) => {
   const email = c.get("userEmail");

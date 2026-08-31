@@ -8,7 +8,7 @@ import {
 import { graphPathRowsForPairs } from "../../db/routeGraph.js";
 import { airportCoords } from "../../db/airports.js";
 import { SEATSAERO_PROGRAM_MAP } from "../../providers/seatsaero.js";
-import type { PathSearchResult } from "../../../../shared/src/wire/index.js";
+import type { PathSearchResult } from "../../models/wire/index.js";
 
 /**
  * The escalation ladder over the route graph: how you would get there with a

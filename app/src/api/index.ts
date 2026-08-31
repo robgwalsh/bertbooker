@@ -5,20 +5,20 @@
 //
 // ---- The wire contract ----
 //
-// **This file is the ONLY place in the SPA that names a path inside `shared/`.**
+// **This file is the ONLY place in the SPA that names a path inside `api/`.**
 // Everything else imports from `./api` and knows nothing about the boundary,
 // which is why splitting this module into `api/` did not touch a single call
 // site: `api.ts` became `api/index.ts` and the specifier is unchanged.
 //
-// The types below are declared in `shared/src/wire/`, not here. There is one
+// The types below are declared in `api/src/models/wire/`, not here. There is one
 // definition, and the Worker is annotated against it, so the two halves of a
 // response cannot drift apart in silence.
 //
-// `shared/src/wire/` is the ONLY thing under `shared/`. The rule worth
-// keeping is: **the SPA imports `shared/`, never `api/`.** A path that climbs
-// into `api/src` reaches `D1Database` and `fetch` and fails `tsc -p app` —
-// loudly, but at the far end of whatever chain got it there. See the banner
-// in `shared/src/wire/index.ts`.
+// `api/src/models/wire/` is the ONLY thing under `api/src` the SPA may ever
+// reach into. A path that climbs past it into the rest of `api/src` reaches
+// `D1Database` and `fetch` and fails `tsc -p app` — loudly, but at the far end
+// of whatever chain got it there. See the banner in
+// `api/src/models/wire/index.ts`.
 //
 // Note every type line below is `export type`. `app/tsconfig.json` sets
 // `isolatedModules`, so a bare `export { SomeType }` is an error — and the
@@ -87,7 +87,7 @@ export type {
   // Errors
   ApiErrorBody,
   ApiErrorCode,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 // Renamed at the boundary. The wire spells these for the Worker that produces
 // them; the SPA spells them for the screen that draws them. One definition
@@ -96,7 +96,7 @@ export type {
   SeatsAeroCall as SearchCall,
   EnrichOutcome as EnrichResult,
   TickResult as AlertTickResult,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 // The one VALUE crossing the boundary, and the reason this import is not
 // `import type`. It is also the constant whose duplicate the confirm dialog used
@@ -110,7 +110,7 @@ export {
   SEATSAERO_MAX_CHUNKS,
   SEATSAERO_MAX_PAGES,
   SEATSAERO_SOURCE_ID,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 export { ApiError } from "./client";
 export type { AirportSearchOpts } from "./airports";

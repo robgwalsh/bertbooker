@@ -1,4 +1,4 @@
-import type { TrackedRoute } from "../../../shared/src/wire/index.js";
+import type { TrackedRoute } from "../models/wire/index.js";
 import type {
   AlertRouteRow,
   EditedTrackedRoute,

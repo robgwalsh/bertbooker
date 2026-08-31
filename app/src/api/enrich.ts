@@ -4,7 +4,7 @@ import type {
   ApiErrorBody,
   EnrichEvent,
   EnrichOutcome,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 /**
  * Buy the real itinerary behind one summary find — one seats.aero call.

@@ -1,4 +1,4 @@
-import type { RouteFetchStatus } from "../../../shared/src/wire/routeGraph.js";
+import type { RouteFetchStatus } from "./wire/routeGraph.js";
 
 /**
  * THE SEATS.AERO ROUTE GRAPH — the city pairs each program's award inventory is
@@ -10,7 +10,7 @@ import type { RouteFetchStatus } from "../../../shared/src/wire/routeGraph.js";
  *
  * The statements are `db/routeGraph.ts`; what the pane renders — `RouteGraphRow`,
  * `RouteGraphEdge`, `PairCoverage`, `GraphPath`, `ReachReport` — are WIRE types
- * in `shared/src/wire/routeGraph.ts`. `RouteFetchStatus` is one of those, and is
+ * in `api/src/models/wire/routeGraph.ts`. `RouteFetchStatus` is one of those, and is
  * imported rather than restated because `RouteFetchOutcome` below is what
  * produces the value the SPA reads.
  */

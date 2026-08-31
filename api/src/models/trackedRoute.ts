@@ -18,7 +18,7 @@
  * produces it, in `db/trackedRoutes.ts`, and the two are edited together.
  *
  * The row the SPA renders is `TrackedRoute`, a WIRE type
- * (`shared/src/wire/rows.ts`). Nothing in this file is rendered.
+ * (`api/src/models/wire/rows.ts`). Nothing in this file is rendered.
  */
 
 /** A route as it is written on create. Every value here has already been

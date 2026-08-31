@@ -1,10 +1,10 @@
 // The words the route form and header use for alerts.
 //
-// `ALERT_TYPES` is here rather than in `shared/` and its ORDER is the reason:
-// `ALL_ALERT_TYPES` in `api/src/features/alerts/select.ts` lists the same four
-// members with `more_seats` and `price_drop` the other way round, and this is
-// the order the checkboxes below render in. The TYPE is shared; adopting the
-// shared array would silently reorder a form.
+// `ALERT_TYPES` is here rather than in `api/src/models/wire/` and its ORDER is
+// the reason: `ALL_ALERT_TYPES` in `api/src/features/alerts/select.ts` lists
+// the same four members with `more_seats` and `price_drop` the other way
+// round, and this is the order the checkboxes below render in. The TYPE is
+// shared; adopting the wire array would silently reorder a form.
 
 import { ALERT_HEALTH, alertHealth, formatInterval } from "../../../lib/alerts";
 import { sinceLabel } from "../../../lib/format";

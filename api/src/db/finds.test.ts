@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { FindsScope } from "../models/find.js";
 import type { FilteredRoute, ScopedRoute } from "../models/trackedRoute.js";
 import { findsFrom, routeFindsScope, withinRouteScope } from "./finds.js";
-import type { MatchableRoute } from "../../../shared/src/match/routeMatch.js";
-import { routeMatcher } from "../../../shared/src/match/routeMatch.js";
+import type { MatchableRoute } from "../features/search/routeMatch.js";
+import { routeMatcher } from "../features/search/routeMatch.js";
 
 /** Only the columns the scope constrains. Every one is NOT NULL in 0001, which
  *  is the property `pushFilters` relies on to match the matcher's reading. */

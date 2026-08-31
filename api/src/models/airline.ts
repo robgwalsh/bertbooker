@@ -3,12 +3,12 @@
 // `./program.ts`'s alliance table plus a list of bilateral deals.
 import type { Alliance } from "./availability.js";
 import { PROGRAM_SEEDS } from "./program.js";
-// `AirlineInfo` is declared in `shared/src/wire/reference.ts` for the same reason
+// `AirlineInfo` is declared in `api/src/models/wire/reference.ts` for the same reason
 // `CurrencyInfo` is: `GET /api/airlines` answers `c.json(AIRLINE_DIRECTORY)`
 // verbatim, so the wire type is the element type of that array.
-import type { AirlineInfo } from "../../../shared/src/wire/reference.js";
+import type { AirlineInfo } from "./wire/reference.js";
 
-export type { AirlineInfo } from "../../../shared/src/wire/reference.js";
+export type { AirlineInfo } from "./wire/reference.js";
 
 /** A carrier you actually fly, as opposed to a loyalty program you pay with.
  *  The Library's Airlines section answers "which miles buy a seat on this

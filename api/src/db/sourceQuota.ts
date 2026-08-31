@@ -1,4 +1,4 @@
-import type { SourceQuota } from "../../../shared/src/wire/index.js";
+import type { SourceQuota } from "../models/wire/index.js";
 import type { SourceQuotaObservation } from "../models/task.js";
 import type { BudgetRows } from "../models/run.js";
 import { spentSinceStatement } from "./runs.js";

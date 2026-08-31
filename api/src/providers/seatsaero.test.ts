@@ -7,6 +7,7 @@ import {
   planSeatsAeroChunks,
   runSeatsAeroChunk,
   callMetadata,
+  currenciesForProgram,
   datesIn,
   seatsAeroHeaders,
   seatsAeroTaskKey,
@@ -19,7 +20,7 @@ import {
   type SeatsAeroSearchResponse,
 } from "./seatsaero.js";
 import { makeTransport } from "./transport.js";
-import { PROGRAM_SEEDS, currenciesForProgram } from "../models/program.js";
+import { PROGRAM_SEEDS } from "../models/program.js";
 
 // The fixture is hand-authored from the documented Cached Search shape and the
 // cases that matter (cabin fan-out, an unreported seat count, an unmapped

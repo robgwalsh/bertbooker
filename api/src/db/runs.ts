@@ -1,5 +1,5 @@
 import type { ChangeSummary } from "../models/change.js";
-import type { Run } from "../../../shared/src/wire/index.js";
+import type { Run } from "../models/wire/index.js";
 import type { SearchTotals } from "../models/run.js";
 
 /**

@@ -8,7 +8,7 @@ import type {
   D1UsagePage,
   ProgramInfo,
   QuotaPage,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 export const programs = () => req<ProgramInfo[]>("/programs");
 export const currencies = () => req<CurrencyInfo[]>("/currencies");

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env, Vars } from "../bindings.js";
-import type { D1Usage, D1UsagePage } from "../../../shared/src/wire/index.js";
+import type { D1Usage, D1UsagePage } from "../models/wire/index.js";
 import { fetchD1RowTotals, utcDay } from "../providers/cloudflareAnalytics.js";
 
 export const d1Usage = new Hono<{ Bindings: Env; Variables: Vars }>();

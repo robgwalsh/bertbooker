@@ -6,19 +6,22 @@ import type { AvailabilityResult } from "./availability.js";
 // a task that was refused must be distinguishable from one that looked and found
 // nothing.
 //
-// The two rules that read this shape live here with it, because they ARE its
-// meaning: `claimsCoverage` says which statuses may delete stored rows, and
-// `runStatus` says when a run of them counts as clean.
+// The two rules that read this shape — `claimsCoverage`, which says which
+// statuses may delete stored rows, and `runStatus`, which says when a run of
+// them counts as clean — live in `features/search/apply.ts` and
+// `features/search/run.ts`, their only callers. `COVERAGE_CLAIMING_STATUSES`
+// stays here: it is the invariant the shape itself carries, not a decision
+// made about it.
 //
 // The display half IS part of the wire contract: `SourceTaskStatus` and
-// `RunStatus` are DECLARED in `shared/src/wire/domain.ts`, which the SPA imports,
+// `RunStatus` are DECLARED in `api/src/models/wire/domain.ts`, which the SPA imports,
 // and re-exported below so every consumer here is unchanged. The invariant that
 // pairs with the first of them — `COVERAGE_CLAIMING_STATUSES` — is a runtime
 // value and stays on this side.
 
-import type { RunStatus, SourceTaskStatus } from "../../../shared/src/wire/domain.js";
+import type { SourceTaskStatus } from "./wire/domain.js";
 
-export type { RunStatus, SourceTaskStatus } from "../../../shared/src/wire/domain.js";
+export type { RunStatus, SourceTaskStatus } from "./wire/domain.js";
 
 /** Statuses that are allowed to claim coverage.
  *
@@ -27,10 +30,6 @@ export type { RunStatus, SourceTaskStatus } from "../../../shared/src/wire/domai
  *  which is what licenses deleting the slice's other stored rows. Adding any
  *  "didn't really get an answer" status here hard-deletes real finds. */
 export const COVERAGE_CLAIMING_STATUSES: readonly SourceTaskStatus[] = ["ok", "empty"];
-
-export function claimsCoverage(status: SourceTaskStatus): boolean {
-  return COVERAGE_CLAIMING_STATUSES.includes(status);
-}
 
 export interface SourceTaskReport {
   source: string;
@@ -87,20 +86,6 @@ export interface SourceQuotaObservation {
   /** Unix ms, from the caller's clock. The day bucket is derived from this in
    *  UTC, because that is when seats.aero's allowance resets. */
   observedAt: number;
-}
-
-/** ok + at least one failure = partial. It matters that a run with any failed
- *  task never reads as a clean sweep: a silent partial looks exactly like "there
- *  is no award space". Shared by the search endpoint and the alert sweep. */
-export function runStatus(
-  ok: number,
-  failed: number,
-  planned: number,
-): Exclude<RunStatus, "running"> {
-  if (planned === 0) return "ok";
-  if (failed === 0) return "ok";
-  if (ok === 0) return "failed";
-  return "partial";
 }
 
 /** What applying one task actually did to the database. Accumulated onto the

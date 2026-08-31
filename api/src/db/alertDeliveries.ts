@@ -1,4 +1,4 @@
-import type { AlertDelivery } from "../../../shared/src/wire/index.js";
+import type { AlertDelivery } from "../models/wire/index.js";
 import type { DeliveryRecord } from "../models/run.js";
 
 /**

@@ -9,7 +9,7 @@
  *
  * The statements are `db/runs.ts`, `db/sourceQuota.ts` and
  * `db/alertDeliveries.ts`. What the Alerts tab renders — `Run`, `SourceQuota`,
- * `AlertDelivery` — are WIRE types (`shared/src/wire/rows.ts`).
+ * `AlertDelivery` — are WIRE types (`api/src/models/wire/rows.ts`).
  */
 
 /** What a pass accumulated, written onto the `runs` row by `finishRun`.

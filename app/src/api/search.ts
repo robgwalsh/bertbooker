@@ -1,6 +1,6 @@
 import { notifyLocked } from "../lib/auth";
 import { readNdjson, searchErrorMessage, SEARCH_TIMEOUT_MS } from "./client";
-import type { ApiErrorBody, SearchEvent } from "../../../shared/src/wire/index.js";
+import type { ApiErrorBody, SearchEvent } from "../../../api/src/models/wire/index.js";
 
 /**
  * Search one tracked route against seats.aero, yielding each frame as it arrives.

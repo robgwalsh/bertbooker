@@ -8,7 +8,7 @@ import type {
   Run,
   AlertDelivery,
   TickResult,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 export const alertSchedule = () => req<AlertSchedule>("/alerts/schedule");
 

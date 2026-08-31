@@ -3,7 +3,7 @@ import { AIRLINE_DIRECTORY } from "../models/airline.js";
 import { CURRENCIES } from "../models/program.js";
 import { selectActivePrograms } from "../db/programs.js";
 import type { Env, Vars } from "../bindings.js";
-import type { ProgramInfo } from "../../../shared/src/wire/index.js";
+import type { ProgramInfo } from "../models/wire/index.js";
 
 export const reference = new Hono<{ Bindings: Env; Variables: Vars }>();
 

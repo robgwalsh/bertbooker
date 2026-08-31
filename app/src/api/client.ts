@@ -7,7 +7,7 @@
 // in dev vite.config.ts proxies /api to :8787.
 
 import { notifyLocked } from "../lib/auth";
-import type { ApiErrorBody, ApiErrorCode } from "../../../shared/src/wire/index.js";
+import type { ApiErrorBody, ApiErrorCode } from "../../../api/src/models/wire/index.js";
 
 /** A failed API response, carrying the two things a caller might branch on. The
  *  message keeps the old `GET /path -> 401` shape, because that is what any

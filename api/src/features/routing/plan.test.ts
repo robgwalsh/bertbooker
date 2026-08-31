@@ -7,11 +7,10 @@ import {
   roundTripSpec,
   routePairs,
   RouteSpecError,
-  MAX_ORIGINS,
-  MAX_VIA,
   queryGroupCount,
-} from "./route.js";
-import { SEATSAERO_MAX_PAGES } from "../../../shared/src/wire/seatsaero.js";
+} from "./plan.js";
+import { MAX_ORIGINS, MAX_VIA } from "../../models/route.js";
+import { SEATSAERO_MAX_PAGES } from "../../models/wire/seatsaero.js";
 
 const SEA_NRT = { origins: ["SEA"], destinations: ["NRT"] };
 

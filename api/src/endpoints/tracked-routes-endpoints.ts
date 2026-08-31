@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { baselineOnEnable } from "../features/alerts/pace.js";
-import { normalizeSpec } from "../models/route.js";
+import { normalizeSpec } from "../features/routing/plan.js";
 import { isIsoDate } from "../util/dates.js";
 import { rowIdParam } from "../util/params.js";
 import { autoVia } from "../features/trackedRoutes/autoVia.js";

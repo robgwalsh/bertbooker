@@ -1,4 +1,4 @@
-import { searchPairs } from "../../models/route.js";
+import { searchPairs } from "../routing/plan.js";
 import type { GraphPair } from "../../models/routeGraph.js";
 import type {
   GraphPath,
@@ -6,7 +6,7 @@ import type {
   ReachReport,
   ReachVerdict,
   RouteReach,
-} from "../../../../shared/src/wire/index.js";
+} from "../../models/wire/index.js";
 
 /** Hub sequences reported per pair. The panel NAMES the hubs; it does not plan
  *  the trip, and the pair lookup is where a full list belongs. */

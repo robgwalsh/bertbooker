@@ -3,7 +3,7 @@ import type {
   RoutesData,
   RouteInput,
   TrackedRoute,
-} from "../../../shared/src/wire/index.js";
+} from "../../../api/src/models/wire/index.js";
 
 /** The Routes page in one request — the tracked routes AND the current finds
  *  under each. `trackedRoutes` below is the route rows alone. */

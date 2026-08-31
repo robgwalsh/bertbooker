@@ -1,16 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../tsconfig.base.json",
+  "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     // DELIBERATELY THE NARROWEST PROJECT IN THE REPO: no DOM, no
     // @cloudflare/workers-types. It exists to check one thing that no other pass
-    // can — that nothing reachable from `shared/src` names an ambient the SPA
-    // cannot supply.
-    //
-    // It covers the whole of `src`, not just `src/wire`. `src/match` is the
-    // first thing here that is CODE rather than a type declaration — the SPA and
-    // the Worker both run it — so it needs this guarantee more than the wire
-    // types do, not less.
+    // can — that nothing reachable from this directory names an ambient the SPA
+    // cannot supply, even though every file here lives under `api/src`.
     //
     // Two distinct failures, and only this project catches both:
     //
@@ -24,14 +19,14 @@
     //    typecheck perfectly and simply re-drag them into the SPA's program and
     //    bundle. That regression is otherwise invisible until somebody notices
     //    the bundle grew — which is exactly how `routing.ts` and `alerts/pace.ts`
-    //    came to import the provider for a single integer.
+    //    once came to import the provider for a single integer.
     //
-    // `shared/tsconfig.json` checks these files a second time WITH DOM and
-    // workers-types, as part of the whole directory. Both passes are wanted:
+    // `api/tsconfig.json` checks these files a second time WITH DOM and
+    // workers-types, as part of the whole of `api/src`. Both passes are wanted:
     // that one proves they compose with the Worker's code, this one proves they
     // need none of it.
     "lib": ["ES2022"],
     "types": []
   },
-  "include": ["src/**/*.ts"]
+  "include": ["*.ts"]
 }

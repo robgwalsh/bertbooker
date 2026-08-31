@@ -1,4 +1,5 @@
-import { MAX_VIA, searchPairs } from "../../models/route.js";
+import { MAX_VIA } from "../../models/route.js";
+import { searchPairs } from "../routing/plan.js";
 import { fetchedSources, graphRowsForPairs, readFetchRecords } from "../../db/routeGraph.js";
 import { searchGraphPaths } from "../graph/pathSearch.js";
 

@@ -44,13 +44,13 @@ export type { EnrichableRow } from "../../models/find.js";
  *    display only; only `alerts/budget.ts` reads it to decide whether to spend.
  */
 
-/** Defined in `shared/src/wire/enrich.ts`, where the docblock lives. The SPA
+/** Defined in `api/src/models/wire/enrich.ts`, where the docblock lives. The SPA
  *  quotes the same constant in its confirm dialog instead of holding a second
  *  copy of the number. */
-export { ENRICH_MAX_PER_RUN } from "../../../../shared/src/wire/enrich.js";
+export { ENRICH_MAX_PER_RUN } from "../../models/wire/enrich.js";
 
-export type { EnrichOutcome } from "../../../../shared/src/wire/enrich.js";
-import type { EnrichOutcome } from "../../../../shared/src/wire/enrich.js";
+export type { EnrichOutcome } from "../../models/wire/enrich.js";
+import type { EnrichOutcome } from "../../models/wire/enrich.js";
 
 /**
  * Expand one availability row and write the result onto its snapshot rows.

@@ -10,7 +10,7 @@
  * a SELECT there must be edited together, which is why each names the other.
  *
  * The row the SPA renders is `Find`, and it is a WIRE type
- * (`shared/src/wire/rows.ts`). Nothing in this file is rendered.
+ * (`api/src/models/wire/rows.ts`). Nothing in this file is rendered.
  */
 
 /**

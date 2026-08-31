@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { AvailabilityResult } from "../../models/availability.js";
 import {
   applyTask,
+  claimsCoverage,
   collapseOffers,
   coverageSlices,
   hashResult,
   prunable,
   routesTouched,
 } from "./apply.js";
-import { claimsCoverage, type SourceTaskReport, type SourceTaskStatus } from "../../models/task.js";
+import type { SourceTaskReport, SourceTaskStatus } from "../../models/task.js";
 
 const offer = (o: Partial<AvailabilityResult> = {}): AvailabilityResult => ({
   origin: "SEA",

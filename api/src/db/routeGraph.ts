@@ -3,7 +3,7 @@ import type {
   RouteFetchStatus,
   RouteGraphEdge,
   RouteGraphRow,
-} from "../../../shared/src/wire/index.js";
+} from "../models/wire/index.js";
 import type { SeatsAeroGraphRoute } from "../providers/seatsaero.js";
 import type { QueryReader } from "../util/params.js";
 import type {

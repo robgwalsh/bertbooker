@@ -4,7 +4,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
 import type { Env, Vars } from "../bindings.js";
 import { isEdgeRequest } from "./security.js";
-import type { LoginResult, SessionState } from "../../../shared/src/wire/index.js";
+import type { LoginResult, SessionState } from "../models/wire/index.js";
 
 /**
  * The shared-password gate.

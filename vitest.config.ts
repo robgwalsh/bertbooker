@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
  * One vitest run for the whole repo.
  *
  * This replaced four per-workspace `vitest run` invocations when the packages
- * were collapsed into `api/`, `app/` and `shared/`. A single flat project is
+ * were collapsed into `api/` and `app/`. A single flat project is
  * enough because **every test here runs in Node with no DOM** — the app's tests
  * are pure logic (preferences parsing, theme contrast, round-trip pairing, the
  * find key) and `parsePreferences` deliberately takes a raw string rather than
@@ -17,6 +17,6 @@ import { defineConfig } from "vitest/config";
  */
 export default defineConfig({
   test: {
-    include: ["{shared,api,app}/src/**/*.test.ts"],
+    include: ["{api,app}/src/**/*.test.ts"],
   },
 });

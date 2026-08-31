@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { graphBounds, graphEndpoints, graphLines } from "./routeGraph.js";
-import type { RouteGraphEdge } from "../../../shared/src/wire/index.js";
+import type { RouteGraphEdge } from "../../../api/src/models/wire/index.js";
 
 const edge = (
   origin: string,

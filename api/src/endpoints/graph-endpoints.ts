@@ -10,15 +10,16 @@ import type {
   RouteGraphGeo,
   RouteGraphSource,
   ReachReport,
-} from "../../../shared/src/wire/index.js";
+} from "../models/wire/index.js";
 import {
   SEATSAERO_SOURCE_CATALOGUE,
   SEATSAERO_ZERO_ROUTE_NAMES,
   runSeatsAeroRoutes,
 } from "../providers/seatsaero.js";
-import { searchPairs } from "../models/route.js";
+import { searchPairs } from "../features/routing/plan.js";
 import { classifyError, clientMessage, makeTransport } from "../providers/transport.js";
-import { PROGRAM_SEEDS, currenciesForProgram } from "../models/program.js";
+import { PROGRAM_SEEDS } from "../models/program.js";
+import { currenciesForProgram } from "../providers/seatsaero.js";
 import { assessGraphReach, type ReachRouteInput } from "../features/graph/reach.js";
 import {
   ROUTE_HARD_MAX,

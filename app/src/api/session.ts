@@ -10,7 +10,7 @@
 // body, and it is a hint about when to re-prompt, not a credential.
 
 import { ApiError } from "./client";
-import type { LoginResult, SessionState } from "../../../shared/src/wire/index.js";
+import type { LoginResult, SessionState } from "../../../api/src/models/wire/index.js";
 
 export async function session(): Promise<SessionState> {
   const res = await fetch("/api/auth/session", { credentials: "same-origin" });

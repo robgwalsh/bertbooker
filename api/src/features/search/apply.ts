@@ -1,11 +1,89 @@
-import { changeKey, diffAvailability, summarizeChange, type ChangeSummary } from "../../models/change.js";
-import { collapseBy } from "../../models/offer.js";
+import type { AvailabilityChange, ChangeSummary } from "../../models/change.js";
+import { collapseBy } from "../../providers/collapse.js";
 import type { AvailabilityResult } from "../../models/availability.js";
-import { claimsCoverage, type ApplyTaskResult, type SourceTaskReport } from "../../models/task.js";
+import {
+  COVERAGE_CLAIMING_STATUSES,
+  type ApplyTaskResult,
+  type SourceTaskReport,
+  type SourceTaskStatus,
+} from "../../models/task.js";
 import { deleteFinds, selectBaselineFinds, upsertFinds } from "../../db/finds.js";
 
 // The write side of the pivot: one completed unit of gathering becomes rows in
 // `finds`, plus a diff for the run summary and the alert digest.
+
+/** Whether a task's status licenses deleting stored rows it didn't report
+ *  again. See `COVERAGE_CLAIMING_STATUSES` (`api/src/models/task.ts`) for the
+ *  invariant this reads. */
+export function claimsCoverage(status: SourceTaskStatus): boolean {
+  return COVERAGE_CLAIMING_STATUSES.includes(status);
+}
+
+/** Canonical key for a route+date, used for caching and snapshot grouping. */
+function routeKey(origin: string, destination: string, flightDate: string): string {
+  return `${origin}-${destination}-${flightDate}`;
+}
+
+/** Identity for comparing "the same seat" across snapshots. Exported: the
+ *  alert sweep (`features/alerts/tick.ts`) also keys its own reads by it, so
+ *  the two halves cannot disagree about which row a change concerns. */
+export function changeKey(r: Pick<AvailabilityResult, "origin" | "destination" | "flightDate" | "program" | "cabin">): string {
+  return `${routeKey(r.origin, r.destination, r.flightDate)}|${r.program}|${r.cabin}`;
+}
+
+export function summarizeChange(c: AvailabilityChange): ChangeSummary {
+  const r = c.current ?? c.previous!;
+  return {
+    type: c.type,
+    key: c.key,
+    flightDate: r.flightDate,
+    program: r.program,
+    cabin: r.cabin,
+    origin: r.origin,
+    destination: r.destination,
+    milesCost: c.current?.milesCost,
+    seatsAvailable: c.current?.seatsAvailable,
+    previousMilesCost: c.previous?.milesCost,
+    previousSeats: c.previous?.seatsAvailable,
+  };
+}
+
+/**
+ * Compare a fresh set of results against the most recent prior snapshot for a
+ * route and classify what changed. Only meaningful, alert-worthy transitions
+ * are emitted:
+ *   - "new"        award space that wasn't there before
+ *   - "more_seats" seat count increased
+ *   - "price_drop" miles cost decreased
+ *   - "gone"       previously-available space disappeared
+ */
+export function diffAvailability(
+  previous: AvailabilityResult[],
+  current: AvailabilityResult[],
+): AvailabilityChange[] {
+  const prevByKey = new Map(previous.map((r) => [changeKey(r), r] as const));
+  const currByKey = new Map(current.map((r) => [changeKey(r), r] as const));
+  const changes: AvailabilityChange[] = [];
+
+  for (const [key, cur] of currByKey) {
+    const prev = prevByKey.get(key);
+    if (!prev) {
+      changes.push({ type: "new", current: cur, key });
+    } else if (cur.seatsAvailable > prev.seatsAvailable) {
+      changes.push({ type: "more_seats", current: cur, previous: prev, key });
+    } else if (cur.milesCost < prev.milesCost) {
+      changes.push({ type: "price_drop", current: cur, previous: prev, key });
+    }
+  }
+
+  for (const [key, prev] of prevByKey) {
+    if (!currByKey.has(key)) {
+      changes.push({ type: "gone", previous: prev, key });
+    }
+  }
+
+  return changes;
+}
 
 /** Small, stable, synchronous hash (FNV-1a) over the fields that define a
  *  distinct availability state — used to skip writing unchanged rows. */

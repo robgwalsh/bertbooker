@@ -4,11 +4,11 @@
 // declared in this file; `api/src/models/availability.ts` re-exports them from here,
 // the same direction `./seatsaero.ts` uses. Declaring them here keeps
 // Worker-only code (`diffAvailability`, `planRoute`, `PROGRAM_SEEDS` — none of
-// which run in a browser) out of `shared/`: nothing in `wire/` needs to quote
-// a type name out of it.
+// which run in a browser) out of `wire/`: nothing in this directory needs to
+// quote a type name out of them.
 //
 // Everything below is a type or a string union — no runtime code, nothing that
-// names `fetch` or `D1Database`. `../tsconfig.wire.json` compiles this directory
+// names `fetch` or `D1Database`. `./tsconfig.wire.json` compiles this directory
 // alone, with neither DOM nor `@cloudflare/workers-types`, which is what keeps
 // that true.
 

@@ -1,4 +1,4 @@
-import type { GraphPath, PathLeg } from "../../../../shared/src/wire/index.js";
+import type { GraphPath, PathLeg } from "../../models/wire/index.js";
 
 /**
  * Getting from A to B THROUGH the route graph, when nobody monitors A->B itself.

@@ -10,23 +10,6 @@ import { insertDelivery } from "../../db/alertDeliveries.js";
 
 /**
  * The notification half of the sweep: when a digest goes out, and what is in it.
- *
- * ## Why there is an outbox
- *
- * "One digest per sweep cycle" and a tick that may not get through the whole
- * cycle only coexist if a change outlives the tick that found it. Changes land
- * in `alert_outbox` and the digest flushes when the cycle is complete — no route
- * due, none mid-run. A tick that dies therefore loses nothing.
- *
- * The outbox is still required now that a tick sweeps several routes: a set
- * wider than `ALERT_MAX_CALLS_PER_TICK`, or one route that pauses, still spans
- * ticks. What changed is that a set narrow enough to fit finishes its cycle
- * inside one tick and therefore flushes at all — with one route per tick, four
- * routes on a 15-minute interval left three of them permanently "due" and
- * `cycleComplete` never once returned true.
- *
- * Nothing here decides WHETHER to sweep. `./tick.ts` calls `cycleComplete` and
- * then `flushOutbox`, in that order and only in that order.
  */
 
 /** How long a run row is kept. The Alerts tab shows 25, the pacing lookup wants

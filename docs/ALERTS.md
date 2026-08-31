@@ -1,862 +1,612 @@
-# Alerts — the one scheduled thing
+# Alerts — the scheduled sweep
 
-A Cron Trigger wakes every thirty minutes, re-searches the tracked routes marked
-for alerts, and emails a digest when something has changed. It is the **only
-unattended work in this codebase**, and everything below exists because
-unattended work is a different kind of thing from a button somebody pressed.
+A Cron Trigger re-runs the same search engine a person drives from the Routes
+page, on the routes that asked for it, and emails a digest of what moved.
 
-It is not, however, a second engine. A sweep is the *same* Search — the same
-`planSearchPass` / `openSearchRun` / `runSearchPass` in `api/src/features/search/run.ts`,
-the same `applyTask` ingest, the same coverage rules, the same `runs` row.
-`features/search/run.ts` has **two callers and one behaviour**; the only difference is
-whether an `onEvent` callback is passed, i.e. whether anyone is listening.
+That is the whole feature, and almost none of the code is about email. It is
+about spending a metered allowance with nobody watching, inside a runtime that
+gives an unattended invocation 30 seconds of CPU, without ever going quiet in a
+way that looks like good news.
 
 ```
-                        ┌──────────────────────────────────────────┐
-  cron */30  ─────────▶ │ runAlertTick        (alerts/tick.ts)     │
-                        │   1. read alert routes + their clocks    │
-                        │   2. sweepPacing   → how often (pace.ts) │
-                        │   3. dueRoutes     → who, most overdue   │
-                        │   4. per route, while calls remain:      │
-                        │        decideSweep → can it be paid for  │
-                        │        sweepRoute  → search/run.ts       │
-                        │        selectAlertable → alert_outbox    │
-                        │   5. cycle complete? → flush (outbox.ts) │
-                        └──────────────────────────────────────────┘
-                                        │                    │
-                             ingest (applyTask)      Resend → digest
-                                        │                    │
-                                  finds             alert_deliveries
+  cron */30                                        Resend
+      │                                              ▲
+      ▼                                              │
+  runAlertTick ──▶ pace ──▶ budget ──▶ search/run ──▶ apply ──▶ finds
+   (tick.ts)        │         │            │                     │
+                    │         │            └── changes ──────────┘
+                    │         │                    │
+                    │         │              selectAlertable
+                    │         │                    │
+                    │         │                    ▼
+                    │         │              alert_outbox
+                    │         │                    │
+                    └─────────┴── cycle complete ──┴──▶ digest ──▶ alert_deliveries
 ```
 
-Where things live:
-
-| file | what |
-|---|---|
-| `api/src/features/alerts/tick.ts` | the tick and the sweep — what a tick DECIDES |
-| `api/src/features/alerts/outbox.ts` | the outbox and the flush — what it eventually SAYS |
-| `api/src/features/alerts/alertRoutes.ts` | the row, the cost model and the label, read by both |
-| `api/src/features/alerts/budget.ts` | **the only budget guard in the repo** |
-| `api/src/features/alerts/endpoints.ts` | the four `/api/alerts/*` endpoints |
-| `api/src/features/alerts/email.ts` | Resend, and nothing else |
-| `api/src/features/alerts/recipients.ts` | who this deployment may email — asked by the sender AND by route validation |
-| `api/src/features/alerts/settingsEndpoints.ts` | editing that allowlist — `alert_recipients` |
-| `api/src/features/alerts/pace.ts` | cost, cadence, due-ness, back-off, baseline — all pure |
-| `api/src/features/alerts/select.ts` | which changes are worth an email — pure |
-| `api/src/features/alerts/digest.ts` | grouping and rendering — pure |
-| `app/src/components/pages/alerts/AlertsPage.tsx`, `app/src/lib/alerts.ts` | the safety surface |
-| `api/wrangler.toml` `[triggers]` | `crons = ["*/30 * * * *"]` |
-| `migrations/0001_init.sql` | `alert_*` columns, `alert_outbox`, `alert_deliveries`, `alert_recipients` |
+Everything below the engine is shared: a sweep produces `runs` rows, `finds`
+rows and coverage claims identical to a button press, and is told apart only by
+`runs.trigger = 'alert'`. `docs/SEATS-AERO.md` owns the search itself;
+`docs/SOURCES.md` owns ingest. This file owns the *unattended* part.
 
 ---
 
-## 1. Why there is a cron at all
+## 1. The rule the whole feature is built against
 
-Unattended work is a risk this codebase takes seriously, for two reasons that
-shape everything below: it can hide a source failure behind an empty result,
-and a process spending API calls with nobody watching needs a budget a person
-pressing a button does not. Both are addressed directly rather than by avoiding
-a cron altogether.
+**No email is ever sent when a sweep breaks — only when it finds something.**
 
-### Unattended work hides source failures
+That is a product decision, not an omission, and it has a hard consequence: a
+scheduler that is blocked, refused, throttled, misconfigured or crashing
+produces *exactly the same silence* as one that ran and found nothing. Silence
+is the success case and the failure case at once.
 
-This is the failure this whole application is built against: **a source that
-quietly returns nothing is indistinguishable from "there is no award space on
-this route."** A person pressing Search watches a stream and sees a red frame.
-Nobody watches a cron.
+So the rule that constrains code everywhere in this feature:
 
-The answer is not "be careful". It is that **a sweep is an ordinary `runs`
-row** — `trigger = 'alert'`, with its counters, its `calls`, its `error`, its
-status — plus three per-route counters (`alert_last_attempt_at`,
-`alert_last_digest_at`, `alert_consecutive_failures`), and a surface built to
-read them: the Alerts tab, plus a dot on the tab strip
-(`AlertsHealthDot` in `app/src/router.tsx`) so you find out without opening a tab
-you have no reason to open. A sweep that has been failing all day reads as *a
-failing sweep*, not as an absence of award space.
+> **Unattended work must never fail invisibly.** Every outcome a tick can have
+> — including the ones where it did nothing, and especially the ones where a
+> digest was not sent — is written to a table a page can read.
 
-That is load-bearing because of the second rule, below.
+The safety net is exactly two things, and there is no third:
 
-### **No email is ever sent about a failure**
+- **The Alerts tab** (`app/src/components/pages/alerts/`), which reads `runs`,
+  `alert_deliveries` and the schedule, and puts problems above the fold.
+- **Workers Logs**, which is why `scheduled()` awaits the tick rather than
+  handing it to `ctx.waitUntil` — an awaited throw is a *failed invocation* in
+  the dashboard, a detached one is not.
 
-Only finds produce mail. A blocked, refused, budget-skipped or exception-thrown
-sweep sends nothing, on purpose — a scheduler that mails you about itself trains
-you to ignore its mail.
+Three things fall directly out of it:
 
-The consequence constrains code far outside `alerts/`:
+- `sendEmail` returns a result instead of throwing, and every outcome —
+  including "we never tried" — becomes an `alert_deliveries` row.
+- `runAlertTick` returns a `TickResult` instead of throwing. One unsearchable
+  route must not end the cycle, and its failure is already durable on its own
+  `runs` row.
+- `DELETE /api/settings/recipients/:id` refuses to remove an address a route
+  still points at (§9). Allowing it would manufacture exactly this failure from
+  a delete button.
 
-> **Unattended work must never fail invisibly.** The Alerts tab and Workers Logs
-> are the entire safety net. A sweep that can fail without landing in one of them
-> is a source failure with no way to notice it.
+**The budget guard is scoped to this one caller.** `scheduler-budget.ts` is the
+only code in the app that reads the quota *before* spending; every interactive
+path spends first and reports after, because nobody needs protecting from a call
+they deliberately asked for. `db/sourceQuota.ts:selectBudgetRows` says on the
+function that it has one caller and must keep having one. Do not add a budget
+check anywhere else — a second one is a second answer to "may this be spent",
+and the argument for allowing unattended spending at all rests on there being
+one.
 
-Concretely, that is why `runAlertTick` is `await`ed in `scheduled()` rather than
-`ctx.waitUntil`'d (an async `scheduled` handler's promise is already awaited, so
-`waitUntil` buys nothing — while awaiting is what makes a throw show up as a
-**failed invocation** in Workers Logs), why `sendEmail` returns a result instead
-of throwing, and why `alert_deliveries` records the sends that never happened.
-
-### Why the budget guard lives in exactly one file
-
-A person pressing Search does not need protecting from a call they chose to
-spend, and a guard on that path would turn a deliberate action into a baffling
-refusal — so the interactive search and enrich paths **spend first and report
-after**, unconditionally.
-
-A scheduled sweep is different: it spends without anyone watching, which is
-precisely the case a budget guard is for. So the guard exists, in one file,
-scoped to one caller:
-
-> **Only `alerts/budget.ts` reads the quota before spending.** A budget guard
-> anywhere else duplicates the one place this codebase trusts to gate a call.
-
-`grep` for `source_quota` and you should find `recordQuota` (writers) and
-`readBudgetState` (the one reader that gates). §7 is what the guard actually
-protects, which is not the quota — it is the reserve.
+**It fails closed.** `scheduled()` runs no middleware — no `gate`, no
+`identity`, no CORS, no security headers — so identity is read straight off
+`env.APP_USER_EMAIL`, and a tick with it unset returns `no_app_user_email`
+having spent nothing. Unset means there is no address a digest could go to, so a
+sweep could only spend calls nobody would ever hear about.
 
 ---
 
-## 2. One tick, 25 calls
+## 2. The tick, and the two limits that shape it
 
-**A Cron Trigger with an interval under one hour gets 30 SECONDS of CPU. An
-hourly one gets 15 minutes.**
+The cron is `*/30 * * * *`, declared in `api/wrangler.toml` and **mirrored** as
+`SWEEP_TICK_MINUTES` in `pace.ts`. Change one and change the other; the pacing
+model needs the number and cannot read the toml.
 
-That platform limit is the whole shape of this feature. Waiting on seats.aero is
-I/O and costs no CPU; *parsing* is CPU, and a seats.aero page with
-`include_trips` is up to 500 rows at ~9.9 KB each. Subrequests are not the
-constraint (10,000 per invocation, though D1 calls count against it) — CPU is.
+Two limits do all the shaping:
 
-So:
+**A Cron Trigger firing more often than hourly gets 30 seconds of CPU.** Not
+wall clock — CPU. Waiting on seats.aero is nearly free; *parsing what comes
+back* is not, and a page of up to 1000 rows carrying `include_trips` itineraries
+is the expensive thing this code does. So the cron passes
+`captureBudgetBytes: 0` into the engine: nobody is watching, and holding
+megabytes of captured JSON in order to throw it away is pure CPU against that
+budget.
 
-- the cron is `*/30 * * * *`, a **heartbeat**, not a cadence;
-- the tick is capped at `ALERT_MAX_CALLS_PER_TICK` (25) outbound calls, and
-  **that cap is the whole bound** — a tick sweeps due routes, most overdue
-  first, until the cap is spent;
-- a route that needs more resumes on the next tick through the **same
-  `run_continue` mechanism** the HTTP search uses — `runSearchPass` returns
-  `paused: true`, and the next tick finds the still-`running` run row and
-  reopens it (`openSearchRun({ resumeRunId })`), so one route's coverage stays on
-  one run row.
+**`ALERT_MAX_CALLS_PER_TICK` (default 25) is a CALL cap, not a route count**,
+and the distinction is the point. CPU is spent per page parsed, so a bound
+expressed in routes prices a one-chunk route the same as a hub route with a
+year-long window. A tick spends up to 25 calls across as many routes as that
+buys: a route that alone costs the whole tick still gets the whole tick, and a
+set of narrow ones no longer leaves 24 of the 25 unspent. It used to be one
+route per tick, and §8 is what that broke.
 
-How often any *one* route is actually swept is derived (§4), not configured.
+**A tick that runs out is paused, not truncated.** `runSearchPass` returns
+`paused` with the remaining work still in the plan; the `runs` row keeps
+`status = 'running'` and `finished_at` NULL, and the next tick calls
+`selectResumableAlertRun` and resumes from `tasks_ok + tasks_failed` — a bare
+integer index into a **chunk-major** task list. That ordering is load-bearing:
+reordering tasks between passes would make a resumed sweep silently re-run some
+and skip others. It is the same `run_continue` mechanism the interactive search
+uses; nothing here is a second implementation.
 
-**Raising a tick's workload without raising the cron interval is how you get
-silent CPU-limit kills.** If you ever want a bigger tick, the interval has to go
-hourly first. `ALERT_MAX_CALLS_PER_TICK` is that number; nothing else is.
-
-### Why the bound is CALLS and not ROUTES
-
-This used to sweep **at most one route** per tick, which reads as the same rule
-and is not. Calls are what cost CPU. A route count is a proxy that is only
-honest when a route costs a whole tick's worth, and a narrow route costs **one
-call**.
-
-Measured on the author's own four routes — each a two-or-three-day window, one
-chunk, no hubs, so one call apiece:
-
-- `sweepPacing` returned `every 15m` (the floor), because a 4-call cycle divides
-  into a 600-call budget 150 times;
-- a tick spent **1 of its 25 calls** and moved on, so the four round-robined at
-  **60m** — four times slower than the cadence the Alerts tab was quoting, which
-  is exactly the "a page quoting a cadence the scheduler does not keep" failure
-  §4 exists to prevent;
-- the day's alert spend was **96 calls against a 600 budget**, every day;
-- and no digest had **ever** flushed — see §8.
-
-Sweeping to the call cap fixes all three at once, and **it does not raise the
-tick's ceiling**: one route could already spend all 25 calls in a tick, so four
-routes spending four calls is strictly less work than the shape already
-permitted. What changed is that the budget stops going unused.
-
-Two details in the loop are load-bearing:
-
-- **The budget guard is re-read per route**, not once per tick. `finishRun` has
-  written the previous route's `calls` by the time the next one asks, so
-  self-accounting (§7) stays honest *as* the tick spends and the reserve is
-  measured against what is actually left.
-- **`exhausted` breaks the loop; `reserve` only skips that route.** `exhausted`
-  is `remaining <= 0`, which no cheaper route can pass; `reserve` compares
-  against `estimatedCost`, so a cheaper route later legitimately can.
-
-`POST /api/alerts/run`'s `force` still sweeps exactly one route, because its
-argument is a route id and "sweep this one and tell me what happened" is the
-question it exists to answer.
-
-One smaller consequence of the same budget: the sweep passes
-`captureBudgetBytes: 0` — nobody is watching, so holding megabytes of captured
-JSON to throw away is pure CPU.
-
-`runAlertTick` also accepts an optional `deadlineAt`, a wall-clock stop
-`runSearchPass` checks between tasks (the unattended counterpart to the
-`AbortSignal` the HTTP caller relies on). `scheduled()` does not currently pass
-one; `maxCalls` is what bounds a tick today.
+A paused route also files nothing (§6): half a route's window described as
+though it were the whole answer is worse than a delayed digest.
 
 ---
 
-## 3. A tick, step by step
+## 3. What one tick does, in order
 
-`runAlertTick(env, { now?, deadlineAt?, force? })` — `api/src/features/alerts/tick.ts`.
+`api/src/features/alerts/tick.ts`, and the order is the design.
 
-It **returns a summary and never throws on one route's failure**: a single
-unsearchable route must not stop the cycle, and its failure is already durable on
-its own `runs` row.
+1. **Identity.** `APP_USER_EMAIL` unset → `no_app_user_email`, return.
+2. **Load the alert routes.** `selectAlertRoutes` returns every route with
+   `alerts_enabled = 1`, joined to what its own last completed sweep actually
+   spent (`runs.calls`, matched **by `route_id`** — the `origin`/`destination`
+   scalars are only a route's primary airports, so two routes sharing a pair
+   would otherwise be priced off each other's measurements). None → return.
+3. **Price the cycle** (§4). Unaffordable → report the reason and return,
+   without sweeping. Sweeping anyway would spend the reserve a manual search
+   depends on.
+4. **Pick the due routes**, most overdue first, so a tick that runs out of calls
+   part-way starves the route that has waited least rather than an arbitrary
+   one.
+5. **For each target, while calls remain:**
+   - Re-read the budget state, **per route rather than once per tick**:
+     `finishRun` has written the previous route's `calls` by now, so
+     self-accounting stays honest as the tick spends and the reserve is measured
+     against what is actually left.
+   - `decideSweep` (§7). Refused → record a `skipped` entry and move on. **No
+     `runs` row is written for a refused sweep** — `runs.status` has a CHECK
+     constraint with no `'skipped'` in it, and a row that spent nothing would
+     pollute the pacing measurements it feeds. `exhausted` breaks the loop
+     (it is an answer about the day, not this route); `reserve` continues, since
+     a cheaper route later in the list may still fit.
+   - Sweep it, and subtract what it actually spent.
+6. **Flush, if the cycle is complete** (§8), and prune old runs (§12).
 
-1. **Identity, fail-closed.** `scheduled()` runs **no middleware** — not `cors`,
-   `csrf`, `gate`, `identity`, or `applySecurityHeaders`. Identity is
-   `env.APP_USER_EMAIL` read directly, and an unset value returns
-   `pacing: "no_app_user_email"` and does nothing. Nothing in this database is
-   scoped to an owner, so what is missing is not a key — it is the **address a
-   digest would be sent to**, and a sweep that cannot mail anybody could only
-   spend calls nobody would hear about.
-2. **Read the routes** (`alertRouteRows`) — every `alerts_enabled = 1` route for
-   that account, with `alert_last_attempt_at`, `last_checked_at`,
-   `alert_consecutive_failures`, and `observed_calls`: the `calls` of that
-   route's last finished alert run, looked up by `runs.route_id`. It is
-   `route_id` and not the `origin`/`destination` scalars because those are only a
-   route's *primary* airports, so two routes over one city pair would otherwise
-   be priced off each other's measurements.
-3. **Price and pace** — `planSeatsAeroChunks` per route for the chunk count, then
-   `sweepPacing` (§4). An unaffordable set **returns**; it does not clamp and does
-   not sweep.
-4. **Pick the due routes** — `dueRoutes(...)`, most overdue first. The tick
-   walks that list until `ALERT_MAX_CALLS_PER_TICK` is spent (§2).
-5. **Ask the guard, per route** — `readBudgetState` + `decideSweep` (§7). A refusal is
-   recorded as `skipped: [{ routeId, reason }]` and **no run row is written**:
-   `runs.status` has no `'skipped'`, and a row that spent nothing would
-   pollute the `observed_calls` measurement that feeds step 3.
-6. **Sweep it** — `sweepRoute` (below), which returns the calls it spent so the
-   tick can decrement its remaining budget. A route that never reached
-   `runSearchPass` spent nothing and reports nothing, so a tick is not shortened
-   by a route that failed for free.
-7. **Flush, if the cycle is complete** — §8.
+`sweepRoute` itself, in order: stamp the pacing clock **before anything can
+fail** → resume or plan → open the run → run the pass → on total failure bump
+the failure counter, otherwise clear it → if paused, stop → if this is the
+route's baseline, stamp the digest clock and file nothing (§5) → otherwise
+select what is alertable and file it into the outbox.
 
-### `sweepRoute`
-
-1. **Stamp `alert_last_attempt_at` first, before anything can fail.** Stamping it
-   only on success would let a permanently-failing route be due on every single
-   tick and spend the whole day rediscovering the same failure.
-2. Look for a `running` alert run on this route and resume from
-   `tasks_ok + tasks_failed` if there is one.
-3. `planSearchPass` → `openSearchRun` → `runSearchPass`. A planning or opening
-   failure calls `noteFailure` (`alert_consecutive_failures += 1`) and returns.
-4. `pass.totals.ok === 0` is also a failure. Any success resets the counter to 0.
-5. **`pass.paused` returns early without filing anything.** A half-searched route
-   would let the digest describe half a route as though it were the whole answer.
-6. **Baseline check** — §5.
-7. `selectAlertable` (§6) → `fileOutbox` (§8).
+It returns the calls it actually spent. A route that never reached
+`runSearchPass` — a refused plan, a run that would not open — spent nothing and
+is reported as nothing, so a tick is not shortened by a route that failed for
+free.
 
 ---
 
-## 4. Pacing — how often
+## 4. Pacing: one cost model, two readers
 
-`api/src/features/alerts/pace.ts`. All pure, and that is the point:
+`api/src/features/alerts/pace.ts`. Pure, and that is what makes the rest of this
+section enforceable.
 
-> **The scheduler and the Alerts tab call the same functions.** `GET
-> /api/alerts/schedule` derives nothing of its own — it runs `sweepPacing`,
-> `dueRoutes`, `routeSweepCost` and `decideSweep`, the same code, over the same
-> rows. A second implementation would produce a page quoting a cadence the
-> scheduler does not keep, and **a wrong number you trust is worse than no
-> number.** `POST /api/alerts/run` holds the same line the hard way: it calls
-> `runAlertTick` itself rather than reimplementing a tick.
->
-> The SPA obeys this too. `app/src/lib/alerts.ts` names and orders states; it never
-> computes `due`, `windowExpired` or `intervalMinutes`, which all arrive already
-> decided.
-
-### What a route costs — `routeSweepCost`
-
-The *direction* of the guess matters more than its accuracy: guessing low
-overspends the day's allowance, guessing high just sweeps less often than it
-could. So — **pessimistic while ignorant, measured once measured.**
-
-The unit is the **task**, not the date chunk: `tasks = chunks × queriesPerChunk`,
-and a route with `via` hubs plans two queries per chunk because `SFO->ICN` and
-`ICN->KTM` are different markets (`docs/SEATS-AERO.md` §12). Counting chunks
-would price such a route at half what it spends — which is guessing low, the one
-direction this table exists not to.
-
-| state | cost |
-|---|---|
-| `chunks <= 0` (window entirely in the past) | `0` — it cannot spend anything |
-| never swept | `tasks × SEATSAERO_MAX_PAGES` — the ceiling |
-| swept before | `max(observedCalls, tasks)` |
-
-`max(observed, tasks)` rather than `observed` alone because a **paused** sweep
-records only the calls that pass spent; a route resumed across three ticks would
-otherwise look a third as expensive as it is.
-
-`AlertRouteCost` is built in ONE place (`alertRouteCosts`, `alerts/alertRoutes.ts`) and
-read by both the scheduler and the Alerts tab, and `AlertScheduleRoute` carries
-`queriesPerChunk` so the page's `estimatedCalls` still follows from the chunk
-count it shows.
-
-### The cadence — `sweepPacing`
+The model is one sentence: **a Pro key buys 1000 seats.aero calls per UTC day, a
+reserve is held back so a person pressing Search is never refused, and whatever
+is left is divided among the alert-enabled routes.** More routes, or wider ones,
+means each is swept less often.
 
 ```
-cycleCost     = Σ routeSweepCost(searchable routes)
-cyclesPerDay  = floor(dailyBudget / cycleCost)
-interval      = clamp(ceil(1440 / cyclesPerDay), MIN_SWEEP_MINUTES=30, MAX_SWEEP_MINUTES=1440)
+cycleCost   = Σ routeSweepCost(route)                  over searchable routes
+cyclesPerDay = floor(dailyBudget / cycleCost)
+interval    = clamp(ceil(1440 / cyclesPerDay), 30, 1440)   minutes
 ```
 
-More routes, or wider ones, means each is swept less often. That is the whole
-model, and it is why the Alerts tab shows cadence as *derived* rather than as a
-setting.
+**The cost unit is the TASK — one (chunk, query) pair — not the chunk.** A route
+with hubs plans two queries per date chunk, because `SFO→ICN` and `ICN→KTM` are
+different markets and a cross product rides in one call but two markets cannot.
+Counting chunks would budget a hub route at half what it spends.
 
-- **The floor is 30 minutes** however much allowance is spare: seats.aero serves
-  rows out of its own cache, so re-asking faster mostly re-reads the same answer
-  and spends a call to learn nothing. It is also the cron period, and a floor
-  below that would quote a cadence no tick can keep.
-- **Unaffordable is a return value, not a clamp.** `floor(budget/cost)` is zero
-  the moment one cycle costs more than a day's allowance, and dividing by it
-  yields `Infinity` — which would clamp silently to the daily maximum and present
-  a route that *cannot be afforded* as one that is merely slow. You would then
-  wait a day for an email that was never going to arrive. `sweepPacing` returns
-  `{ affordable: false, reason: "no_routes" | "cycle_exceeds_budget" }` and the
-  Alerts tab renders it as a red banner naming the fix (narrow a window, drop a
-  route, raise `ALERT_DAILY_BUDGET`).
-- **An expired-window route is excluded from the cost model and named**
-  (`unsearchable`), not counted as free — a free route would drag down the cadence
-  of the routes that actually work.
+**Pessimistic while ignorant, measured once measured.** `estimateSearchCalls`
+quotes a range a factor of ten wide — one call per task at the floor, ten if
+every task paginates out — so a route that has never been swept is priced at
+`tasks × SEATSAERO_MAX_PAGES`, and a route that has is priced at
+`max(observedCalls, tasks)`. The `max` is there because a paused sweep records
+only what *that pass* spent, and a route resumed across three ticks would
+otherwise look a third as expensive as it is. Guessing low overspends the day;
+guessing high sweeps less often than it could — and only one of those is
+recoverable.
 
-### Which route is due — `routeDueAt` / `dueRoutes`
+**Unaffordable is a return value, not a clamp.** When one cycle costs more than
+a day's allowance, `floor(budget / cost)` is 0 and dividing by it yields
+Infinity, which would clamp silently to the daily maximum and present a route
+that *cannot* be afforded as one that is merely slow. You would then wait a day
+for an email that was never going to arrive. `sweepPacing` returns
+`{ affordable: false, reason }` instead, and the Alerts tab renders it as an
+error with the three things that would fix it.
 
-Two clocks are consulted and they answer different questions:
+**A zero-chunk route is excluded from both the cost model and the due set.** Its
+window has fallen entirely into the past; every sweep would refuse at
+`planSearchPass` before spending anything. Counting it as free would let it drag
+down the cadence of the routes that do work, so it is surfaced by name
+(`windowExpired`) instead.
 
-```
-dueAt = max( alertLastAttemptAt + interval × 2^min(failures, 3),
-             lastCheckedAt      + interval )
-```
+**A route is due on the tick NEAREST its due time, not the first tick strictly
+after it.** `dueGraceMs` allows half a tick of grace, and it is a fix for
+something measured rather than a hypothetical: four routes the Alerts tab paced
+at `every 15m` were swept every 30 minutes, exactly, for as long as `runs`
+recorded. The hair is the sweeper's own write — `alert_last_attempt_at` is
+stamped with the tick's clock, but `last_checked_at`, which `routeDueAt` takes
+as a floor, is written when the search *finishes*, 1.3 to 4.6 seconds later, and
+the cron is regular to the millisecond. `lastChecked + interval` therefore
+landed just *after* the next tick every single time.
 
-- **`alert_last_attempt_at`** is the pacing clock, written on every attempt.
-  Pacing off `last_checked_at` instead would hot-loop a permanently-failing
-  route: that column is never written when a run fails, so the route would be due
-  on every tick forever.
-- **`last_checked_at`** is a floor, so a route somebody searched by hand two
-  minutes ago is not immediately re-swept.
-- **Back-off applies to the attempt clock only**, capped at ×8. Eight failures in
-  a row is a route that needs a person, not a faster retry. Editing a route's
-  settings resets the counter, so fixing a broken window does not still wait out
-  the old penalty.
-- A route with `chunks <= 0` is **never due** — it would refuse at
-  `planSearchPass` and burn a tick to learn what the plan already knows.
-- **`dueRoutes` allows half a tick of grace**, and that is a fix rather than a
-  nicety — see below.
+### The rule that makes this a module rather than a function
 
-#### Why the due test has grace — a measured 2× slowdown
+**`GET /api/alerts/schedule` calls the same pure functions the scheduler calls
+— `sweepPacing`, `dueRoutes`, `routeSweepCost`, `decideSweep` — and the SPA
+re-derives none of it.** `due`, `windowExpired`, `intervalMinutes` and
+`estimatedCalls` all arrive already decided.
 
-A route is only ever swept **on a tick**, so the cron's period is the resolution
-of every cadence here. Requiring the interval to be *strictly* elapsed therefore
-rounds each wait up to the next tick, **plus one more whenever the due time lands
-a hair past it** — and it always did:
-
-| what | when | why |
-|---|---|---|
-| `alert_last_attempt_at` | the tick's own clock | stamped first thing in `sweepRoute` |
-| `last_checked_at` | **1.3 – 4.6 s later** | written when the search finishes |
-
-`routeDueAt` takes `lastChecked + interval` as a floor, and the cron is regular
-to the millisecond (900,001 ms between the two ticks that wrote those rows). So
-the floor lands a second or two *after* the next tick, every single time: not
-due, skipped, swept on the one after. Four routes the Alerts tab paced at
-`every 15m` were swept **every 30 minutes, exactly** — 22:45, 23:15, 23:45,
-00:15 — for as long as `runs` goes back.
-
-This is not the one-route-per-tick bug in §2. That one was fixed; this survived
-it, because sweeping every *due* route does nothing when the route is not due.
-
-`dueGraceMs` is half a tick (`SWEEP_TICK_MINUTES`, mirrored from
-`api/wrangler.toml`), which makes a route due on the tick **nearest** its due
-time rather than the first tick strictly after it. It cannot sweep anything
-early: there is no tick between one sweep and its successor to be early on. It is
-bounded by half the *interval* as well, so a cadence longer than the cron still
-waits for its own tick — a 60-minute cadence is not pulled forward to 30.
+A second implementation would produce a page quoting a cadence the scheduler
+does not keep, and **a wrong number you trust is worse than no number**. That is
+why `alertRoutes.ts` exists at all: it is the projection both surfaces read. It
+is also why `POST /api/alerts/run` calls `runAlertTick` rather than
+reimplementing a tick — there is then nothing it can exercise that production
+does not do.
 
 ---
 
-## 5. The baseline, and the wall of `new`
+## 5. The baseline sweep, and why the first one is silent
 
-**The first sweep of a route files nothing.** This is the single most important
-line in `sweepRoute`.
+**A route's first sweep files nothing.** This is the single most important line
+in `sweepRoute`.
 
-`diffAvailability` compares against the last snapshot **for that source**. A route
-that has not been searched recently therefore classifies everything it finds as
-`new`, plus a wall of `gone` for everything that aged out — thousands of changes,
-truncated to `MAX_STORED_CHANGES` (200), emailed as a meaningless *200 of 3000*
-digest. Once. And then never again, because the snapshot is now current — so the
-cost of getting this wrong is one useless email and a permanently lost first
-impression.
+`diffAvailability` compares a sweep's results against the stored snapshot for
+that slot. A route nobody has searched recently has no useful snapshot, so it
+classifies everything it finds as `new` plus a wall of `gone` — thousands of
+changes, truncated at `MAX_STORED_CHANGES` (200), rendered as a meaningless
+"200 changes" digest that trains you to ignore the mail.
 
-So `alert_last_digest_at` is a third clock, and it is the **suppression** flag:
-`NULL` means the next sweep ingests normally, emails nothing, and just stamps the
-column. The Alerts tab calls that state **"baseline pending"** and says so, since
-"I turned it on and got nothing" would otherwise read as a fault.
+So a route whose `alert_last_digest_at` is NULL ingests normally, files nothing,
+and stamps the clock. The next sweep has a real baseline to diff against. The
+same rule covers a route whose alerts were switched off and back on.
 
-### The baseline is the snapshot, not the clock — `baselineOnEnable`
-
-When alerts are switched **off → on** (`PATCH /api/tracked-routes/:id`), the
-column is re-decided:
-
-```ts
-alert_last_digest_at = baselineOnEnable(last_checked_at, now)
-// fresher than MAX_SWEEP_MINUTES (24h)  → now   (armed immediately)
-// older, or never searched             → null  (silent baseline sweep first)
-```
-
-The question is not *"has the scheduler swept this route"* but *"is there a
-recent enough snapshot to diff against"* — and a route somebody searched by hand
-ten minutes ago already has one. Clearing the clock there would spend a route's
-full call cost computing a diff against fresh data and then throw the answer
-away, and make the user wait another whole interval for the first email.
-
-The cutoff is `MAX_SWEEP_MINUTES` because that is the slowest cadence the pacer
-will ever claim: data fresher than that is no staler than what a normal alert
-cycle diffs against.
+**Turning alerts on does not always cost a baseline.** `baselineOnEnable` sets
+the digest clock to `now` — arming the route immediately — when
+`last_checked_at` is fresher than `MAX_SWEEP_MINUTES`. The question is not "has
+the scheduler swept this" but "is there a recent enough snapshot to diff
+against", and a route somebody searched by hand ten minutes ago has one. The
+cutoff is `MAX_SWEEP_MINUTES` because that is the slowest cadence the pacer will
+ever claim: data that fresh is no staler than what a normal cycle diffs against,
+so accepting it grants nothing the scheduler does not already do to itself.
 
 **Known edge, deliberately not handled.** `last_checked_at` is one timestamp for
-the whole route, so a search that covered only part of the window looks as fresh
-as one that covered all of it. Widening a window and enabling alerts in the same
-breath can still produce one noisy digest. Bounding it properly would mean
-recording per-slice check times — a stored row per (route, date, program) — for
-one avoidable email. Such a table existed once and cost 93% of the daily D1 write
-allowance to maintain. It is not coming back for this.
+the whole route, so a search that covered part of the window looks as fresh as
+one that covered all of it. Widening a window and enabling alerts in the same
+breath can still produce one noisy digest. Bounding it properly means recording
+per-slice check times — a whole stored table for one avoidable email.
+
+The SPA says `awaitingBaseline` on the route so that "I turned it on and got
+nothing" does not read as a fault.
 
 ---
 
-## 6. What is worth an email
+## 6. What gets alerted on
 
-`api/src/features/alerts/select.ts`, pure, called as
-`selectAlertable(changes, findKeys, rule, routeFilters)`.
+`api/src/features/alerts/select.ts`.
 
-### The four types
+`diffAvailability` classifies four transitions. A route's `alert_on` chooses
+among them; NULL means the default set.
 
-`new | more_seats | price_drop | gone` (`ChangeType` in `api/src/models/change.ts`),
-stored per route as a JSON array in `alert_on`.
+| type | in the default set | why |
+| --- | --- | --- |
+| `new` | yes | award space that was not there before — the reason you are watching |
+| `price_drop` | yes | subject to `alert_min_drop_pct` |
+| `more_seats` | no | a seat count rising on space you already knew about is rarely why you are watching |
+| `gone` | no | mostly cache churn and dates ageing off the front of the window, and it honours fewer of the route's filters than the others (below) |
 
-**The default is `["new", "price_drop"]`.** `gone` is out because most
-disappearances are cache churn or dates ageing off the front of the window, and
-because it is the one type that cannot be intersected with the finds query.
-`more_seats` is out because a seat count rising on space you already knew about
-is rarely why you are watching.
+`alert_min_drop_pct` defaults to **5**, not 0: seats.aero re-quotes constantly
+and a 1% movement is noise.
 
-`price_drop` additionally has to clear `alert_min_drop_pct`, **default 5, not 0**
-— seats.aero re-quotes constantly and a 1% movement is noise that would train you
-to ignore the mail.
+**`alert_on: []` is a 400, not a stored value.** Every other JSON list column on
+`tracked_routes` treats `[]` as "no filter, everything matches"; here it would
+mean the opposite — a route that looks armed and is silent forever, which is the
+single most plausible way for this feature to appear broken while behaving
+exactly as configured. NULL is the only way to say "default". Reading an empty
+or unrecognisable array back out is therefore evidence of corruption, and
+`parseAlertTypes` treats it as the default rather than as a request for silence.
 
-> **`[]` is rejected at the API with a 400, not stored.** The neighbouring
-> columns (`cabins`, `currencies`) treat `NULL` and `[]` alike as "no filter";
-> here `[]` would mean the opposite — alerts on, nothing ever fires — which is the
-> single most plausible way for this feature to look broken while behaving
-> exactly as configured. `NULL` is the only way to say "default", and
-> `parseAlertTypes` falls back to the default set on a corrupted value for the
-> same reason.
+**A change must also be one the route's own pane would show.** After the sweep,
+`routeFindKeys` reads the route's current finds and runs
+`shared/src/match/routeMatch.ts` — the *same* predicate the Routes page runs —
+and `selectAlertable` intersects the changes against that key set. An alert that
+fires on a find the route's pane hides is indistinguishable from a bug in either
+half, and since no mail is sent when nothing is found, the other direction
+reports itself to nobody.
 
-### The intersection, and why it is the Routes page's own predicate
+**`gone` bypasses the intersection, and must.** The whole point of `gone` is
+that the row is no longer there, so it can never appear in a query of current
+finds; intersecting it would silently drop every disappearance. It is filtered
+on what the change summary itself carries — cabin, previous seats, and previous
+price against the route's ceiling — which means the route's currency and
+nonstop filters do not apply to it. One more reason it is opt-in. An unknown
+previous price passes rather than being dropped.
 
-The other half of the question is *would this route's own pane show this find?* —
-cabins, currencies, seats, nonstop. That is **not** re-implemented here.
-`sweepRoute` runs `routeFindKeys`, which reads `finds` through the same
-`routeFindsScope` the Routes page uses and then applies `routeMatcher`
-(`shared/src/match/routeMatch.ts`) — **the same function object the page runs** —
-and hands the resulting `changeKey` set in.
-
-That sharing is the load-bearing part, and it is why the predicate is one module
-rather than one copy each. An alert that fires on a find the route's pane hides
-is indistinguishable from a bug in either half, and the sweep sends no mail when
-it finds nothing, so drift in the other direction reports itself to nobody.
-
-`routeFindKeys` calls `changeKey` itself rather than re-spelling its format, so
-the set it builds and the keys the diff produces cannot drift apart.
-
-### `gone` bypasses the intersection, and must
-
-There is no current row for a disappearance, so intersecting it would silently
-drop every one. `gone` is filtered on what the `ChangeSummary` itself carries
-(cabin, `previousSeats` vs `min_seats`) instead — which means a route's currency
-and nonstop filters do **not** apply to it. One more reason it is opt-in.
-
-Finally, `selectAlertable` de-duplicates by key: one sweep can apply several
-chunks and a resumed sweep several passes, so the same key can legitimately
-arrive twice.
+Changes are de-duplicated by key before filing: one sweep can apply several
+chunks and a resumed sweep several passes, so the same key legitimately arrives
+twice. The outbox is unique on it anyway; de-duplicating here is what keeps the
+digest's own counts honest.
 
 ---
 
-## 7. The budget guard and the reserve
+## 7. The budget guard
 
-`api/src/features/alerts/budget.ts`. **Nothing else may import this module.**
+`api/src/features/alerts/scheduler-budget.ts`. Pure decision, thin read.
 
-What it protects is not the quota for its own sake. It is the **reserve**: the
-scheduler stops well short of the day's ceiling so that a human pressing Search
-at 9pm gets an answer instead of a 429 caused by a robot.
-
-Three numbers, and they are not the same thing:
+Three numbers, and they are not the same number:
 
 | | default | what it bounds |
-|---|---|---|
-| the key's ceiling | 1000/UTC day | seats.aero Pro, everything shares it |
-| `ALERT_DAILY_BUDGET` | 600 | what **automation** may spend of it |
-| `ALERT_MANUAL_RESERVE` | 300 | what must remain unspent, for a person |
+| --- | --- | --- |
+| the key's own allowance | 1000/day, UTC | seats.aero's, not ours. `ASSUMED_DAILY_LIMIT` when nothing has reported one |
+| `ALERT_DAILY_BUDGET` | 600 | what **automation** may spend in a day |
+| `ALERT_MANUAL_RESERVE` | 300 | what must remain unspent so a **person** pressing Search always gets an answer |
 
-```ts
-decideSweep({ observation?, selfSpentToday, estimatedCost, reserve, dailyBudget })
-  remaining <= 0                              → { go: false, reason: "exhausted" }
-  remaining - estimatedCost < reserve         → { go: false, reason: "reserve" }
-  selfSpentToday + estimatedCost > dailyBudget→ { go: false, reason: "reserve" }
-  otherwise                                   → { go: true }
-```
+`decideSweep` refuses in three ways:
 
-The reserve test compares against what would be left **after** the sweep, which
-is the assertion `budget.test.ts` pins by name.
+- `exhausted` — nothing left at all. Breaks the tick's loop.
+- `reserve` — the sweep would leave less than the reserve. Note it compares
+  against what would remain *after* the sweep, which is the whole point.
+- `reserve` again — the scheduler's own daily allowance would be exceeded, even
+  on a day the key's ceiling is nowhere near. Same code, different ceiling.
 
-### The absent-observation case is the one that matters
+**`basis` is `observed` or `self_accounted`, and it is worth showing.**
+seats.aero's `X-RateLimit-Limit`/`Remaining` headers are recorded into
+`source_quota`, keyed `(source, UTC day)` — so a row from yesterday is simply
+not selected and an exhausted count cannot leak across the reset. Early in a UTC
+day nothing has reported a number yet, and the guard reasons from
+`SUM(runs.calls)` since 00:00 UTC instead. Both are approximations of different
+things and the Alerts tab names which one is in force.
 
-`source_quota` is written only when a call is actually made — by the search and
-enrich paths reading `X-RateLimit-Remaining` off a live response, through the
-shared `recordQuota`. So on most days, days nobody manually searched, **there is
-no row at all when the first tick fires.** Two obvious answers are both wrong:
+The whole read is one `db.batch` of two statements (`selectBudgetRows`), covered
+by `idx_runs_spend` so the SUM does not touch the table.
 
-- *Refuse until something has been observed.* The scheduler would then never fire
-  on any day it was the only thing running, which is nearly all of them. The
-  feature would die silently — precisely the failure §1 is about.
-- *Assume a full 1000.* Optimistic in the one direction that overspends, on the
-  one day it mattered.
-
-So it **self-accounts**: last known limit (or `ASSUMED_DAILY_LIMIT = 1000`) minus
-`SUM(runs.calls)` for runs started since midnight UTC — a covering seek on
-`idx_runs_spend`, which is the one index on that table that exists for this
-query alone. An honest number
-derived from facts we hold, corrected by the first real observation of the day.
-`SweepDecision.basis` reports which of the two it used, and the Alerts tab shows
-it, because "read from seats.aero's own header" and "counted from our own
-records" deserve different confidence.
-
-`source_quota` is keyed `(source, day)` with `day` in **UTC** — that is when the
-allowance resets, regardless of where the caller is standing — so yesterday's
-exhausted count is simply not selected and the caller falls back to
-self-accounting exactly as it would on a day with no row.
+**`opts.force` bypasses cadence and nothing else** (§9). Pacing answers "how
+often"; the guard answers "can this be paid for". They are different questions
+and only one of them is a development inconvenience.
 
 ---
 
 ## 8. The outbox, and when a digest goes out
 
-The product rule is **one digest per sweep cycle, grouped by route.** The
-platform rule is **25 calls per tick** (§2), which a wide enough set will not
-fit in. Those only coexist if a change outlives the tick that found it — hence
-`alert_outbox`.
+`api/src/features/alerts/outbox.ts`.
 
-- `fileOutbox` inserts with `UNIQUE (route_id, change_key)` and
-  **newest-wins** on conflict: a route swept twice before a flush must not report
-  the same seat twice, and the later observation is the true one. Batched 50 at a
-  time.
-- The key is scoped by `route_id` because two tracked routes can legitimately
-  watch the same city pair with different filters and different recipients.
-- **A tick that dies loses nothing.** The flush is a separate step from the sweep,
-  and anything already filed is still there next time.
+The product rule is **one digest per sweep cycle** — a cycle being one full pass
+over every alert route. A tick may not get through a cycle (§2). Those two
+coexist only if a change outlives the tick that found it, which is what
+`alert_outbox` is: alertable changes, keyed `(route_id, change_key)`,
+`WITHOUT ROWID` so filing one costs one row written. Newest wins on conflict —
+a route swept twice before a flush must not report the same seat twice, and the
+later observation is the true one. It is scoped by `route_id` because two routes
+can legitimately watch the same pair with different filters and different
+recipients.
 
-A route set narrow enough to fit inside one tick now completes its cycle in that
-tick and flushes there. It could not before: with one route per tick, four
-routes on a 15-minute interval left three of them permanently older than one
-interval, so `cycleComplete` never once returned true and **no digest was ever
-sent** — three changes sat in `alert_outbox` for four days and `alert_deliveries`
-was empty. The outbox is still required for a set that spans ticks; what it is
-not is a place changes go to stay.
+A tick that dies therefore loses nothing.
 
-`cycleComplete(email, intervalMinutes, now)` is one query and asks two things:
-**no route is due** (`alert_last_attempt_at` older than one interval, or NULL) and
-**no alert run is still `running`**. Only then does a digest describe a complete
-pass rather than an arbitrary slice of one.
+`cycleComplete` is the flush condition: **no route due, and no run still
+`running`.** That is when a full pass is over.
 
-The flush is skipped entirely when pacing is unaffordable — `cycleComplete` is
-defined in terms of the interval and there isn't one. That state is only
-reachable by forcing a sweep (§10); the outbox holds until the pacing problem is
-fixed.
+This is also the piece that broke when a tick swept exactly one route. Four
+routes paced at 15 minutes left three of them permanently due, so
+`cycleComplete` never once returned true and no digest was ever sent. Sweeping
+to a call cap instead (§2) is what lets a narrow set finish its cycle inside one
+tick and flush at all. The outbox is still required, because a set wider than
+`ALERT_MAX_CALLS_PER_TICK`, or one route that pauses, still spans ticks.
 
-> **A gap worth knowing about.** `cycleComplete`'s `due` count is plain SQL over
-> `alerts_enabled = 1` and has no notion of chunks, while `dueRoutes` skips any
-> route whose window has expired. So an expired-window alert route is never
-> swept, its `alert_last_attempt_at` is never stamped, it counts as due forever,
-> and **the cycle never completes — no digest flushes for any route** while it is
-> enabled. The Alerts tab names the offending route (*window expired*) and tells
-> you to move the window or turn alerts off, which is also the fix; the tab is
-> doing its job, but the symptom you notice first is silence from the routes that
-> are working. If this is ever tightened, the honest fix is to give the `due`
-> subquery the same window test the planner applies (`date_end >= today`) rather
-> than to loosen the flush condition.
+`flushOutbox` then:
 
----
+1. Reads everything waiting, joined to the route that filed it. *The column
+   aliases in that query are load-bearing* — `o.*` already yields `origin` and
+   `destination` (the **change's**), SQLite keeps the last column of a repeated
+   name, and selecting `tr.origin` unaliased once overwrote them with the
+   route's primary pair, making every line of every digest name the wrong city
+   pair on any multi-airport, hub or round-trip route.
+2. Adds the **quiet** routes — swept, past baseline, nothing filed — by name.
+   "Three checked, two quiet" and "only one ran" are different facts, and with
+   no failure email there is nothing else to tell them apart.
+3. Groups **by recipient, not by route**: one person watching three routes gets
+   one email with three sections. A recipient whose routes were *all* quiet gets
+   nothing — there is no news, and this app does not send "still working" mail.
+4. Sends, records an `alert_deliveries` row for every outcome, and **only on a
+   successful send** clears that recipient's outbox rows and stamps their digest
+   clocks. A refused send leaves the outbox intact so the next cycle tries again
+   rather than losing it.
 
-## 9. The digest, and delivery
+The digest renderer (`digest.ts`) is pure and is the whole of what the tests
+assert on; the Worker half only hands its strings to Resend. Everything that
+reaches it came out of somebody else's payload, so it is HTML-escaped —
+injecting your own inbox is still a bug.
 
-`api/src/features/alerts/digest.ts` renders strings and decides nothing; the Worker
-half only hands them to Resend.
-
-- **One digest per recipient, not per route.** `groupForRecipients` buckets by
-  `alert_email ?? APP_USER_EMAIL`: one person watching three routes gets one email
-  with three sections.
-- **Routes swept this cycle with nothing to say are named, not omitted** — the
-  `quiet` list, rendered as *"Also checked, nothing new: …"*. Since no failure
-  email exists, "three routes checked, two quiet" and "only one route ran" are
-  different facts and a digest listing only the noisy route cannot tell them
-  apart.
-- **A recipient whose routes were all quiet gets nothing.** There is no news, and
-  this app does not send "still working" mail.
-- Subject names the route when there is only one (`BertBooker — 3 changes on
-  SEA/PDX ⇄ NRT/HND`), and counts routes otherwise — that is the line you read in
-  a notification without opening anything.
-- Both a `text` and an `html` body, sharing one `describeChange` so they cannot
-  describe the same event differently. Everything interpolated is `escapeHtml`'d:
-  airport, program and cabin codes all come out of a database filled by parsing
-  other people's payloads, and HTML-injecting your own inbox is still a bug.
-- `APP_URL`, if set, becomes an *Open BertBooker* link. Unset omits it.
-
-### Resend, and the recipient allowlist
-
-`api/src/features/alerts/email.ts`. **This is the Worker's second and last outbound host**, and
-the distinction is what makes it allowed: Resend is not a data source, it is a
-delivery channel — a keyed vendor API that authenticates the *key*, not the
-client, exactly like seats.aero. Nothing about the airline prohibition changes.
-
-`sendEmail` **returns a result rather than throwing**, and the three statuses are
-kept apart on purpose:
-
-| status | meaning |
-|---|---|
-| `sent` | the provider accepted it; `provider_message_id` recorded |
-| `failed` | we tried and were refused — the provider's own body is in `error` |
-| `skipped` | **we never tried** — no `RESEND_API_KEY`, no `ALERT_FROM`, or the recipient is off the allowlist |
-
-`skipped` vs `failed` is our configuration vs theirs, and they are fixed in
-different places. An unset key means sweeps still run and still ingest, and every
-digest is recorded as skipped with the reason. **Never a silent drop:** with no
-failure mail, `alert_deliveries` is the only trace an undelivered digest leaves.
-
-**Recipients are allowlisted**, and the list is the `alert_recipients` table,
-edited in the app under **Settings → System**. With one
-shared password as the only auth, an unchecked per-route `alert_email` would
-make this an arbitrary-recipient sender on a verified domain, and the domain's
-sending reputation is not something a typo should be able to spend.
-
-It is enforced twice, and the two are not redundant: at write time in
-`validateAlerts` (400 `recipient_not_allowed`) so a bad address is never stored,
-and again at send time in `sendEmail` so a stored address that has since been
-REMOVED from the list does not go out. The route form's "Send to" is a Select
-over this list rather than a text box, so the write-time refusal is a backstop
-rather than how anyone finds out.
-
-`APP_USER_EMAIL` is always allowed and is **never a row** in the table, so an
-empty table still means "only the account's own address" — the safe default
-rather than the permissive one — and never "this deployment can email nobody".
-It is also what a NULL `alert_email` resolves to, so it cannot be removable.
-
-**Deleting a recipient a route still points at is refused** (400
-`recipient_in_use`, naming the count). Not tidiness: such a route's digest is
-recorded `skipped`, and because only a successful send clears `alert_outbox`,
-the rows stay and every following cycle retries the same refusal forever, with
-no failure mail to announce it. Point the route elsewhere first.
-
-This used to be `ALERT_ALLOWED_RECIPIENTS`, a CSV env binding — which meant a
-`wrangler secret put` and a redeploy to add one address, and a list nothing in
-the app could show you.
-
-**Double-send is guarded on both sides**: `UNIQUE (sweep_id, to_email)` in
-`alert_deliveries`, and a matching `Idempotency-Key` header
-(`SHA-256(sweepId:recipient)`) that Resend de-duplicates on for 24 hours.
-`sweep_id` is a uuid minted per flush and not a foreign key: one sweep can cover
-several routes and therefore several runs. There is deliberately no
-`alert_sweeps` table, and no column recording which runs a digest covered —
-`runs.route_id` already answers that, and the two json blobs that used to
-duplicate it were written and never read.
-
-**Only a successful send clears the outbox** and stamps `alert_last_digest_at`. A
-refused send leaves the rows intact so the next cycle tries again.
+Step 4 has a tail worth knowing: a route pointed at an address that is no longer
+allowed records `skipped: recipient_not_allowed`, keeps its outbox rows, and
+retries the same refusal every cycle forever, announcing it to nobody. That is
+why §9 refuses the delete that would create it.
 
 ---
 
-## 10. The Alerts tab, and the local dev loop
+## 9. Sending: who, how, and the one manual control
 
-### The four endpoints
+### Who
 
-| endpoint | what |
-|---|---|
-| `GET /api/alerts/schedule` | pacing, budget, email config, and every alert route's state |
-| `GET /api/alerts/runs?limit=` | `runs WHERE trigger = 'alert'` |
-| `GET /api/alerts/deliveries?limit=` | `alert_deliveries`, newest first |
-| `POST /api/alerts/run` | fire one tick by hand — **local dev only** |
+`alert_recipients` is a table, edited from the settings dialog's **System** tab.
+It was an env binding, which meant a deploy per edit.
 
-`GET /schedule` also returns `manualTick`, i.e. whether `POST /run` exists on this
-host, answered server-side rather than by making the SPA probe for a 404: a
-button that appears only to fail is worse than no button.
+`APP_USER_EMAIL` is **always allowed and is never a row**, so an empty table
+still means "only the account's own address" — the safe default rather than the
+permissive one, and never "this deployment can email nobody". It sorts first
+because it is the answer to "who gets this by default": a route with a NULL
+`alert_email` resolves to it.
 
-### The page is the feature's safety mechanism, not its status board
+The list exists because with one shared password as the only auth, an unchecked
+`alert_email` would make this Worker an arbitrary-recipient sender on a verified
+domain, and the domain's sending reputation is not something a typo should be
+able to spend.
 
-`app/src/components/pages/alerts/AlertsPage.tsx` is ordered **problems, cadence, routes, history** —
-anything that would make the mail stop is above the fold. That ordering is why
-the page is a composition of six named sections rather than one long body: the
-sequence *is* the design, so it should be legible in one screen of code
-(`ProblemBanners`, `CadencePanel`, `AlertRoutesTable`, `SweepHistory`,
-`DeliveriesTable`, and `TickPanel` for a hand-fired tick). The banners cover: no
-email configured, `cycle_exceeds_budget`, a blocked budget guard, failing routes,
-expired windows, and undelivered digests. `app/src/lib/alerts.ts` reduces a route to
-one of five states, first-match-wins from most-wrong to most-ordinary:
+**It is enforced twice, deliberately.** `validateAlerts` stops a bad address
+being *stored*; `sendEmail` re-checks at *send* time, which is what catches an
+address that was allowed when the route was saved and has since been removed.
+`DELETE /api/settings/recipients/:id` closes the third door by refusing while a
+route still points there (§1, §8).
 
-`expired` → `failing` → `baseline` → `due` → `watching`
+### How
 
-A failing route whose window has *also* expired reports as `expired`, because that
-is the one you can actually fix.
+Resend, `POST https://api.resend.com/emails`. **This is the Worker's second
+outbound host and the distinction is what makes it allowed**: it is not a data
+source but a delivery channel, and a keyed vendor API on exactly the same
+footing as seats.aero — it authenticates the key, not the client. Nothing about
+the airline prohibition in `CLAUDE.md` changes.
 
-### `POST /api/alerts/run`
+Double sends are guarded twice: a `sweep_id` uuid minted per flush plus
+`PRIMARY KEY (sweep_id, to_email)` on `alert_deliveries` on our side, and a
+matching `Idempotency-Key` header (SHA-256 of `sweepId:recipient`, which Resend
+honours for 24h) on theirs.
 
-404s off a loopback host — in production this should be indistinguishable from a
-route that was never written. It sits behind `gate` regardless; the host check
-decides what a developer can reach, not who is let in.
+`alert_deliveries.status` is three-valued and the third value is the interesting
+one:
+
+- `sent` — the provider accepted it; `provider_message_id` is theirs.
+- `failed` — we tried and were refused; `error` carries the provider's own body,
+  because an unverified sending domain reads very differently from a bad key.
+- `skipped` — we never tried: no `RESEND_API_KEY`, no `ALERT_FROM`, or the
+  recipient is not allowed. **One is our configuration and the other is theirs,
+  and they are fixed in different places**, so they must not read the same.
+
+A missing key does not stop a sweep. It still runs, still ingests, and records
+why nothing arrived — the same posture as `no_seats_aero_key`: an absence must
+never look like an empty result.
+
+### The manual control
+
+`POST /api/alerts/run` fires one tick by hand. **Local dev only** — it answers
+404 off a loopback host, so in production it is indistinguishable from a route
+that was never written. It sits behind `gate` regardless; the host check decides
+what a developer can reach, not who is let in.
+
+It exists because otherwise working on `alerts/` means waiting up to thirty
+minutes for a tick, up to `intervalMinutes` for that tick to choose your route,
+and then reading D1 by hand to find out what it decided.
 
 Three properties, each load-bearing:
 
-- **It is `runAlertTick`, not a copy of it.** Anything it can exercise, the cron
-  does identically.
-- **It returns the whole `TickResult`** — `sweptRouteIds`, `skipped` with reasons,
-  `flushed`, `pacing` — and the page prints all of it. A tick that swept nothing
-  has to say why, or this becomes one more surface on which a broken sweep and a
-  quiet one look the same.
-- **`routeId` bypasses cadence, never the budget guard.** The due filter and the
-  pacing-affordability return are both answers to *how often*, and waiting four
-  hours to find out whether a code change works is the entire reason this exists.
-  `decideSweep` answers *can this be paid for* — a different question — and runs
-  unchanged. A forced sweep still stamps `alert_last_attempt_at`, because it
-  really did spend the calls, and a forced route with an expired window is still
-  refused (`window_expired`).
+- **It is `runAlertTick`, not a copy of it.**
+- **It returns the whole `TickResult`.** A tick that swept nothing must say why,
+  or this becomes one more surface where broken and quiet look identical.
+- **`routeId` bypasses cadence, never the budget guard.**
 
-These buttons spend real seats.aero calls against today's allowance. The page
-says so.
+A forced sweep still stamps `alert_last_attempt_at`, so it does move the route's
+clock. That is correct: it really did spend the calls. It also still refuses a
+route whose window has expired, rather than letting it reach `planSearchPass`
+and bump the failure counter for a fault that is not the sweeper's.
+
+The Alerts tab learns whether the button exists from `manualTick` in the
+schedule payload, rather than probing for a 404 — a button that appears only to
+fail is worse than no button.
 
 ---
 
-## 11. Configuration
+## 10. The three clocks, and the back-off
 
-All optional except identity; defaults are in `bindings.ts` / `ALERT_DEFAULTS`.
-Production: `wrangler secret put NAME`. Locally: a line in `api/.dev.vars`
-(the only environment file; `wrangler dev` does **not** reload it).
+`tracked_routes` carries three timestamps for this feature. **Collapsing any two
+re-creates a bug the others exist to prevent.**
 
-| name | default | unset means |
-|---|---|---|
-| `APP_USER_EMAIL` | — | **the cron fails closed** — no account to attribute a run to |
-| `RESEND_API_KEY` | — | sweeps run and ingest; every digest recorded `skipped` |
-| `ALERT_FROM` | — | same as a missing key. Must be on a Resend-**verified** domain |
-| `ALERT_DAILY_BUDGET` | 600 | automation's share of the key's 1000/day |
-| `ALERT_MANUAL_RESERVE` | 300 | calls held back for a person |
-| `ALERT_MAX_CALLS_PER_TICK` | 25 | one tick's cap before pausing the route |
-| `APP_URL` | — | the digest omits its link |
+| column | written | read as |
+| --- | --- | --- |
+| `last_checked_at` | when a run **claims coverage** | a **floor** — a route a person searched by hand two minutes ago is not swept again immediately |
+| `alert_last_attempt_at` | on **every** sweep attempt, before anything can fail | the **pacing clock** |
+| `alert_last_digest_at` | when a digest covering the route is **sent**, or on its silent baseline | the **email clock** — NULL means the next sweep is a baseline (§5) |
 
-`ALERT_FROM`'s SPF/DKIM records are a **deploy prerequisite, not a code step** —
-until they exist every send fails with the provider's own message in
-`alert_deliveries.error`. The sending domain and the app's own hostname are
-independent facts; there is no requirement that they match.
+The pacing clock cannot be `last_checked_at`, and this is the trap worth naming:
+`last_checked_at` is never written when a run fails, so a permanently-failing
+route would be due on *every single tick* and would spend the entire day's
+allowance rediscovering the same failure.
 
----
+`routeDueAt` takes the max of both: `attempt + interval × backoff` and
+`checked + interval`.
 
-## 12. Schema
+**Back-off is on the attempt clock only.** `alert_consecutive_failures` is
+bumped when a pass returns zero successful tasks and cleared when one succeeds,
+and the wait is `interval × 2^min(failures, 3)` — capped, because eight failed
+sweeps in a row is a route that needs a person, not a faster retry. Without it,
+the likeliest real fault — a date window that slipped into the past just by time
+passing — takes a slot in every cycle forever.
 
-`migrations/0001_init.sql`. On `tracked_routes`:
-
-| column | notes |
-|---|---|
-| `alerts_enabled` | 0 by default, so a new route schedules nothing |
-| `alert_email` | NULL = the account's address. Checked against `alert_recipients` on write |
-| `alert_on` | JSON `ChangeType[]`. NULL = default set; `[]` refused |
-| `alert_min_drop_pct` | default 5 |
-| `alert_last_attempt_at` | **the pacing clock** — every attempt, pass or fail |
-| `alert_last_digest_at` | **the email clock** — NULL suppresses (§5) |
-| `alert_consecutive_failures` | back-off; reset on success and on edit |
-
-Plus `last_checked_at`, the coverage clock, written by `features/search/run.ts` at the
-end of any pass that claimed coverage — so the sweeper reads it but does not
-write it itself. **Three clocks, and collapsing any two re-creates a bug the
-others exist to prevent.** In particular `alert_last_attempt_at` is stamped
-BEFORE the search and the other two after it, which is what stops a
-permanently-failing route being due on every tick.
-
-**`tracked_routes` carries no index at all**, and should not grow one: there are
-seven rows, and the scheduler's "which route is most overdue" question is not SQL
-— `dueRoutes` (`alerts/pace.ts`) is a pure function over rows already in memory.
-An index here would only make the pacing-clock UPDATE bill two D1 rows instead of
-one.
-
-`alert_outbox` and `alert_deliveries` are both `WITHOUT ROWID` on their natural
-keys — `(route_id, change_key)` and `(sweep_id, to_email)`. Those keys were
-already UNIQUE for the idempotency reasons in §8 and §9; declaring them as the
-primary key retires a surrogate `id` and a redundant index, so filing a change
-costs one row written rather than three. Neither `alert_outbox.type` nor
-`runs.trigger` carries a CHECK constraint: a new transition type should not need
-a migration to become storable.
-
-### Run retention
-
-`runs` is the only table here that grows on a clock rather than with the data —
-about fifty rows a day, forever, from ticks alone. `pruneOldRuns` deletes rows
-older than `RUN_RETENTION_DAYS` (30) at the end of a **completed cycle**, beside
-the flush, so it runs about as often as a digest does rather than on every tick.
-
-Two details are deliberate. A run still `running` is spared whatever its age —
-that is a paused search waiting to resume, and deleting it would strand the sweep
-that owns it. And the delete is unbounded rather than `LIMIT`ed: at fifty rows a
-day the steady-state delete is a handful, and a first run after a long gap should
-get it over with instead of leaving a backlog that never drains.
-
-Nothing reads a run older than a day except the Alerts tab's history list, which
-shows 25.
+The SPA collapses all of this into one first-match-wins ladder in
+`app/src/lib/alerts.ts`: `expired` → `failing` → `baseline` → `due` →
+`watching`. A failing route whose window has *also* expired reports as
+`expired`, because that is the one you can actually fix.
 
 ---
 
-## 13. Failure modes
+## 11. Configuration, surfaces, and where the code is
 
-| symptom | cause | where it shows |
-|---|---|---|
-| no mail, ever, on a new route | baseline sweep — working as designed | Alerts tab: *baseline pending* |
-| no mail, and the tab says *not running* | `cycle_exceeds_budget` — the routes cost more than a day | red banner naming the fix |
-| no mail, banner says sweeps paused | budget guard: `reserve` or `exhausted`. Clears at 00:00 UTC | warning banner |
-| sweeps run, nothing arrives | `RESEND_API_KEY`/`ALERT_FROM` unset, or the recipient is off the allowlist — add it under **Settings → System** | `alert_deliveries.status = 'skipped'` |
-| sweeps run, sends refused | unverified sending domain, bad key | `status = 'failed'`, provider body in `error` |
-| a route stops being swept | window fell into the past; every sweep would refuse before the first call | *window expired*, and it is excluded from the cost model |
-| **every** route goes quiet, but sweeps look fine | an expired-window route blocks `cycleComplete`, so nothing flushes — see the note in §8 | *window expired* on the offending route |
-| a route slows down | `alert_consecutive_failures` back-off, up to ×8 | *failing*, with the count |
-| EVERY route swept at twice the cadence the tab quotes | `SWEEP_TICK_MINUTES` no longer matches the cron in `wrangler.toml`, so the due test has the wrong grace and each route waits for the tick after the one it was due on (§4) | *last swept* consistently one whole interval stale, on every route at once |
-| **no invocations at all** | `APP_USER_EMAIL` unset (no digest address), or the tick threw | **Workers Logs** — `wrangler tail bertbooker` — and the Cron Triggers tab |
+### Environment
 
-That last row is the one with no in-app surface, which is exactly why
-`runAlertTick` is awaited rather than fire-and-forget.
+All optional; all documented on the field in `api/src/bindings.ts`.
+
+| binding | default | unset |
+| --- | --- | --- |
+| `APP_USER_EMAIL` | — | the tick returns `no_app_user_email` and spends nothing (§1) |
+| `RESEND_API_KEY` | — | sweeps run, digests recorded `skipped` |
+| `ALERT_FROM` | — | same as a missing key |
+| `ALERT_DAILY_BUDGET` | 600 | — |
+| `ALERT_MANUAL_RESERVE` | 300 | — |
+| `ALERT_MAX_CALLS_PER_TICK` | 25 | — |
+| `APP_URL` | — | the digest omits its link back into the app |
+
+### Endpoints
+
+| | |
+| --- | --- |
+| `GET /api/alerts/schedule` | everything the Alerts tab renders — pacing, budget, email config, and 14 fields per route |
+| `GET /api/alerts/runs` | recent sweeps; `runs` filtered to `trigger = 'alert'` |
+| `GET /api/alerts/deliveries` | every digest attempted, including the ones that never went out |
+| `POST /api/alerts/run` | one tick by hand; 404 off loopback (§9) |
+| `GET`/`POST`/`DELETE /api/settings/recipients[/:id]` | the allowlist |
+
+A route's own alert settings are **not** here: they are fields on
+`PATCH /api/tracked-routes/:id`, because they are properties of the route.
+
+Both list endpoints clamp `?limit=` at **both** ends. `Math.min(n, 100)` alone
+let `?limit=-1` through, and SQLite reads `LIMIT -1` as *no limit* — on
+`SELECT *` over tables that grow with every sweep, billed by rows read.
+
+### Files
+
+| | |
+| --- | --- |
+| `tick.ts` | what a tick **decides**. The only impure orchestrator here |
+| `pace.ts` | cadence and due-ness. Pure (§4) |
+| `scheduler-budget.ts` | `decideSweep` pure, `readBudgetState` the one pre-spend quota read (§7) |
+| `select.ts` | which changes are worth an email. Pure (§6) |
+| `alertRoutes.ts` | the projection both the scheduler and the tab read |
+| `outbox.ts` | when a digest goes out, and the run prune (§8, §12) |
+| `digest.ts` | what it **says**. Pure (§8) |
+| `email.ts` | Resend transport |
+| `recipients.ts` | who may be written to — policy, split from transport |
+| `endpoints.ts` | the tab's reads and the manual tick |
+| `settingsEndpoints.ts` | the allowlist's CRUD |
+
+Tests are `*.test.ts` beside each; the pure four (`pace`, `budget`, `select`,
+`digest`) carry the interesting reasoning, and `tick.test.ts` covers the
+orchestration. `npm test` runs them offline.
+
+### Cross-slice edges
+
+`alerts/` imports `features/search/run.ts` — the engine it re-runs.
+`features/trackedRoutes/` imports `alerts/recipients.ts` (the allowlist),
+`alerts/select.ts` (the types) and `alerts/pace.ts` (`baselineOnEnable`). Those
+are public surfaces two features must not fork. Neither slice imports the
+other's `endpoints.ts`.
 
 ---
 
-## 14. Tests
+## 12. Retention
 
-Everything interesting is pure, and offline:
+**`runs` is the only table in this app that grows on a clock rather than with
+the data**, at roughly 50 rows a day, so it is the only one pruned.
+`pruneOldRuns` deletes rows older than 30 days, **once per completed cycle** —
+not per tick — bounding the table at about 1,500 rows.
 
-- `api/src/features/alerts/pace.test.ts` — cost, pacing (including that
-  unaffordable **refuses** rather than clamping), due-ness and both clocks,
-  back-off, and `baselineOnEnable` at the cutoff.
-- `api/src/features/alerts/select.test.ts` — `parseAlertTypes` and
-  `selectAlertable`, including that `gone` bypasses the intersection and that a
-  drop coinciding with more seats classifies as `more_seats`.
-- `api/src/features/alerts/recipients.test.ts` — the allowlist, and that an empty
-  table still means the account's own address.
-- `api/src/features/alerts/digest.test.ts` — rendering, escaping, grouping, and that a
-  recipient whose routes were all quiet gets nothing.
-- `api/src/features/alerts/budget.test.ts` — the guard, both bases, and the UTC day.
-- `app/src/alerts.test.ts` — the health ladder's order and completeness.
+Thirty days is generous to every reader: the Alerts tab shows 25, the pacing
+lookup wants the most recent one per route, and the budget guard only ever asks
+about today. Every read of the table gets cheaper for it.
 
-`api/src/features/alerts/tick.test.ts` drives `runAlertTick` itself with
-`../search/run.js` mocked, so the pacing, budget and skip paths are covered
-without a database.
+Two details:
 
-`npm test` runs all of it. There is no test that drives a real tick against D1;
-`POST /api/alerts/run` is the loop that covers that ground, by hand.
+- **A run still `running` is spared whatever its age.** That is a paused sweep
+  waiting to resume (§2), and deleting it would strand the route that owns it.
+- **The delete is deliberately unbounded by a LIMIT.** At ~50 rows a day the
+  steady-state delete is a handful, and a first run after a long gap should get
+  it over with rather than leave a backlog that never drains.
 
----
-
-## See also
-
-- `docs/SEATS-AERO.md` — the Partner API, chunking, `SEATSAERO_MAX_PAGES`,
-  `include_trips`, quota, and every payload trap. A sweep is one of its callers.
-- `docs/SOURCES.md` — the source contract, the ingest rules, and the
-  credential-vs-client test that lets seats.aero and Resend in and keeps airlines
-  out.
-- `CLAUDE.md` — the invariants, including the two this feature exports: unattended
-  work must never fail invisibly, and only `alerts/budget.ts` reads the quota
-  before spending.
+Nothing else is pruned, and each is bounded by something other than time:
+`alert_outbox` empties on every successful flush and cascades on route delete;
+`alert_deliveries` grows by a few rows per cycle and is the permanent audit
+trail §1 depends on; `source_quota` is one row per source per day.

@@ -14,21 +14,6 @@ import { decideSweep, readBudgetState } from "./scheduler-budget.js";
 
 /**
  * What the Alerts tab reads, and — in local dev only — the one control it has.
- *
- * The reads are not a convenience. The app sends **no email when a sweep
- * fails** — only when it finds something — so the Alerts tab is the only surface
- * on which a broken scheduler is distinguishable from a quiet one, and this is
- * what fills it. That is the answer to the objection recorded in
- * `wrangler.toml`: unattended work hides source failures *unless something is
- * built to show them*.
- *
- * Everything derived here goes through the SAME pure functions the scheduler
- * calls (`sweepPacing`, `dueRoutes`, `routeSweepCost`, `decideSweep`). A second
- * implementation would produce a page that quotes a cadence the scheduler does
- * not keep, and a wrong number you trust is worse than no number. `POST /run`
- * holds that line the hard way: it calls `runAlertTick` itself rather than
- * reimplementing a tick, so there is nothing it can test that production does
- * not do.
  */
 export const alerts = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -76,11 +61,6 @@ alerts.get("/api/alerts/schedule", async (c) => {
     dailyBudget: cfg.dailyBudget,
   });
 
-  // Annotated, and this is the endpoint that most needed it. This literal used
-  // to be the ONLY description of the response anywhere on the server — the
-  // SPA's `AlertSchedule` interface was the only written-down form of it, and
-  // nothing compared the two. All fourteen mapped route fields below are now
-  // checked against what the Alerts tab reads.
   const body: AlertSchedule = {
     // Whether `POST /api/alerts/run` exists on this host. Answered here rather
     // than by making the SPA probe for a 404, because the page already fetches
@@ -170,25 +150,6 @@ alerts.get("/api/alerts/runs", async (c) => {
 
 /**
  * Fire one tick by hand. **Local dev only.**
- *
- * The cron is the only caller in production and that does not change; this is
- * the development loop. Without it, working on `alerts/` means waiting up to
- * thirty minutes for a tick, up to `intervalMinutes` for that tick to pick your
- * route, and then reading D1 by hand to find out what it decided.
- *
- * Three properties, each load-bearing:
- *
- * - **It is `runAlertTick`, not a copy of it.** Anything this can exercise, the
- *   cron does identically — which is the only thing that makes it worth testing
- *   through.
- * - **It returns the whole `TickResult`.** A tick that swept nothing has to say
- *   why, or this becomes one more surface on which a broken sweep and a quiet
- *   one look the same. That is the failure mode the entire feature is built
- *   against; see docs/ALERTS.md §1.
- * - **`routeId` bypasses cadence, never the budget guard.** Pacing decides how
- *   often, and waiting on it is exactly what this endpoint is for. `decideSweep`
- *   decides whether the calls can be paid for, runs unchanged inside
- *   `runAlertTick`, and will refuse a forced sweep like any other.
  *
  * 404 rather than 403 off-host: in production this should be indistinguishable
  * from a route that was never written. It sits behind `gate` regardless — the

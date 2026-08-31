@@ -149,29 +149,6 @@ export function sweepPacing(args: {
  * What `alert_last_digest_at` should become when a route's alerts are switched
  * ON — `now` to arm it immediately, or `null` to spend the next sweep on a
  * silent baseline.
- *
- * **The baseline is the stored snapshot, not this clock.** `diffAvailability`
- * compares a sweep's results against the per-source snapshot already in the
- * database; the digest clock only decides whether the resulting changes are
- * allowed to be emailed. So the question is not "has this route been swept by
- * the scheduler" but "is there a recent enough snapshot to diff against" — and a
- * route somebody searched by hand ten minutes ago already has one. Clearing the
- * clock there spends a route's full call cost to compute a diff against fresh
- * data and then throws the answer away, and makes the user wait another whole
- * interval for the first email.
- *
- * The cutoff is `MAX_SWEEP_MINUTES` because that is the slowest cadence the
- * pacer will ever claim: data fresher than that is no staler than what a normal
- * alert cycle diffs against, so accepting it grants nothing the scheduler does
- * not already do to itself. Older than that and the wall-of-`new` problem in
- * §5 of docs/ALERTS.md is real again.
- *
- * Known edge, deliberately not handled: `last_checked_at` is one timestamp for
- * the whole route, so a search that covered only part of the window looks as
- * fresh as one that covered all of it. Widening a window and enabling alerts in
- * the same breath can still produce one noisy digest. Bounding it properly would
- * mean recording per-slice check times, which is a whole stored table for one
- * avoidable email — the trade that got that table deleted.
  */
 export function baselineOnEnable(
   lastCheckedAt: number | null | undefined,
@@ -197,17 +174,6 @@ export interface AlertRouteClock {
 
 /**
  * Is this route due, and how overdue?
- *
- * Both clocks are consulted and they answer different questions. The attempt
- * clock stops a failing route from hot-looping — `last_checked_at` is never
- * written when a run fails, so pacing off it alone would make a broken route due
- * on every single tick and spend the whole day's allowance discovering the same
- * failure. The checked clock stops a *working* route being re-swept moments
- * after a person searched it by hand.
- *
- * Back-off is on the attempt clock only: a route that keeps failing waits
- * `interval × 2^failures`, capped, so a route whose window quietly expired costs
- * one sweep a day rather than one every tick.
  */
 export function routeDueAt(route: AlertRouteClock, intervalMinutes: number): number {
   const interval = intervalMinutes * 60_000;

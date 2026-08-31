@@ -3,18 +3,6 @@ import { isRecipientAllowed } from "./recipients.js";
 
 /**
  * Sending mail, via Resend.
- *
- * **This is the Worker's SECOND outbound host, and the distinction is what makes
- * it allowed.** The standing rule is that the Worker never *gathers* from a
- * source it cannot authenticate to — airlines refuse datacenter IPs, and United
- * and Delta refuse raw HTTP from anywhere. Resend is not a data source at all:
- * it is a delivery channel, and a keyed vendor API on exactly the same footing
- * as seats.aero — it wants the key, not a browser. Nothing about the airline
- * prohibition changes. The whole list of what this Worker may talk to is
- * "inbound data: seats.aero; outbound notification: Resend", and it is written
- * out in `api/wrangler.toml` beside the bindings it explains.
- *
- * WHO may be written to is `./recipients.ts`. This file only asks it.
  */
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";

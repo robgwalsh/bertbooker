@@ -1,7 +1,7 @@
 import type { ChangeSummary } from "../../models/change.js";
 import { planRoute, type RouteLegGroup, type RoutePair } from "../../models/route.js";
 import { applyTask } from "./apply.js";
-import { runStatus, type SourceQuotaObservation, type SourceTaskReport } from "../../models/task.js";
+import { runStatus, type SourceTaskReport } from "../../models/task.js";
 import { datesIn, planSeatsAeroChunks, runSeatsAeroChunk, SEATSAERO_PROGRAMS, SEATSAERO_SOURCE_ID, type SeatsAeroCall, type SeatsAeroChunk } from "../../providers/seatsaero.js";
 import {
   classifyError,
@@ -15,59 +15,15 @@ import { recordQuota } from "../../db/sourceQuota.js";
 import { selectSearchRoute, stampLastChecked } from "../../db/trackedRoutes.js";
 import type { SearchTotals } from "../../models/run.js";
 import type { SearchRouteRow } from "../../models/trackedRoute.js";
-
-/** `MAX_STORED_CHANGES` is declared in `db/runs.ts`, beside the writer that
- *  applies it; `SearchTotals` is declared in `models/run.ts` with the rest of a
- *  run's bookkeeping. Both are re-exported here so this module reads as the
- *  search API it is. */
 export { MAX_STORED_CHANGES } from "../../db/runs.js";
 export type { SearchTotals } from "../../models/run.js";
 
 
-/**
- * The seats.aero search, as an engine rather than an endpoint.
- *
- * **This is the one outbound data call the Worker makes, and the reason it is
- * allowed.** Every other source in this repo reads an airline's own site, and
- * airlines refuse datacenter IPs — United answers Akamai 428 and Delta 444 to raw
- * HTTP even from a residential connection, and Delta denies even a verbatim
- * replay of a real browser session. seats.aero is
- * a keyed vendor API: it authenticates the *key*, not the client, and does not
- * care that Cloudflare made the request (docs/SEATS-AERO.md). If you
- * are adding a `fetch` to an airline in this worker, stop.
- *
- * It lives here rather than inside the Hono handler because it now has **two
- * callers and one behaviour** — the same idiom `applyTask` has.
- * `./endpoints.ts` streams it to a person who pressed Search;
- * `features/alerts/tick.ts` runs it unattended on a cron and reads the changes
- * it returns. Two implementations of
- * "search a route and ingest the result" would eventually disagree about
- * coverage, which is the one thing in this pipeline that silently destroys data.
- *
- * ## Three functions, not one, and the split is the safety property
- *
- * `./endpoints.ts` holds a rule that a single entry point cannot keep: **everything
- * fallible happens before the stream opens**, because once the first byte is
- * written the response is committed to 200 and an `error` frame is all that is
- * left. A missing `SEATS_AERO_API_KEY` must be a 503, never an empty result that
- * would read as "no award space".
- *
- *   1. `planSearchPass` — every refusal, as a typed code. Reads only.
- *   2. `openSearchRun`  — the first WRITE: mint or resume the `runs` row.
- *   3. `runSearchPass`  — the loop that spends calls.
- *
- * The scheduler needs them separate for a second reason: it must know what a
- * sweep will cost (`plan.chunks.length`) *before* deciding whether the day's
- * allowance can afford it, and it must not leave a `runs` row behind for
- * a sweep the budget refused. `runs.status` has a CHECK constraint with
- * no `'skipped'` in it — so the
- * ordering is forced anyway.
- */
 
 /** What the SPA sees. Newline-delimited JSON, one object per line.
  *
  *  DEFINED IN `shared/src/wire/search.ts` and re-exported here for this
- *  module's consumers (`features/search/endpoints.ts` re-exports it again). */
+ *  module's consumers (`endpoints/search-endpoints.ts` re-exports it again). */
 export type { SearchEvent } from "../../../../shared/src/wire/search.js";
 // Again as a plain import: `export … from` re-exports without binding the name
 // in this module, and the run loop below is typed in terms of it.
@@ -106,7 +62,7 @@ export const MAX_CALLS_PER_REQUEST = 25;
 /** Every way a search can be refused before it spends anything.
  *
  *  A CODE rather than a status or a message, because the two callers report it
- *  differently and neither should be parsing the other's prose: `features/search/endpoints.ts` maps
+ *  differently and neither should be parsing the other's prose: `endpoints/search-endpoints.ts` maps
  *  it to an HTTP status, the scheduler maps it to a named skip reason that lands
  *  in the Alerts tab. */
 export type PlanFailure =
@@ -152,7 +108,7 @@ export interface SearchPassResult {
   nextIndex: number;
   total: number;
   totals: SearchTotals;
-  /** What changed, for the caller that cares. `features/search/endpoints.ts` ignores these (they
+  /** What changed, for the caller that cares. `endpoints/search-endpoints.ts` ignores these (they
    *  are persisted to `runs.changes_json` either way); the alert sweep
    *  is the reason they are returned rather than only stored. */
   changes: ChangeSummary[];

@@ -54,7 +54,7 @@ Two rules out of `docs/ALERTS.md` constrain code elsewhere:
 - **Unattended work must never fail invisibly.** No email is sent when a sweep
   breaks — only when it finds something — so the Alerts tab and Workers Logs are
   the entire safety net.
-- **Only `features/alerts/budget.ts` reads the quota before spending.**
+- **Only `features/alerts/scheduler-budget.ts` reads the quota before spending.**
   Interactive paths spend first and report after; do not add a budget guard
   anywhere else. `db/sourceQuota.ts` holds the two statements it batches, and
   says on the function that it has one caller and must keep having one.
@@ -67,8 +67,8 @@ before touching the code it covers — none of it is repeated here.
 | Doc | Owns | Read before touching |
 | --- | --- | --- |
 | `docs/SOURCES.md` | the source contract: what a source is, what may be added, the three ingest rules, how to add one | `api/src/sources`, `api/src/features/search/apply.ts` |
-| `docs/SEATS-AERO.md` | the whole Partner API integration — endpoints, call economics, payload traps, coverage, enrichment, quota. §12 is the route graph and connections | `api/src/features/{search,enrich,graph}/`, `providers/seatsaero.ts` |
-| `docs/ALERTS.md` | the whole scheduled sweep — why a cron at all, the pacing model, the CPU limit and per-tick call cap, the budget guard, the outbox, the digest | `api/src/features/alerts`, the cron in `wrangler.toml` |
+| `docs/SEATS-AERO.md` | the whole Partner API integration — endpoints, call economics, payload traps, coverage, enrichment, quota. §12 is the route graph and connections | `api/src/features/{search,enrich,graph}/`, `api/src/endpoints/`, `providers/seatsaero.ts` |
+| `docs/ALERTS.md` | the whole scheduled sweep — why a cron at all, the pacing model, the CPU limit and per-tick call cap, the budget guard, the outbox, the digest | `api/src/features/alerts`, `api/src/endpoints/{alerts,settings}-endpoints.ts`, the cron in `wrangler.toml` |
 | `docs/UI-TESTING.md` | running and looking at the SPA with nobody at the keyboard — the headless harness, session seeding, what it must never touch | `e2e/` |
 
 ## Commands
@@ -202,28 +202,34 @@ of it.
 
 ### Inside `api/src/`
 
-**A FEATURE IS ONE DIRECTORY, over one shared query layer.** `features/<slice>/`
-is vertical and owns its own HTTP surface; everything beside it is horizontal and
-owns one concern for every slice.
+**THE HTTP SURFACE IS ONE DIRECTORY, AND IT IS THE TOP OF THE GRAPH.**
+`endpoints/` holds every `Hono` sub-app, one file per mount, named
+`{feature}-endpoints.ts`. `features/<slice>/` is the logic behind them, and
+everything beside it is horizontal and owns one concern for every slice. Nothing
+below `endpoints/` imports upward.
 
 | | |
 | --- | --- |
 | `index.ts` | **the composition root, and nothing else.** The middleware chain, the mounts, and the `fetch`/`scheduled` export. A new handler does not go here. |
 | `bindings.ts` | `Env` and `Vars`. Every secret is documented on the field, including what its absence does. |
+| `endpoints/` | **every route this Worker serves.** One `Hono` sub-app per file, each registering ABSOLUTE `/api/...` paths and exporting the name `index.ts` mounts. Eleven files: `quota`, `d1-usage`, `search`, `enrich`, `alerts`, `reference`, `airports`, `graph`, `routes-page`, `tracked-routes`, `settings`. |
 | `middleware/` | the request pipeline: `gate.ts` (password + `/api/auth/*`), `identity.ts`, `security.ts`. |
-| `db/` | **every SQL statement in the Worker, one module per table.** Each function owns its SQL text and the comments explaining it, takes `db: D1Database` first, and returns rows. Nothing here takes a `Context` or an `Env`, and nothing decides anything the data does not: the clamps, the merges, the hash comparisons and the coverage claim all stay in the slice that calls it. |
+| `db/` | **every SQL statement in the Worker, one module per table.** Each function owns its SQL text and the comments explaining it, takes `db: D1Database` first, and returns rows. Nothing here takes a `Context` or an `Env`, and nothing decides anything the data does not: the clamps, the merges, the hash comparisons and the coverage claim all stay in the caller. |
 | `models/` | **the vocabulary: one file per model, each owning its shape AND the rules that define it.** `availability.ts`, `change.ts`, `offer.ts`, `task.ts`, `program.ts`, `airline.ts`, `route.ts`, plus the persisted shapes `trackedRoute.ts`, `find.ts`, `routeGraph.ts`, `run.ts`. A rule lives with its shape because in every case the rule IS the meaning — a `price_drop` is whatever `diffAvailability` calls one. **Worker-only:** if the SPA renders it, it is a wire type and lives in `shared/src/wire/`, which is why there is no `airport.ts`. |
 | `util/` | **what has no opinion about award travel.** `dates.ts` (ISO date and window math) and `params.ts` (an `:id` segment as a rowid or a 400, and the query-string accessor `db/`'s WHERE builders take instead of a `Context`). The bar is that it could be lifted into an unrelated codebase unchanged — anything that could not is a model, not a util. Neither is middleware: neither ever sees a `Context`. |
 | `providers/`, `sources/` | the outbound HTTP clients, and the source contract and registry. |
-| `features/trackedRoutes/` | the saved searches, and the Routes page's payload. `routeBody.ts` is everything the Worker accepts and every clamp on the way to a stored value; `autoVia.ts` is the hub suggestion. |
+| `features/trackedRoutes/` | `routeBody.ts` is everything the Worker accepts and every clamp on the way to a stored value; `autoVia.ts` is the hub suggestion. |
 | `features/search/` | searching a route and persisting the result: `run.ts` (plan/open/run, two callers and one behaviour) and `apply.ts` (the ingest pipeline). |
-| `features/enrich/` | buying the itinerary behind a row — `engine.ts`, and two very different HTTP shapes over it. |
+| `features/enrich/` | `engine.ts` — buying the itinerary behind a row. Two very different HTTP shapes sit over it in `endpoints/enrich-endpoints.ts`. |
 | `features/graph/` | the seats.aero route graph: `pathSearch.ts` (impure, over D1), `paths.ts` (pure ranking), `reach.ts` (pure verdicts). |
-| `features/alerts/` | the scheduled sweep and the digest. `tick.ts` is what a tick DECIDES, `outbox.ts` is what it eventually SAYS, `alertRoutes.ts` is what both read; `pace.ts`, `select.ts`, `digest.ts`, `budget.ts` are pure. |
-| `features/reference/` | airports, programs, currencies, airlines — the catalogue the Library browses. |
-| `features/usage/` | the app bar's meters: the seats.aero allowance, and today's D1 rows. |
+| `features/alerts/` | the scheduled sweep and the digest. `tick.ts` is what a tick DECIDES, `outbox.ts` is what it eventually SAYS, `alertRoutes.ts` is what both read; `pace.ts`, `select.ts`, `digest.ts`, `scheduler-budget.ts` are pure. |
 
-Three rules keep the shape honest, and each is one grep:
+There is no `features/` directory for reference data or for the usage meters:
+airports, programs, currencies, airlines and the two meters are HTTP shape over
+`db/` and `models/` with no logic of their own, so they are four files in
+`endpoints/` and nothing else.
+
+Four rules keep the shape honest, and each is one grep:
 
 - **`models/` and `util/` import only `shared/` and themselves.**
   `grep -rn 'from "\.\./' api/src/models api/src/util` must return nothing but
@@ -231,20 +237,25 @@ Three rules keep the shape honest, and each is one grep:
 - **`db/` declares no types.** A statement lives there; the shape it returns
   lives in `models/`, and each names the other so the pair is edited together.
   `grep -nE '^export (interface|type)' api/src/db/*.ts` must return nothing.
-- **A slice may import another slice, but never another slice's `*Endpoints.ts`.**
-  There are five such edges today — trackedRoutes into graph (`autoVia`) and into
-  alerts (the recipient allowlist, the alert types, `baselineOnEnable`), and
-  alerts into search (the engine it re-runs) — and each is a public surface two
-  features must not fork.
+- **Only `index.ts` imports `endpoints/`.**
+  `grep -rn 'endpoints/' api/src --include='*.ts' | grep 'from "'` must return
+  index.ts and nothing else. An endpoint module is a mount, never a library, and
+  the arrow only ever points down: `endpoints/` reaches into `features/`, `db/`
+  and `models/`, and none of them reaches back.
+- **A slice may import another slice.** There are four such edges today —
+  `trackedRoutes/autoVia.ts` into graph, `trackedRoutes/routeBody.ts` into
+  alerts (the alert types and the recipient allowlist), and `alerts/tick.ts`
+  into `search/run.ts` (the engine it re-runs) — and each is a public surface
+  two features must not fork.
 
-A slice keeps MORE THAN ONE sub-app where it has more than one mount, and every
-sub-app keeps its exported name, because:
+A feature keeps MORE THAN ONE endpoint file where it has more than one mount,
+and every sub-app keeps its exported name, because:
 
 **The mount order in `index.ts` is the routing table.** Hono runs matching
 handlers in registration order and stops at the first that responds, so
-`features/search/endpoints.ts` and `features/enrich/endpoints.ts` — which own
+`endpoints/search-endpoints.ts` and `endpoints/enrich-endpoints.ts` — which own
 `POST /api/tracked-routes/:id/search` and `/enrich` — must stay mounted ahead of
-`features/trackedRoutes/endpoints.ts`, which owns `PATCH`/`DELETE` on
+`endpoints/tracked-routes-endpoints.ts`, which owns `PATCH`/`DELETE` on
 `/api/tracked-routes/:id`. `GET /api/health` and `/api/auth/*` are registered
 *before* the gate, which is the only reason login is reachable — move that line
 below the gate and you would need the password to ask for the password.
@@ -352,7 +363,7 @@ else lives at its point of use — see *Where the depth lives*.
   vs 22,835) and `MATERIALIZED` did not recover it. The app bar's
   two arrow chips are the first place to look — today's rows read and written
   against the daily ceiling, account-wide, from Cloudflare's own analytics
-  (`features/usage/d1UsageEndpoints.ts`). They report and never enforce, and they are blind
+  (`endpoints/d1-usage-endpoints.ts`). They report and never enforce, and they are blind
   without `CLOUDFLARE_API_TOKEN`, so the per-query attribution is still
   `wrangler d1 execute --remote --json`'s `meta.rows_read` and
   `wrangler d1 insights`.
@@ -482,10 +493,10 @@ constrains. When you touch the file, read it there.
 | why `finds` is one b-tree, and what an index added to it would cost | `migrations/0001_init.sql` |
 | hub routes planning two seats.aero queries per date chunk, chunk-major task order, `autoVia`, `splitDirectAndLegs` | `api/src/models/route.ts` |
 | a connection is LEGS, not a trip; the depth ladder and why the mixed tier stops at one stop | `api/src/features/graph/paths.ts` |
-| `empty` is a SUCCESS — why the fetch itself is recorded, and why rendering it as an error destroys the signal | `api/src/features/graph/endpoints.ts`, `docs/SEATS-AERO.md` §12 |
+| `empty` is a SUCCESS — why the fetch itself is recorded, and why rendering it as an error destroys the signal | `api/src/endpoints/graph-endpoints.ts`, `docs/SEATS-AERO.md` §12 |
 | the JSON-parameter bulk write | `api/src/db/routeGraph.ts` |
-| `airportFilter`, the WHERE builder `/api/airports` and `/geo` share, and its bind ordering | `api/src/features/reference/airportEndpoints.ts` |
-| one airport lookup per TABLE rather than per row, and why coordinates ride along with the names | `app/src/hooks/useAirportNames.ts`, `api/src/features/reference/airportEndpoints.ts` |
+| `airportFilter`, the WHERE builder `/api/airports` and `/geo` share, and its bind ordering | `api/src/endpoints/airports-endpoints.ts` |
+| one airport lookup per TABLE rather than per row, and why coordinates ride along with the names | `app/src/hooks/useAirportNames.ts`, `api/src/endpoints/airports-endpoints.ts` |
 | the session key: HKDF over `SESSION_SECRET`, salted with the password, and why both halves are load-bearing | `api/src/middleware/gate.ts` (pinned by `gate.test.ts`) |
 | the `HttpOnly; SameSite=Strict` cookie, and why `cors()` names an origin instead of `*` | `api/src/middleware/gate.ts`, `api/src/middleware/security.ts` |
 | `scheduled()` running no middleware, and failing closed when `APP_USER_EMAIL` is unset | `api/src/index.ts`, `api/src/features/alerts/tick.ts` |
@@ -498,7 +509,7 @@ constrains. When you touch the file, read it there.
 | the two named viewport seams, and why they pass `noSsr` | `app/src/hooks/useBreakpoints.ts` |
 | `QuotaIndicator` unrendered below `sm`, never `display: none` | `app/src/components/layout/Layout.tsx`, at the render site |
 | the app bar's three meters, and why D1's two are a separate payload and poll | `app/src/components/QuotaIndicator.tsx`, `app/src/lib/quota.ts` |
-| why an absent D1 reading is never a zero, and the third host it needs | `api/src/providers/cloudflareAnalytics.ts`, `api/src/features/usage/d1UsageEndpoints.ts` |
+| why an absent D1 reading is never a zero, and the third host it needs | `api/src/providers/cloudflareAnalytics.ts`, `api/src/endpoints/d1-usage-endpoints.ts` |
 | the app bar's width is MEASURED, not assumed | `e2e/mobile.spec.ts` |
 | card layouts must not drift from the columns they replace; the shared React key | `app/src/components/pages/routes/findCells.tsx`, `findKey.ts` |
 | `showMap` defaults ON while an added option would default off | `app/src/components/pages/routes/FindsTable.tsx` |

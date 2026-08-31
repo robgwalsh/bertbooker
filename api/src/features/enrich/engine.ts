@@ -23,8 +23,8 @@ export type { EnrichableRow } from "../../models/find.js";
  * for the one row a person is actually looking at. So enrichment is not a
  * gathering step; it is a click.
  *
- * The HTTP shapes are `features/enrich/endpoints.ts`, split off for the same reason
- * `features/search/endpoints.ts` is separate from `features/search/run.ts`: two very different
+ * The HTTP shapes are `endpoints/enrich-endpoints.ts`, split off for the same reason
+ * `endpoints/search-endpoints.ts` is separate from `features/search/run.ts`: two very different
  * response shapes (a single-shot JSON reply and an NDJSON stream) over one
  * engine.
  *

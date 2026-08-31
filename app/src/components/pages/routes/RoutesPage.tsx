@@ -145,7 +145,7 @@ export function RoutesPage() {
 
   // Group current finds under the route that monitors them (tagged server-side).
   const findsByRoute = new Map<number, Find[]>();
-  for (const f of data.bestFinds) {
+  for (const f of data.matchingFinds) {
     if (f.tracked_route_id == null) continue;
     const arr = findsByRoute.get(f.tracked_route_id) ?? [];
     arr.push(f);
@@ -160,7 +160,7 @@ export function RoutesPage() {
   const journeysByRoute = new Map<number, JourneyResult>(
     data.trackedRoutes
       .filter((r) => r.round_trip !== 1)
-      .map((r) => [r.id, stitchJourneys(r, data.bestFinds)]),
+      .map((r) => [r.id, stitchJourneys(r, data.matchingFinds)]),
   );
 
   const counts = new Map<number, RouteCount>(

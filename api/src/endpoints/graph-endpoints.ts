@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { Env, Vars } from "../../bindings.js";
+import type { Env, Vars } from "../bindings.js";
 import type {
   GraphPath,
   PairCoverage,
@@ -10,16 +10,16 @@ import type {
   RouteGraphGeo,
   RouteGraphSource,
   ReachReport,
-} from "../../../../shared/src/wire/index.js";
+} from "../../../shared/src/wire/index.js";
 import {
   SEATSAERO_SOURCE_CATALOGUE,
   SEATSAERO_ZERO_ROUTE_NAMES,
   runSeatsAeroRoutes,
-} from "../../providers/seatsaero.js";
-import { searchPairs } from "../../models/route.js";
-import { classifyError, clientMessage, makeTransport } from "../../providers/transport.js";
-import { PROGRAM_SEEDS, currenciesForProgram } from "../../models/program.js";
-import { assessGraphReach, type ReachRouteInput } from "./reach.js";
+} from "../providers/seatsaero.js";
+import { searchPairs } from "../models/route.js";
+import { classifyError, clientMessage, makeTransport } from "../providers/transport.js";
+import { PROGRAM_SEEDS, currenciesForProgram } from "../models/program.js";
+import { assessGraphReach, type ReachRouteInput } from "../features/graph/reach.js";
 import {
   ROUTE_HARD_MAX,
   fetchedSources,
@@ -31,38 +31,16 @@ import {
   selectGraphGeo,
   selectGraphRows,
   selectPairSources,
-} from "../../db/routeGraph.js";
-import { selectRoutesForReach } from "../../db/trackedRoutes.js";
-import { recordQuota } from "../../db/sourceQuota.js";
+} from "../db/routeGraph.js";
+import { selectRoutesForReach } from "../db/trackedRoutes.js";
+import { recordQuota } from "../db/sourceQuota.js";
 import {
   REACH_DEEP_PAIRS,
   pairKeyOf,
   programOf,
   searchGraphPaths,
-} from "./pathSearch.js";
+} from "../features/graph/pathSearch.js";
 
-/**
- * The Tools page's Data coverage tab (`/tools/coverage`): the route graph each
- * program's award inventory is monitored on (`docs/SEATS-AERO.md` §12).
- *
- * ROUTE ORDER IS LOAD-BEARING within this file, the same way it is in
- * `airports.ts`: `/routes/geo` and `/routes/pair` are registered before the bare
- * `/api/seatsaero/routes`, because Hono runs matching handlers in registration
- * order and stops at the first that responds.
- *
- * **Exactly one path here spends money** — `POST .../fetch`, one metered call.
- * Everything else is a D1 read of what that call already bought, which is the
- * whole reason the graph is cached rather than proxied: browsing 26 programs
- * live would be 26 calls every time the pane was opened.
- *
- * Nothing here is gated on `isLocalRequest`. `/api/airports/geo` is, because the
- * Airports pane is dev-only; this pane ships, which is also why the map takes
- * its coordinates from the graph read's own join to `airports` rather than
- * calling that endpoint.
- *
- * Every statement these handlers issue is `db/routeGraph.ts`, including the
- * `routeFilter` builder the table and the map share.
- */
 export const seatsaeroRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 const PROGRAM_BY_CODE = new Map(PROGRAM_SEEDS.map((s) => [s.code, s]));
@@ -95,12 +73,7 @@ seatsaeroRoutes.get("/api/seatsaero/sources", async (c) => {
   return c.json(body);
 });
 
-// ---- THE ONE METERED PATH --------------------------------------------------
-//
-// Everything fallible happens before anything is written: a missing key is a
-// 503 and a refused call is a 502, never a stored graph of zero routes. That
-// ordering is what keeps `empty` meaning "seats.aero does not know this name"
-// instead of "something went wrong once".
+
 seatsaeroRoutes.post("/api/seatsaero/sources/:source/fetch", async (c) => {
   const source = c.req.param("source").trim().toLowerCase();
   if (!source) return c.json({ error: "bad_request" }, 400);

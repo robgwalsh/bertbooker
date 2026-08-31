@@ -16,7 +16,7 @@ import type { PathSearchResult } from "../../../../shared/src/wire/index.js";
  *
  * Impure orchestration over D1 and the pure `rankPaths` in `./paths.ts` — which
  * is why it is its own module rather than part of either. It was a private
- * helper in `./endpoints.ts` with two callers in that file; a tracked route
+ * helper in `endpoints/graph-endpoints.ts` with two callers in that file; a tracked route
  * filling in its own hubs on save is the third, and a helper with three callers
  * in two slices is a module. Same argument that split `features/search/run.ts`
  * from its HTTP shell.

@@ -1,39 +1,21 @@
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
-import type { Env, Vars } from "../../bindings.js";
-import { rowIdParam } from "../../util/params.js";
+import type { Env, Vars } from "../bindings.js";
+import { rowIdParam } from "../util/params.js";
 import {
   openSearchRun,
   planSearchPass,
   runSearchPass,
   type PlanFailure,
   type SearchEvent,
-} from "./run.js";
+} from "../features/search/run.js";
 
 /**
  * Searching a tracked route, on the Worker, against seats.aero.
- *
- * The engine moved to `features/search/run.ts` when the alert scheduler became its second
- * caller — two implementations of "search a route and ingest the result" would
- * eventually disagree about coverage, which is the one thing in this pipeline
- * that silently destroys data. What is left here is the HTTP shape: a preflight
- * that fails with real status codes, and a stream.
- *
- * What HAS changed since this file said otherwise: something does now run on a
- * schedule. A Cron Trigger sweeps alert-enabled routes through the same engine
- * (`features/alerts/alertRoutes.ts`), and it — alone — consults the day's remaining quota
- * before spending. This endpoint does not, and must not: nobody needs protecting
- * from a call they deliberately asked for. See `docs/ALERTS.md`.
- *
- * **Everything fallible happens before the stream opens.** Once the first byte is
- * written the response is committed to 200 and an `error` frame is all that is
- * left — so a missing `SEATS_AERO_API_KEY` is a 503, never an empty result that
- * would read as "no award space". That is why `planSearchPass` and
- * `openSearchRun` are separate from `runSearchPass`.
  */
 export const search = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-export type { SearchEvent } from "./run.js";
+export type { SearchEvent } from "../features/search/run.js";
 
 /** The engine's refusal codes as HTTP. The engine returns a code rather than a
  *  status because its other caller — the cron sweep — has no response to put one

@@ -13,5 +13,5 @@ import type { Find, TrackedRoute } from "./rows.js";
  *  `routeFindsScope` in `api/src/db/finds.ts`. */
 export interface RoutesData {
   trackedRoutes: TrackedRoute[];
-  bestFinds: Find[];
+  matchingFinds: Find[];
 }

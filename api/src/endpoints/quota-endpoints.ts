@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import type { Env, Vars } from "../../bindings.js";
-import type { QuotaPage } from "../../../../shared/src/wire/index.js";
-import { selectQuotaSince } from "../../db/sourceQuota.js";
+import type { Env, Vars } from "../bindings.js";
+import type { QuotaPage } from "../../../shared/src/wire/index.js";
+import { selectQuotaSince } from "../db/sourceQuota.js";
 
 /**
  * What's left of each metered source's daily API allowance.

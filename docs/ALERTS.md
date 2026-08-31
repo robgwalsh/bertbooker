@@ -570,8 +570,8 @@ let `?limit=-1` through, and SQLite reads `LIMIT -1` as *no limit* — on
 | `digest.ts` | what it **says**. Pure (§8) |
 | `email.ts` | Resend transport |
 | `recipients.ts` | who may be written to — policy, split from transport |
-| `endpoints.ts` | the tab's reads and the manual tick |
-| `settingsEndpoints.ts` | the allowlist's CRUD |
+| `../endpoints/alerts-endpoints.ts` | the tab’s reads and the manual tick |
+| `../endpoints/settings-endpoints.ts` | the allowlist’s CRUD |
 
 Tests are `*.test.ts` beside each; the pure four (`pace`, `budget`, `select`,
 `digest`) carry the interesting reasoning, and `tick.test.ts` covers the
@@ -582,8 +582,9 @@ orchestration. `npm test` runs them offline.
 `alerts/` imports `features/search/run.ts` — the engine it re-runs.
 `features/trackedRoutes/` imports `alerts/recipients.ts` (the allowlist),
 `alerts/select.ts` (the types) and `alerts/pace.ts` (`baselineOnEnable`). Those
-are public surfaces two features must not fork. Neither slice imports the
-other's `endpoints.ts`.
+are public surfaces two features must not fork. Neither slice imports an
+endpoint module: `api/src/endpoints/` is the top of the graph and nothing below
+it imports upward.
 
 ---
 

@@ -23,17 +23,17 @@ import {
 import { runAlertTick } from "./features/alerts/tick.js";
 // The endpoint modules, each a `Hono` sub-app mounted below. THE ORDER OF THESE
 // MOUNTS IS THE ROUTING TABLE — see the block comment above them.
-import { quota } from "./features/usage/quotaEndpoints.js";
-import { d1Usage } from "./features/usage/d1UsageEndpoints.js";
-import { search } from "./features/search/endpoints.js";
-import { enrich } from "./features/enrich/endpoints.js";
-import { alerts } from "./features/alerts/endpoints.js";
-import { reference } from "./features/reference/endpoints.js";
-import { airports } from "./features/reference/airportEndpoints.js";
-import { seatsaeroRoutes } from "./features/graph/endpoints.js";
-import { routes } from "./features/trackedRoutes/routesPageEndpoints.js";
-import { trackedRoutes } from "./features/trackedRoutes/endpoints.js";
-import { settings } from "./features/alerts/settingsEndpoints.js";
+import { quota } from "./endpoints/quota-endpoints.js";
+import { d1Usage } from "./endpoints/d1-usage-endpoints.js";
+import { search } from "./endpoints/search-endpoints.js";
+import { enrich } from "./endpoints/enrich-endpoints.js";
+import { alerts } from "./endpoints/alerts-endpoints.js";
+import { reference } from "./endpoints/reference-endpoints.js";
+import { airports } from "./endpoints/airports-endpoints.js";
+import { seatsaeroRoutes } from "./endpoints/graph-endpoints.js";
+import { routes } from "./endpoints/routes-endpoints.js";
+import { trackedRoutes } from "./endpoints/tracked-routes-endpoints.js";
+import { settings } from "./endpoints/settings-endpoints.js";
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -87,7 +87,7 @@ app.route("/", quota);
 
 // The other two chips in that same cluster: what today's D1 row allowance
 // stands at. Its own mount and its own poll because it waits on Cloudflare
-// rather than on D1 — see the docblock in features/usage/d1UsageEndpoints.ts.
+// rather than on D1 — see the docblock in endpoints/d1-usage-endpoints.ts.
 app.route("/", d1Usage);
 
 // Searching a tracked route against seats.aero, streamed. Also after `identity`:
@@ -132,7 +132,7 @@ app.route("/", trackedRoutes);
 app.route("/", settings);
 
 /*
- * `POST /api/tracked-routes/:id/search` lives in `features/search/endpoints.ts`.
+ * `POST /api/tracked-routes/:id/search` lives in `endpoints/search-endpoints.ts`.
  *
  * A Worker cannot read a carrier's own site: United returns Akamai 428 and
  * Delta 444 even from a residential IP.

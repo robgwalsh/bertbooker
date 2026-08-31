@@ -1,15 +1,15 @@
 import { Hono } from "hono";
-import { rowIdParam } from "../../util/params.js";
+import { rowIdParam } from "../util/params.js";
 import {
   deleteRecipient,
   insertRecipient,
   selectRecipientEmailById,
   selectRecipientIdByEmail,
   selectRecipients,
-} from "../../db/alertRecipients.js";
-import { countRoutesUsingRecipient } from "../../db/trackedRoutes.js";
-import type { Env, Vars } from "../../bindings.js";
-import type { AlertRecipients } from "../../../../shared/src/wire/index.js";
+} from "../db/alertRecipients.js";
+import { countRoutesUsingRecipient } from "../db/trackedRoutes.js";
+import type { Env, Vars } from "../bindings.js";
+import type { AlertRecipients } from "../../../shared/src/wire/index.js";
 
 /**
  * The deployment's own settings, as opposed to a route's.
@@ -39,15 +39,9 @@ const MAX_EMAIL_LENGTH = 254;
  */
 const EMAIL_RE = /^[^\s@,;<>"]+@[^\s@,;<>".]+(\.[^\s@,;<>".]+)+$/;
 
-/** Exported only so `settings.test.ts` can reach it — the Hono handlers around
- *  it hold nothing else worth testing, the same arrangement `routeFilter` uses
- *  in `seatsaeroRoutes.ts`. */
 export const isEmailAddress = (email: string): boolean =>
   Boolean(email) && email.length <= MAX_EMAIL_LENGTH && EMAIL_RE.test(email);
 
-/** Trimmed and lowercased, which is the form the table stores and every
- *  comparison uses. `UNIQUE` is only a real guarantee because of this.
- *  Exported for the same reason as above. */
 export const normalizeEmail = (raw: string): string => raw.trim().toLowerCase();
 
 const accountAddress = (env: Env): string | null =>
@@ -94,19 +88,6 @@ settings.post("/api/settings/recipients", async (c) => {
   return c.json({ id: await insertRecipient(c.env.DB, email) }, 201);
 });
 
-/**
- * Removing an address, and the one case this refuses.
- *
- * A tracked route pointing at an address that is no longer allowed does not
- * fail loudly. Its digest is recorded `skipped` with `recipient_not_allowed`,
- * and because only a SUCCESSFUL send clears `alert_outbox`, the rows stay and
- * every following cycle retries the same refusal forever. No failure email is
- * ever sent, so nothing announces it.
- *
- * That is the invisible failure `docs/ALERTS.md` §1 exists against, and one
- * COUNT is a cheap price for not creating it from a delete button. Point the
- * route somewhere else first.
- */
 settings.delete("/api/settings/recipients/:id", async (c) => {
   const id = rowIdParam(c.req.param("id"));
   if (id === null) return c.json({ error: "bad_id" }, 400);

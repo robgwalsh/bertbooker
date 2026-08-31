@@ -10,7 +10,7 @@ import type { AlertRouteRow } from "../../models/trackedRoute.js";
  * costs a sweep, and what to call it.
  *
  * Read by BOTH the scheduler (`tick.ts`) and the Alerts tab
- * (`endpoints.ts`), which is the whole reason it is a module. docs/ALERTS.md §4
+ * (`endpoints/alerts-endpoints.ts`), which is the whole reason it is a module. docs/ALERTS.md §4
  * is explicit that a page quoting a cadence the scheduler does not keep is worse
  * than no number at all, so the cost model has to be one implementation.
  */

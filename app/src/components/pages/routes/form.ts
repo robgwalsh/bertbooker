@@ -125,7 +125,7 @@ export function parseAlertOn(json: string | null): AlertType[] {
  * EMPTY is the unset value and the only one: 0 and negatives collapse to `null`
  * here and are refused by the Worker, because a route that hides every find it
  * has looks exactly like a broken one. Mirrors `clampPointLimit` in
- * api/src/features/trackedRoutes/endpoints.ts — a divergence between the two reads as a
+ * api/src/endpoints/tracked-routes-endpoints.ts — a divergence between the two reads as a
  * filter silently hiding everything.
  */
 export function parsePointLimit(raw: string): number | null {

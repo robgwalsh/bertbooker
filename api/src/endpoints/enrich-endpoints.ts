@@ -5,28 +5,22 @@ import {
   clientMessage,
   type FetchLike,
   makeTransport,
-} from "../../providers/transport.js";
-import type { Env, Vars } from "../../bindings.js";
-import { rowIdParam } from "../../util/params.js";
-import { selectEnrichableRows, selectEnrichTargets, withinRouteScope } from "../../db/finds.js";
-import { selectRouteWindow, selectScopedRoutes } from "../../db/trackedRoutes.js";
-import { enrichAvailability } from "./engine.js";
-import { ENRICH_MAX_PER_RUN } from "../../../../shared/src/wire/enrich.js";
+} from "../providers/transport.js";
+import type { Env, Vars } from "../bindings.js";
+import { rowIdParam } from "../util/params.js";
+import { selectEnrichableRows, selectEnrichTargets, withinRouteScope } from "../db/finds.js";
+import { selectRouteWindow, selectScopedRoutes } from "../db/trackedRoutes.js";
+import { enrichAvailability } from "../features/enrich/engine.js";
+import { ENRICH_MAX_PER_RUN } from "../../../shared/src/wire/enrich.js";
 
 /**
- * The two HTTP shapes over `search/enrich.ts` — one find, or a whole route.
- *
- * **Everything fallible happens before the stream opens** in the second one.
- * After the first byte the response is committed to 200 and an `error` frame is
- * all that is left, so a missing `SEATS_AERO_API_KEY` is a 503 and an unknown
- * route is a 404 — never an empty result.
+ * Seats.aero sometimes includes full itinerary info for flights, sometimes doesnt. When it doesn't you have to make
+ * an extra enrichment call (costing 1 api call) to get the full details.
  */
 export const enrich = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-/** Defined in `shared/src/wire/enrich.ts`, re-exported here for this module's
- *  consumers. */
-export type { EnrichEvent } from "../../../../shared/src/wire/enrich.js";
-import type { EnrichEvent } from "../../../../shared/src/wire/enrich.js";
+export type { EnrichEvent } from "../../../shared/src/wire/enrich.js";
+import type { EnrichEvent } from "../../../shared/src/wire/enrich.js";
 
 enrich.post("/api/finds/enrich", async (c) => {
   const email = c.get("userEmail");
@@ -70,25 +64,11 @@ enrich.post("/api/finds/enrich", async (c) => {
     const out = await enrichAvailability(c.env.DB, apiKey, rows, { signal: c.req.raw.signal });
     return c.json(out);
   } catch (err) {
-    // Reported straight back to whoever clicked, with the distinction intact:
-    // `blocked` at 401 is a wrong key, at 429 a spent day, and `failed` is
-    // seats.aero having a bad time. Nothing is stamped, so the row stays
-    // offering to try again.
-    // `status` is this app's own vocabulary (blocked / failed / timeout) and the
-    // UI keys off it, so it stays. `message` does not: `classifyError` hands back
-    // the raw `err.message`, which for a refusal is `BlockedError`'s — and that
-    // embeds the full seats.aero URL, query string included.
     const { status } = classifyError(err);
     return c.json({ error: "enrich_failed", status, message: clientMessage(err) }, 502);
   }
 });
 
-// ---------------------------------------------------------------------------
-// A whole tracked route.
-// ---------------------------------------------------------------------------
-
-/** Defined in `shared/src/wire/enrich.ts`, re-exported here for this module's
- *  consumers. */
 
 enrich.post("/api/tracked-routes/:id/enrich", async (c) => {
   const email = c.get("userEmail");

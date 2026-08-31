@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isEmailAddress, normalizeEmail } from "./settingsEndpoints.js";
+import { isEmailAddress, normalizeEmail } from "./settings-endpoints.js";
 
 // Only the two pure halves of the endpoint are reachable here; the Hono handlers
 // around them hold no logic worth testing, matching the rest of the repo.

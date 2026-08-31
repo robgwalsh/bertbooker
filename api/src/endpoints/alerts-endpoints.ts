@@ -1,20 +1,17 @@
 import { Hono } from "hono";
-import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "./pace.js";
-import { parseAlertTypes } from "./select.js";
-import { todayISO } from "../../util/dates.js";
-import type { Env, Vars } from "../../bindings.js";
-import type { AlertSchedule } from "../../../../shared/src/wire/index.js";
-import { selectAlertRuns } from "../../db/runs.js";
-import { selectDeliveries } from "../../db/alertDeliveries.js";
-import { allowedRecipients } from "./recipients.js";
-import { isLocalRequest } from "../../middleware/security.js";
-import { ALERT_DEFAULTS, runAlertTick } from "./tick.js";
-import { alertRouteCosts, alertRouteRows, routeLabel } from "./alertRoutes.js";
-import { decideSweep, readBudgetState } from "./scheduler-budget.js";
+import { type AlertRouteCost, dueRoutes, routeSweepCost, sweepPacing } from "../features/alerts/pace.js";
+import { parseAlertTypes } from "../features/alerts/select.js";
+import { todayISO } from "../util/dates.js";
+import type { Env, Vars } from "../bindings.js";
+import type { AlertSchedule } from "../../../shared/src/wire/index.js";
+import { selectAlertRuns } from "../db/runs.js";
+import { selectDeliveries } from "../db/alertDeliveries.js";
+import { allowedRecipients } from "../features/alerts/recipients.js";
+import { isLocalRequest } from "../middleware/security.js";
+import { ALERT_DEFAULTS, runAlertTick } from "../features/alerts/tick.js";
+import { alertRouteCosts, alertRouteRows, routeLabel } from "../features/alerts/alertRoutes.js";
+import { decideSweep, readBudgetState } from "../features/alerts/scheduler-budget.js";
 
-/**
- * What the Alerts tab reads, and — in local dev only — the one control it has.
- */
 export const alerts = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 alerts.get("/api/alerts/schedule", async (c) => {
@@ -62,9 +59,6 @@ alerts.get("/api/alerts/schedule", async (c) => {
   });
 
   const body: AlertSchedule = {
-    // Whether `POST /api/alerts/run` exists on this host. Answered here rather
-    // than by making the SPA probe for a 404, because the page already fetches
-    // this and a button that appears only to fail is worse than no button.
     manualTick: isLocalRequest(c.req.url),
     pacing: {
       ...pacing,
@@ -77,9 +71,6 @@ alerts.get("/api/alerts/schedule", async (c) => {
       maxCallsPerTick: cfg.maxCallsPerTick,
       selfSpentToday: budget.selfSpentToday,
       observedRemaining: budget.observation?.remaining ?? null,
-      // "observed" vs "self_accounted" is worth showing: early in a UTC day
-      // nothing has reported a number and the guard is reasoning from our own
-      // records instead. See budget.ts.
       basis: decision.basis,
       wouldSweepNow: decision.go,
       blockedReason: decision.go ? null : decision.reason,
@@ -96,10 +87,6 @@ alerts.get("/api/alerts/schedule", async (c) => {
         id: r.id,
         label: routeLabel(r),
         chunks,
-        // Zero chunks means the window has fallen entirely into the past. Such a
-        // route is excluded from the cost model AND never due — it would refuse
-        // at planning and burn a tick to learn what the plan already knows — so
-        // it is surfaced by name rather than left looking merely idle.
         windowExpired: chunks === 0,
         queriesPerChunk: cost?.groups ?? 1,
         estimatedCalls: cost ? routeSweepCost(cost) : 0,
@@ -112,9 +99,6 @@ alerts.get("/api/alerts/schedule", async (c) => {
         lastCheckedAt: r.last_checked_at,
         consecutiveFailures: r.alert_consecutive_failures,
         due: due.has(r.id),
-        // A route that has never sent a digest will perform a silent BASELINE
-        // sweep first. Saying so stops "I turned it on and got nothing" reading
-        // as a fault.
         awaitingBaseline: r.alert_last_digest_at == null,
       };
     }),
@@ -122,27 +106,6 @@ alerts.get("/api/alerts/schedule", async (c) => {
   return c.json(body);
 });
 
-/**
- * A `?limit=` from the query string, as a row count this app will actually run.
- *
- * Clamped at BOTH ends, which the two call sites below were not: they wrote
- * `Math.min(Number(q) || 25, 100)`, and `-1` is a perfectly truthy number that
- * survives `Math.min` — so `?limit=-1` reached SQLite as `LIMIT -1`, which
- * SQLite defines as NO LIMIT. Both endpoints are `SELECT *` over tables that
- * grow with every sweep, and D1 bills rows read, so the low end is the end that
- * mattered.
- *
- * `Math.trunc` as well, so `?limit=1e9` and `?limit=2.5` cannot become anything
- * but an integer inside the range.
- */
-function pageLimit(raw: string | undefined): number {
-  const n = Math.trunc(Number(raw ?? 25));
-  return Number.isFinite(n) ? Math.min(Math.max(n, 1), 100) : 25;
-}
-
-/** Recent sweeps. `runs` already answers this; the filter is the only
- *  new part: a sweep is a `runs` row like any other, told apart only
- *  by its trigger. */
 alerts.get("/api/alerts/runs", async (c) => {
   const limit = pageLimit(c.req.query("limit"));
   return c.json(await selectAlertRuns(c.env.DB, limit));
@@ -170,3 +133,8 @@ alerts.get("/api/alerts/deliveries", async (c) => {
   const limit = pageLimit(c.req.query("limit"));
   return c.json(await selectDeliveries(c.env.DB, limit));
 });
+
+function pageLimit(raw: string | undefined): number {
+  const n = Math.trunc(Number(raw ?? 25));
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), 100) : 25;
+}

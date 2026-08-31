@@ -29,7 +29,7 @@
  *
  *  - A filter column holding `[]` matches NOTHING, exactly as `EXISTS` over zero
  *    `json_each` rows did. `legFilter` in app/src/lib/multiLeg.ts read `[]` as
- *    "no filter", which is the opposite. `endpoints/trackedRoutes.ts` normalises
+ *    "no filter", which is the opposite. `endpoints/tracked-routes-endpoints.ts` normalises
  *    empty arrays to NULL on POST and PATCH, so only a legacy row could tell.
  *  - A find with NULL `transfer_currencies` is excluded by a currency-filtered
  *    route, because `json_each(NULL)` yields no rows to intersect.

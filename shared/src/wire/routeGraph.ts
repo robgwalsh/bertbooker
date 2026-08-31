@@ -70,7 +70,7 @@ export interface RouteFetchResult {
 
 /** One row of `seatsaero_routes`, joined to
  *  `airports` for the names. Asserted about by the SELECT in
- *  `api/src/features/graph/endpoints.ts`'s table route. */
+ *  `api/src/endpoints/graph-endpoints.ts`'s table route. */
 export interface RouteGraphRow {
   source: string;
   origin: string;

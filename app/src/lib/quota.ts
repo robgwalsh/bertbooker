@@ -247,8 +247,8 @@ export function summarizeD1Usage(page: D1UsagePage | undefined): QuotaSummary[] 
  *  would otherwise read as the chip being wrong. */
 export function d1DetailLines(s: QuotaSummary, usage: D1Usage, now: number): string[] {
   return [
-    `${s.remaining.toLocaleString()} of ${s.limit.toLocaleString()} left today · ${(s.used ?? 0).toLocaleString()} used · measured ${sinceLabel(usage.observedAt)}`,
-    "Account-wide, from Cloudflare's own D1 analytics — it counts queries made outside this app too, and lags by a few minutes.",
+    `${s.remaining.toLocaleString()} of ${s.limit.toLocaleString()} left today · ${(s.used ?? 0).toLocaleString()} used`,
+    "Account-wide. Lags by 30 minutes or more.",
     `Resets in ${quotaResetLabel(now)} (00:00 UTC).`,
   ];
 }

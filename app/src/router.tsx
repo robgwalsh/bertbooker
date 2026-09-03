@@ -6,7 +6,7 @@ import {
   type AnyRoute,
 } from "@tanstack/react-router";
 import { Layout } from "./components/layout/Layout";
-import { AlertsPage } from "./components/pages/alerts/AlertsPage";
+import { AlertsPage, AlertsPanel, DEFAULT_ALERTS_TAB } from "./components/pages/alerts/AlertsPage";
 import { LibraryPage, DEFAULT_LIBRARY_TAB, LibraryPanel } from "./components/pages/library/LibraryPage";
 import { RoutesPage } from "./components/pages/routes/RoutesPage";
 import { validateRoutesSearch } from "./components/pages/routes/searchParams";
@@ -78,6 +78,13 @@ const alertsRoute = createRoute({
   path: "/alerts",
   component: AlertsPage,
 });
+const alertsTabs = tabbedSection(
+  alertsRoute,
+  () => {
+    throw redirect({ to: "/alerts/$tab", params: { tab: DEFAULT_ALERTS_TAB }, replace: true });
+  },
+  AlertsPanel,
+);
 
 // Four pages. The Routes page is the single place stored finds are read:
 // one surface over the finds query, rather than the Routes page and a database browser
@@ -86,7 +93,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   libraryRoute.addChildren(libraryTabs),
   toolsRoute.addChildren(toolsTabs),
-  alertsRoute,
+  alertsRoute.addChildren(alertsTabs),
 ]);
 
 export const router = createRouter({ routeTree });

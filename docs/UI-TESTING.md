@@ -192,7 +192,7 @@ to ignore the suite. Each page is identified by its own furniture:
 |---|---|---|
 | `/` | a `button` whose text is `New` or `New route` | the page has **two shapes** — an empty-state document with a contained "New route", and the workbench whose sidebar header carries an outlined "New". Exactly one exists. |
 | `/library` | the `Airports` tab | from the static `LIBRARY_TABS`, rendered outside `panel()`, so it does not wait on `/api/programs` |
-| `/alerts` | the `Alerts` **heading** | gated on the schedule query, so it doubles as "the API answered". `role=heading` tells it apart from the nav tab of the same name. |
+| `/alerts` | the `Sent mail` section link | from the static `ALERTS_TABS`, so it does not wait on `/api/alerts/schedule`. Deliberately not the `Alerts` entry — this page's nav carries that label and so does the app bar. |
 
 Every test also asserts the Sign out button exists — when session seeding breaks,
 every page fails on its landmark and the reason is nowhere in the failure; that
@@ -220,7 +220,7 @@ assert holds on an empty database:
 |---|---|
 | `scrollWidth - clientWidth <= 1` on all four pages | the document deliberately cannot scroll (`html, body, #root` are 100%), so horizontal overflow is content painted off the edge of the screen with nothing that can reach it. `PagePad`'s `overflowX: auto` is what surfaces a stray wide child *to this assertion* rather than clipping it out of sight. |
 | the tab strip's right edge is left of `[data-testid="app-bar-controls"]` | this bug shipped once. The Toolbar is `overflow: visible` (that is what lets the active tab paint over the bar's bottom rule), so when the two sides stop fitting they **overlap instead of clipping**. It is geometry; measuring is the only way to see it. This is the gate a new tab has to pass — Tools went in fourth and cleared it with 105px to spare, which is a thing that had to be *measured*: CLAUDE.md had predicted a fourth tab would fail. |
-| the Library's and Tools' section nav is wider than 300px at 390px | those navs are a 190px column from `md` up and a scrolling strip below it, and the only difference visible from outside is the box. This used to read MUI's `aria-orientation` off a `<Tabs>`; the sections are routes now, so the nav is anchors and there is no attribute left to ask. |
+| the Library's, Tools' and Alerts' section nav is wider than 300px at 390px | those navs are a 190px column from `md` up and a scrolling strip below it, and the only difference visible from outside is the box. This used to read MUI's `aria-orientation` off a `<Tabs>`; the sections are routes now, so the nav is anchors and there is no attribute left to ask. |
 | Sign out and all four tabs are visible | the bar is balanced by dropping the quota chip, never the controls. |
 
 It uses per-test `test.use({ viewport })` rather than a second Playwright

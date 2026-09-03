@@ -1,165 +1,85 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import Alert from "@mui/material/Alert";
-import Button from "@mui/material/Button";
-import CircularProgress from "@mui/material/CircularProgress";
-import Divider from "@mui/material/Divider";
-import Stack from "@mui/material/Stack";
-import Tooltip from "@mui/material/Tooltip";
-import Typography from "@mui/material/Typography";
-import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
-import { api } from "../../../api/index";
+import { Outlet, useParams } from "@tanstack/react-router";
+import { Box, Stack } from "@mui/material";
+import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
+import MarkEmailReadRoundedIcon from "@mui/icons-material/MarkEmailReadRounded";
+import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import { PagePad } from "../../PagePad";
-import { AlertRoutesTable } from "./AlertRoutesTable";
-import { CadencePanel } from "./CadencePanel";
-import { DeliveriesTable } from "./DeliveriesTable";
-import { ProblemBanners } from "./ProblemBanners";
-import { SweepHistory } from "./SweepHistory";
-import { TickPanel } from "./TickPanel";
+import { SectionNav, SectionNavLink, type SectionNavItem } from "../../SectionNav";
+import { AlertsOverview } from "./AlertsOverview";
+import { SentMailPanel } from "./SentMailPanel";
+import { SweepHistoryPanel } from "./SweepHistoryPanel";
 
 /**
- * The Alerts tab.
+ * The Alerts page's three sections, and the three questions they answer: is the
+ * sweep working and what is it about to do (alerts), what has it done (sweep
+ * history), and what came of that (sent mail).
  *
- * **This page is the feature's safety mechanism, not its status board.** The app
- * sends no email when a sweep fails — only when it finds something — so a
- * scheduler that is blocked, refused, or quietly failing produces exactly the
- * same silence as one that ran and found nothing. This page is the answer:
- * every sweep, every skip and every dropped digest is on it, by name.
+ * **`key` is the URL segment**, so these are three real routes under `/alerts`
+ * rather than three values of a `useState` — linkable, reload-safe, and
+ * answerable by the back button.
  *
- * **So the ordering here is deliberate — problems first, cadence second, routes
- * third, history last.** Anything that would make the mail stop is above the
- * fold, and that ordering is why this file is a composition of six named
- * sections rather than one long body: the sequence is the design, and it should
- * be legible in one screen of code.
+ * The two history tables are fifteen rows each and were stacked under the
+ * cadence panel and the routes table, which is what pushed the things you can
+ * act on off the screen. A section each also means neither table is fetched
+ * until someone asks for it.
+ */
+export const ALERTS_TABS = [
+  { key: "overview", label: "Alerts", icon: <NotificationsActiveRoundedIcon /> },
+  { key: "sweep-history", label: "Sweep history", icon: <HistoryRoundedIcon /> },
+  { key: "sent-mail", label: "Sent mail", icon: <MarkEmailReadRoundedIcon /> },
+] as const satisfies readonly SectionNavItem[];
+
+/** Where `/alerts` lands. Exported for the same reason `DEFAULT_TOOLS_TAB` is:
+ *  the shell redirects to it without knowing which section happens to be
+ *  first. */
+export const DEFAULT_ALERTS_TAB = ALERTS_TABS[0].key;
+
+/**
+ * The Alerts shell: the nav, and whichever section's route is open.
  *
- * **The manual controls are local dev only** and appear only when
- * `schedule.manualTick` says the endpoint exists (`POST /api/alerts/run` 404s in
- * production). They are the development loop for `alerts/` — waiting fifteen
- * minutes for a tick, then hours for it to pick your route, is not one. They
- * call the same `runAlertTick` the cron does, and the result panel prints the
- * whole `TickResult`, because a page whose entire job is making silent failure
- * visible must not grow a button that fails silently.
- *
- * It is a DOCUMENT, not a workbench, so it wraps itself in `PagePad` and owns
- * its own scrolling (see the `Layout` docblock in router.tsx).
+ * A DOCUMENT, not a workbench, so it takes its margin and its scroll container
+ * from `PagePad` (see the `Layout` docblock in router.tsx). It owns no query and
+ * no state — each section fetches what it alone needs.
  */
 export function AlertsPage() {
-  const qc = useQueryClient();
-  const schedule = useQuery({ queryKey: ["alert-schedule"], queryFn: api.alertSchedule });
-  const runs = useQuery({ queryKey: ["alert-runs"], queryFn: () => api.alertRuns(15) });
-  const deliveries = useQuery({
-    queryKey: ["alert-deliveries"],
-    queryFn: () => api.alertDeliveries(15),
-  });
-
-  const tick = useMutation({
-    mutationFn: (routeId?: number) => api.alertRunTick(routeId),
-    onSuccess: () => {
-      for (const key of [
-        ["alert-schedule"],
-        ["alert-runs"],
-        ["alert-deliveries"],
-        ["routes"],
-        ["quota"],
-      ]) {
-        qc.invalidateQueries({ queryKey: key });
-      }
-    },
-  });
-
-  if (schedule.isLoading) return <PagePad>Loading…</PagePad>;
-  if (schedule.error) {
-    return (
-      <PagePad>
-        <Alert severity="error">{(schedule.error as Error).message}</Alert>
-      </PagePad>
-    );
-  }
-  const s = schedule.data!;
-
   return (
     <PagePad>
       <Stack
-        direction="row"
-        spacing={2}
-        sx={{ mb: 0.5, alignItems: "center", justifyContent: "space-between" }}
+        direction={{ xs: "column", md: "row" }}
+        spacing={{ xs: 2, md: 3 }}
+        sx={{ alignItems: { md: "flex-start" } }}
       >
-        <Typography variant="h6">Alerts</Typography>
-        {s.manualTick && (
-          <Tooltip title="Run one tick exactly as the cron would — usually a no-op, because it only sweeps a route that is due.">
-            <span>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => tick.mutate(undefined)}
-                disabled={tick.isPending}
-                startIcon={
-                  tick.isPending ? (
-                    <CircularProgress size={16} color="inherit" />
-                  ) : (
-                    <PlayArrowRoundedIcon fontSize="small" />
-                  )
-                }
-              >
-                {tick.isPending ? "Running…" : "Run tick"}
-              </Button>
-            </span>
-          </Tooltip>
-        )}
+        <SectionNav label="Alerts sections">
+          {ALERTS_TABS.map((t) => (
+            <SectionNavLink key={t.key} to="/alerts/$tab" params={{ tab: t.key }}>
+              {t.icon}
+              {t.label}
+            </SectionNavLink>
+          ))}
+        </SectionNav>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Outlet />
+        </Box>
       </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Tracked routes marked for alerts are re-searched on a schedule and mailed
-        to you when something changes
-      </Typography>
-
-      {s.manualTick && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          <strong>Local dev.</strong> The <em>Run tick</em> and <em>Sweep</em>{" "}
-          buttons exist only under <code>wrangler dev</code> and call the same{" "}
-          <code>runAlertTick</code> the cron does. They spend real seats.aero
-          calls against today's allowance — the budget guard still refuses them,
-          the pacing schedule does not.
-        </Alert>
-      )}
-      {tick.isError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <strong>The tick did not complete.</strong> {String(tick.error)}
-        </Alert>
-      )}
-      {tick.data && !tick.isPending && <TickPanel result={tick.data} routes={s.routes} />}
-
-      {/* ---- Problems, first ---- */}
-      <ProblemBanners schedule={s} deliveries={deliveries.data ?? []} />
-
-      {/* ---- Cadence ---- */}
-      <CadencePanel schedule={s} />
-
-      {/* ---- Routes ---- */}
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Routes
-      </Typography>
-      <AlertRoutesTable
-        schedule={s}
-        onSweep={(routeId) => tick.mutate(routeId)}
-        sweeping={tick.isPending}
-      />
-
-      {/* ---- History ---- */}
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Recent sweeps
-      </Typography>
-      <SweepHistory runs={runs.data ?? []} />
-
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Sent mail
-      </Typography>
-      <DeliveriesTable deliveries={deliveries.data ?? []} />
-
-      <Divider sx={{ my: 3 }} />
-      <Typography variant="caption" color="text.secondary">
-        The scheduler wakes every 30 minutes and sweeps due routes until its call cap is
-        spent, so a wide route can take a few wake-ups to finish. A digest goes out once a
-        full pass is complete. See <code>docs/ALERTS.md</code>.
-      </Typography>
     </PagePad>
   );
+}
+
+/**
+ * The open section.
+ *
+ * An unrecognised `$tab` falls back to the default rather than rendering
+ * nothing, the same rule the Library and Tools panels follow for untrusted
+ * pieces of a URL.
+ */
+export function AlertsPanel() {
+  const { tab } = useParams({ from: "/alerts/$tab" });
+  switch (tab) {
+    case "sweep-history":
+      return <SweepHistoryPanel />;
+    case "sent-mail":
+      return <SentMailPanel />;
+    default:
+      return <AlertsOverview />;
+  }
 }

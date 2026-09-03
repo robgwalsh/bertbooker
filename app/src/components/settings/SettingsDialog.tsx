@@ -120,7 +120,12 @@ export function SettingsDialog({
         <Tab label="Theme" value="theme" sx={{ minHeight: 40 }} />
         <Tab label="System" value="system" sx={{ minHeight: 40 }} />
       </Tabs>
-      <DialogContent dividers>
+      {/* A fixed body height, because each tab is unmounted when it is not
+          showing and the three are very different sizes — without this the
+          dialog reflows on every tab change. The paper is a flex column capped
+          at the viewport, so this still shrinks on a short window; full screen
+          on a phone needs nothing. */}
+      <DialogContent dividers sx={{ height: phone ? undefined : 520 }}>
         {tab === "preferences" && <PreferencesTab prefs={prefs} />}
         {tab === "theme" && <ThemeTab selected={prefs.themeId} />}
         {tab === "system" && <SystemSettings />}
@@ -172,10 +177,6 @@ function PreferencesTab({ prefs }: { prefs: ReturnType<typeof usePreferences> })
 function ThemeTab({ selected }: { selected: string }) {
   return (
     <>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-        Applies immediately and is remembered per browser. Each swatch is the theme&rsquo;s own
-        chrome, page and accent, in the arrangement the app uses them.
-      </Typography>
       <ThemePicker selected={selected} />
     </>
   );

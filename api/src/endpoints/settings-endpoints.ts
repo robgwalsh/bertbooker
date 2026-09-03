@@ -8,15 +8,18 @@ import {
   selectRecipients,
 } from "../db/alertRecipients.js";
 import { countRoutesUsingRecipient } from "../db/trackedRoutes.js";
+import { upsertSetting } from "../db/settings.js";
+import { ALERT_ALLOWANCE_KEY, clampAllowancePct } from "../features/alerts/scheduler-budget.js";
 import type { Env, Vars } from "../bindings.js";
-import type { AlertRecipients } from "../models/wire/index.js";
+import type { AlertRecipients, AlertSettings, AlertSettingsInput } from "../models/wire/index.js";
 
 /**
  * The deployment's own settings, as opposed to a route's.
  *
- * One subject today: `alert_recipients`, the addresses this Worker may email an
- * alert digest to (`docs/ALERTS.md` §9). It was
- * `ALERT_ALLOWED_RECIPIENTS`, a CSV env binding, which meant a deploy per edit.
+ * Two subjects: `alert_recipients`, the addresses this Worker may email an
+ * alert digest to (`docs/ALERTS.md` §9), and the scheduler's share of the day's
+ * seats.aero calls. Both were env bindings once (`ALERT_ALLOWED_RECIPIENTS`,
+ * `ALERT_DAILY_BUDGET`), which meant a deploy per edit.
  *
  * Nothing here is scoped to an owner, because nothing in this database is. What
  * the list bounds is the Worker's outbound sending on a verified domain — a
@@ -110,4 +113,29 @@ settings.delete("/api/settings/recipients/:id", async (c) => {
 
   await deleteRecipient(c.env.DB, id);
   return c.json({ ok: true });
+});
+
+/**
+ * The allowance is read back through `GET /api/alerts/schedule` rather than a
+ * GET here: the number only means anything beside the cadence and budget it
+ * produces, and that endpoint already derives those from it.
+ */
+settings.put("/api/settings/alerts", async (c) => {
+  const b = await c.req.json<Partial<AlertSettingsInput>>().catch(() => null);
+  if (!b) return c.json({ error: "bad_body" }, 400);
+
+  const pct = clampAllowancePct(b.allowancePct, -1);
+  // Clamped for storage, but a request outside 0–100 is refused rather than
+  // quietly clamped: a slider cannot send one, so an out-of-range value is a
+  // caller that has misunderstood the unit.
+  if (pct < 0 || pct !== b.allowancePct) {
+    return c.json(
+      { error: "bad_allowance", message: "The allowance must be a whole number from 0 to 100." },
+      400,
+    );
+  }
+
+  await upsertSetting(c.env.DB, ALERT_ALLOWANCE_KEY, String(pct));
+  const body: AlertSettings = { allowancePct: pct };
+  return c.json(body);
 });

@@ -67,11 +67,11 @@ const PAGES: PageCase[] = [
   {
     path: "/alerts",
     tab: "Alerts",
-    // Gated behind the schedule query, so this one doubles as "the API
-    // answered". `role=heading` is what tells it apart from the nav tab of the
-    // same name.
-    landmark: (page) => page.getByRole("heading", { name: "Alerts" }),
-    why: "the page heading, which only renders once /api/alerts/schedule has answered",
+    // Static, like the two above. Deliberately NOT the "Alerts" entry: this
+    // page's own nav carries that label and so does the app bar, so the
+    // unscoped locator would match two anchors.
+    landmark: (page) => page.getByRole("link", { name: "Sent mail" }),
+    why: "a static section link, rendered without waiting on any query",
   },
 ];
 
@@ -87,8 +87,8 @@ for (const { path, tab, landmark, why } of PAGES) {
     // Exactly one tab is lit, and it is the right one. `/` uses
     // `activeOptions={{ exact: true }}`, so this holds on the index route too.
     //
-    // Scoped to `header`, and that is not cosmetic: Library and Tools each draw
-    // their own `<nav>` of TanStack links, whose open entry carries the same
+    // Scoped to `header`, and that is not cosmetic: every page but Routes draws
+    // its own `<nav>` of TanStack links, whose open entry carries the same
     // `data-status="active"`. Unscoped this matches two anchors and `toHaveText`
     // fails on a page that is working perfectly.
     await expect(page.locator('header nav a[data-status="active"]')).toHaveText(tab);

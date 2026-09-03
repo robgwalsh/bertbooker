@@ -75,6 +75,11 @@ export interface AlertSchedulePacing {
  *  reads the quota before spending — every interactive path spends first and
  *  reports after. */
 export interface AlertScheduleBudget {
+  /** The slider: the scheduler's share of `dailyLimit`, 0–100. */
+  allowancePct: number;
+  /** The day's ceiling the share was taken of — seats.aero's own figure when
+   *  one has been observed today, else the assumed 1000. */
+  dailyLimit: number;
   dailyBudget: number;
   reserve: number;
   maxCallsPerTick: number;

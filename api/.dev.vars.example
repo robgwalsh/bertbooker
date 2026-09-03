@@ -73,10 +73,10 @@ ALERT_FROM=alerts@example.com
 # Unset omits the link.
 APP_URL=http://127.0.0.1:8787
 
-# Call-budget knobs for the cron. Defaults (600 / 300 / 25) are in
-# api/src/bindings.ts; see docs/ALERTS.md §7. Set only to change them.
-# ALERT_DAILY_BUDGET=600
-# ALERT_MANUAL_RESERVE=300
+# Calls one cron tick may spend before pausing to the next tick. Default 25,
+# in api/src/bindings.ts. The cron's share of the DAY's calls is not an env
+# knob: it is the allowance slider on the Alerts page, stored in the settings
+# table (migration 0002).
 # ALERT_MAX_CALLS_PER_TICK=25
 
 # ---- D1 usage chips. Optional; leaving them blank is the normal local setup. ----

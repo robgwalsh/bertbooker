@@ -2,10 +2,11 @@
 // Settings — the deployment's own knobs, as opposed to a route's.
 // ---------------------------------------------------------------------------
 //
-// One subject today: the addresses the Worker may email an alert digest to.
-// It lives here rather than in `alerts.ts` because it is edited from the
-// settings dialog and read by the route form, neither of which is the Alerts
-// tab, and because it bounds the WORKER's sending rather than any one route's.
+// Two subjects: the addresses the Worker may email an alert digest to, and the
+// share of the day's seats.aero calls the scheduler may spend. Both bound the
+// WORKER rather than any one route, which is what makes them settings. The
+// allowlist is edited from the settings dialog and read by the route form; the
+// allowance is edited from the Alerts page, beside the cadence it produces.
 
 /** One row of `alert_recipients` — an address the Worker may send a digest to.
  *
@@ -35,4 +36,16 @@ export interface AlertRecipients {
 /** `POST /api/settings/recipients` */
 export interface AlertRecipientInput {
   email: string;
+}
+
+/** `PUT /api/settings/alerts` — the scheduler's share of the day's seats.aero
+ *  calls, 0–100. The current value rides on `GET /api/alerts/schedule` as
+ *  `budget.allowancePct`, beside the figures it produces. */
+export interface AlertSettingsInput {
+  allowancePct: number;
+}
+
+/** What the PUT answers: the value as stored. */
+export interface AlertSettings {
+  allowancePct: number;
 }

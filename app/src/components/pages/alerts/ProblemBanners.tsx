@@ -1,5 +1,5 @@
 import Alert from "@mui/material/Alert";
-import type { AlertDelivery, AlertSchedule } from "../../../api";
+import type { AlertSchedule } from "../../../api";
 
 /**
  * Everything that would make the mail stop, above the fold.
@@ -12,16 +12,9 @@ import type { AlertDelivery, AlertSchedule } from "../../../api";
  * Renders nothing when nothing is wrong — which is the common case, and is why
  * the cadence panel below it is not buried.
  */
-export function ProblemBanners({
-  schedule: s,
-  deliveries,
-}: {
-  schedule: AlertSchedule;
-  deliveries: AlertDelivery[];
-}) {
+export function ProblemBanners({ schedule: s }: { schedule: AlertSchedule }) {
   const failing = s.routes.filter((r) => r.consecutiveFailures > 0);
   const expired = s.routes.filter((r) => r.windowExpired);
-  const dropped = deliveries.filter((d) => d.status !== "sent");
 
   return (
     <>
@@ -38,7 +31,7 @@ export function ProblemBanners({
           <strong>These routes cost more than a day's allowance.</strong> One pass
           over them is about {s.pacing.cycleCost} calls against a daily budget of{" "}
           {s.budget.dailyBudget}, so nothing is being swept at all. Narrow a date
-          window, drop a route, or raise <code>ALERT_DAILY_BUDGET</code>.
+          window, drop a route, or raise the allowance below.
         </Alert>
       )}
       {s.budget.blockedReason && s.pacing.affordable && (
@@ -63,12 +56,6 @@ export function ProblemBanners({
           <strong>Window expired:</strong> {expired.map((r) => r.label).join(", ")}.
           The date range has fallen entirely into the past, so there is nothing
           left to search. Move the window or turn alerts off.
-        </Alert>
-      )}
-      {dropped.length > 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          <strong>{dropped.length} digest{dropped.length === 1 ? "" : "s"} not delivered.</strong>{" "}
-          See the history below — a digest that was never sent leaves no other trace.
         </Alert>
       )}
     </>

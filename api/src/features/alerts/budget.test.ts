@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { ASSUMED_DAILY_LIMIT, decideSweep, utcDay, utcDayStart } from "./scheduler-budget.js";
+import {
+  ASSUMED_DAILY_LIMIT,
+  alertAllowance,
+  clampAllowancePct,
+  decideSweep,
+  utcDay,
+  utcDayStart,
+} from "./scheduler-budget.js";
 
 // Follows the gate.test.ts precedent: this workspace has no D1 or Worker test
 // harness, so only the pure exported half is tested — which is deliberately
@@ -76,5 +83,42 @@ describe("utcDay / utcDayStart", () => {
     expect(utcDayStart(Date.parse("2026-08-13T23:30:00Z"))).toBe(
       Date.parse("2026-08-13T00:00:00Z"),
     );
+  });
+});
+
+describe("alertAllowance", () => {
+  it("splits the day's limit at the percentage: the rest is the reserve", () => {
+    expect(alertAllowance(80, 1000)).toEqual({ dailyBudget: 800, reserve: 200 });
+    expect(alertAllowance(80, 2000)).toEqual({ dailyBudget: 1600, reserve: 400 });
+  });
+
+  it("covers both ends of the slider", () => {
+    expect(alertAllowance(0, 1000)).toEqual({ dailyBudget: 0, reserve: 1000 });
+    expect(alertAllowance(100, 1000)).toEqual({ dailyBudget: 1000, reserve: 0 });
+  });
+
+  it("rounds the budget down so the two halves still sum to the limit", () => {
+    expect(alertAllowance(33, 1000)).toEqual({ dailyBudget: 330, reserve: 670 });
+    expect(alertAllowance(33, 999)).toEqual({ dailyBudget: 329, reserve: 670 });
+  });
+});
+
+describe("clampAllowancePct", () => {
+  it("keeps a whole number in range", () => {
+    expect(clampAllowancePct(80, 80)).toBe(80);
+    expect(clampAllowancePct(0, 80)).toBe(0);
+    expect(clampAllowancePct(100, 80)).toBe(100);
+  });
+
+  it("rounds and clamps", () => {
+    expect(clampAllowancePct(79.6, 80)).toBe(80);
+    expect(clampAllowancePct(150, 80)).toBe(100);
+    expect(clampAllowancePct(-5, 80)).toBe(0);
+  });
+
+  it("falls back on anything that is not a number", () => {
+    expect(clampAllowancePct(Number.NaN, 80)).toBe(80);
+    expect(clampAllowancePct("80", 80)).toBe(80);
+    expect(clampAllowancePct(undefined, 80)).toBe(80);
   });
 });

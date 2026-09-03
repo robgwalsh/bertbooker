@@ -1,16 +1,19 @@
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import { formatInterval } from "../../../lib/alerts";
+import { AllowanceSlider } from "./AllowanceSlider";
 import { Stat } from "./Stat";
 import type { AlertSchedule } from "../../../api";
 
 /**
- * How often the sweep runs, and what it is spending.
+ * How often the sweep runs, what it is spending, and the one knob behind both.
  *
- * **Nothing here is computed on the client.** `docs/ALERTS.md` §4 is explicit
- * that a page quoting a schedule the scheduler does not keep is worse than a
- * page with no schedule on it, so every figure arrives already decided in
- * `AlertSchedule` — this only names and formats what the server said.
+ * **Nothing here is computed on the client**, with one exception. `docs/ALERTS.md`
+ * §4 is explicit that a page quoting a schedule the scheduler does not keep is
+ * worse than a page with no schedule on it, so every figure arrives already
+ * decided in `AlertSchedule` — this only names and formats what the server
+ * said. The exception is the slider's drag preview, which is replaced by the
+ * server's own figures the moment the value is written.
  */
 export function CadencePanel({ schedule: s }: { schedule: AlertSchedule }) {
   return (
@@ -34,22 +37,14 @@ export function CadencePanel({ schedule: s }: { schedule: AlertSchedule }) {
           help="What automation has spent against its own daily allowance. Resets 00:00 UTC."
         />
         <Stat
-          label="Allowance left"
-          value={
-            s.budget.observedRemaining == null
-              ? `~${Math.max(0, 1000 - s.budget.selfSpentToday)}`
-              : String(s.budget.observedRemaining)
-          }
-          help={
-            s.budget.basis === "observed"
-              ? "Read from seats.aero's own rate-limit header."
-              : "Nothing has reported a number yet today, so this is counted from our own records instead. The first real observation corrects it."
-          }
-        />
-        <Stat
           label="Reserve"
           value={`${s.budget.reserve} calls`}
-          help="Never spent by the scheduler, so pressing Search by hand always works."
+          help="What the allowance leaves of the day's limit. Never spent by the scheduler, so pressing Search by hand always works."
+        />
+        <AllowanceSlider
+          pct={s.budget.allowancePct}
+          dailyLimit={s.budget.dailyLimit}
+          dailyBudget={s.budget.dailyBudget}
         />
       </Stack>
     </Paper>

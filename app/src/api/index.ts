@@ -132,7 +132,12 @@ import {
 import { searchRoute } from "./search";
 import { enrichFind, enrichRoute } from "./enrich";
 import { alertDeliveries, alertRunTick, alertRuns, alertSchedule } from "./alerts";
-import { addAlertRecipient, alertRecipients, deleteAlertRecipient } from "./settings";
+import {
+  addAlertRecipient,
+  alertRecipients,
+  deleteAlertRecipient,
+  setAlertAllowance,
+} from "./settings";
 import {
   fetchRouteGraph,
   routeGraph,
@@ -212,4 +217,5 @@ export const api = {
   alertRecipients,
   addAlertRecipient,
   deleteAlertRecipient,
+  setAlertAllowance,
 };

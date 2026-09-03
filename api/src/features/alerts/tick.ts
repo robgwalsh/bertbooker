@@ -2,12 +2,21 @@ import { dueRoutes, routeSweepCost, sweepPacing } from "./pace.js";
 import { parseAlertTypes, selectAlertable } from "./select.js";
 import { alertRouteCosts, alertRouteRows, parseList, type AlertRouteRow } from "./alertRoutes.js";
 import { cycleComplete, flushOutbox, pruneOldRuns } from "./outbox.js";
-import { decideSweep, readBudgetState } from "./scheduler-budget.js";
+import {
+  ALERT_ALLOWANCE_KEY,
+  ASSUMED_DAILY_LIMIT,
+  DEFAULT_ALERT_ALLOWANCE_PCT,
+  alertAllowance,
+  clampAllowancePct,
+  decideSweep,
+  readBudgetState,
+} from "./scheduler-budget.js";
 import { changeKey } from "../search/apply.js";
 import { todayISO } from "../../util/dates.js";
 import type { Cabin } from "../../models/availability.js";
 import type { Env } from "../../bindings.js";
 import { selectMatchableFinds } from "../../db/finds.js";
+import { selectSetting } from "../../db/settings.js";
 import {
   bumpAlertFailures,
   clearAlertFailures,
@@ -19,8 +28,6 @@ import { insertOutboxChanges } from "../../db/alertOutbox.js";
 import { openSearchRun, planSearchPass, runSearchPass } from "../search/run.js";
 
 
-const DEFAULT_DAILY_BUDGET = 600;
-const DEFAULT_MANUAL_RESERVE = 300;
 const DEFAULT_MAX_CALLS_PER_TICK = 25;
 
 const num = (v: string | undefined, fallback: number): number => {
@@ -28,13 +35,31 @@ const num = (v: string | undefined, fallback: number): number => {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 };
 
-/** The tunables, resolved once. Shared with `routes.ts` so the Alerts tab
- *  cannot quote a budget the scheduler is not using. */
-export const ALERT_DEFAULTS = (env: Env) => ({
-  dailyBudget: num(env.ALERT_DAILY_BUDGET, DEFAULT_DAILY_BUDGET),
-  reserve: num(env.ALERT_MANUAL_RESERVE, DEFAULT_MANUAL_RESERVE),
-  maxCallsPerTick: num(env.ALERT_MAX_CALLS_PER_TICK, DEFAULT_MAX_CALLS_PER_TICK),
-});
+/**
+ * The tunables, resolved once per tick. Shared with `alerts-endpoints.ts` so
+ * the Alerts tab cannot quote a budget the scheduler is not using.
+ *
+ * The day's budget and reserve are one setting — the allowance percentage on
+ * the Alerts page — taken of today's limit: seats.aero's own figure when one
+ * has been observed today, else `ASSUMED_DAILY_LIMIT`. `state` is the budget
+ * read that produced the limit, returned so the caller does not pay for it
+ * twice.
+ */
+export async function readAlertBudget(env: Env, now: number) {
+  const [raw, state] = await Promise.all([
+    selectSetting(env.DB, ALERT_ALLOWANCE_KEY),
+    readBudgetState(env.DB, now),
+  ]);
+  const allowancePct = clampAllowancePct(raw == null ? undefined : Number(raw), DEFAULT_ALERT_ALLOWANCE_PCT);
+  const dailyLimit = state.observation?.limitCalls ?? ASSUMED_DAILY_LIMIT;
+  return {
+    allowancePct,
+    dailyLimit,
+    ...alertAllowance(allowancePct, dailyLimit),
+    maxCallsPerTick: num(env.ALERT_MAX_CALLS_PER_TICK, DEFAULT_MAX_CALLS_PER_TICK),
+    state,
+  };
+}
 
 /** Defined in `api/src/models/wire/alerts.ts` — the SPA reads it as
  *  `AlertTickResult`. Re-exported here so this module's consumers are
@@ -86,7 +111,7 @@ export async function runAlertTick(
   const costFor = alertRouteCosts(routes, today);
   const chunksOf = (id: number) => costFor.get(id)?.chunks ?? 0;
 
-  const { dailyBudget, reserve, maxCallsPerTick } = ALERT_DEFAULTS(env);
+  const { dailyBudget, reserve, maxCallsPerTick } = await readAlertBudget(env, now);
 
   const pacing = sweepPacing({ routes: [...costFor.values()], dailyBudget });
   if (!pacing.affordable && opts.force === undefined) {

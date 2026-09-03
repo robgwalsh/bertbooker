@@ -8,9 +8,9 @@ import { selectAlertRuns } from "../db/runs.js";
 import { selectDeliveries } from "../db/alertDeliveries.js";
 import { allowedRecipients } from "../features/alerts/recipients.js";
 import { isLocalRequest } from "../middleware/security.js";
-import { ALERT_DEFAULTS, runAlertTick } from "../features/alerts/tick.js";
+import { readAlertBudget, runAlertTick } from "../features/alerts/tick.js";
 import { alertRouteCosts, alertRouteRows, routeLabel } from "../features/alerts/alertRoutes.js";
-import { decideSweep, readBudgetState } from "../features/alerts/scheduler-budget.js";
+import { decideSweep } from "../features/alerts/scheduler-budget.js";
 
 export const alerts = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -20,7 +20,7 @@ alerts.get("/api/alerts/schedule", async (c) => {
   const email = c.get("userEmail");
   const now = Date.now();
   const rows = await alertRouteRows(c.env);
-  const cfg = ALERT_DEFAULTS(c.env);
+  const cfg = await readAlertBudget(c.env, now);
 
   const today = todayISO();
   // The SAME cost function the scheduler prices with. docs/ALERTS.md §4: a page
@@ -47,12 +47,11 @@ alerts.get("/api/alerts/schedule", async (c) => {
       )
     : new Set<number>();
 
-  const budget = await readBudgetState(c.env.DB, now);
   // Priced against the whole cycle, because that is what the next full pass
   // costs — a per-route answer would say "affordable" for each of five routes
   // that together are not.
   const decision = decideSweep({
-    ...budget,
+    ...cfg.state,
     estimatedCost: pacing.affordable ? pacing.cycleCost : 0,
     reserve: cfg.reserve,
     dailyBudget: cfg.dailyBudget,
@@ -66,11 +65,13 @@ alerts.get("/api/alerts/schedule", async (c) => {
       intervalMinutes,
     },
     budget: {
+      allowancePct: cfg.allowancePct,
+      dailyLimit: cfg.dailyLimit,
       dailyBudget: cfg.dailyBudget,
       reserve: cfg.reserve,
       maxCallsPerTick: cfg.maxCallsPerTick,
-      selfSpentToday: budget.selfSpentToday,
-      observedRemaining: budget.observation?.remaining ?? null,
+      selfSpentToday: cfg.state.selfSpentToday,
+      observedRemaining: cfg.state.observation?.remaining ?? null,
       basis: decision.basis,
       wouldSweepNow: decision.go,
       blockedReason: decision.go ? null : decision.reason,

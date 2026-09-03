@@ -15,7 +15,7 @@ import type { Run } from "../../../api";
  *  The Error column is the point of the table. */
 export function SweepHistory({ runs }: { runs: Run[] }) {
   return (
-    <Paper variant="outlined" sx={{ mb: 3, overflowX: "auto" }}>
+    <Paper variant="outlined" sx={{ overflowX: "auto" }}>
       {runs.length === 0 ? (
         <Box sx={{ p: 2 }}>
           <Typography variant="body2" color="text.secondary">

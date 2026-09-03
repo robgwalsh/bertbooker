@@ -68,13 +68,6 @@ export interface Env {
   /** The digest's From address, on a Resend-verified domain (e.g.
    *  `alerts@example.com`). Unset behaves exactly like a missing key. */
   ALERT_FROM?: string;
-  /** Calls a day the SCHEDULER may spend, against the key's 1000. Default 600.
-   *  Not the same thing as the reserve below: this bounds automation's share,
-   *  the reserve bounds how close anything may get to the ceiling. */
-  ALERT_DAILY_BUDGET?: string;
-  /** Calls that must remain unspent so a human pressing Search always gets an
-   *  answer. Default 300. This is the number the guard actually exists for. */
-  ALERT_MANUAL_RESERVE?: string;
   /** Calls one cron tick may spend before pausing the route to the next tick.
    *  Default 25. A Cron Trigger under an hour gets 30 SECONDS of CPU, and
    *  parsing a page of 500 trips-bearing rows is the CPU in question — so a tick

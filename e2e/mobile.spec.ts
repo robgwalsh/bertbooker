@@ -70,7 +70,7 @@ test.describe("at 390px", () => {
     ).toBeLessThanOrEqual(controls!.x + 1);
   });
 
-  for (const path of ["/library", "/tools"]) {
+  for (const path of ["/library", "/tools", "/alerts"]) {
     test(`${path}'s section nav is a horizontal strip, not a 190px column`, async ({ page }) => {
       await page.goto(path);
       const nav = page.getByTestId("section-nav");

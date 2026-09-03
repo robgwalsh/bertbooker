@@ -70,12 +70,20 @@ const routeRow = (id: number, over: Record<string, unknown> = {}) => ({
 /** A D1 stub that dispatches on the SQL text. Deliberately dumb: the tick's
  *  writes are fire-and-forget from its own point of view, so only the reads
  *  need real answers. */
-function stubDb(rows: ReturnType<typeof routeRow>[], quota: { spent: number }) {
+function stubDb(
+  rows: ReturnType<typeof routeRow>[],
+  quota: { spent: number; allowancePct?: number },
+) {
   const answer = (sql: string): { results: Record<string, unknown>[] } => {
     if (sql.includes("FROM tracked_routes tr") && sql.includes("alerts_enabled = 1"))
       return { results: rows as unknown as Record<string, unknown>[] };
     if (sql.includes("FROM source_quota")) return { results: [] };
     if (sql.includes("SUM(calls)")) return { results: [{ spent: quota.spent }] };
+    // No row is the default allowance, 80% of the assumed 1000 — an 800 budget.
+    if (sql.includes("FROM settings"))
+      return {
+        results: quota.allowancePct == null ? [] : [{ value: String(quota.allowancePct) }],
+      };
     // `cycleComplete` — the flush is not what this file is about, so it is
     // always told the cycle is over and `alert_outbox` is always empty.
     if (sql.includes("AS due")) return { results: [{ due: 0, running: 0 }] };
@@ -99,9 +107,9 @@ function stubDb(rows: ReturnType<typeof routeRow>[], quota: { spent: number }) {
   } as unknown as D1Database;
 }
 
-const env = (rows: ReturnType<typeof routeRow>[], spent = 0) =>
+const env = (rows: ReturnType<typeof routeRow>[], spent = 0, allowancePct?: number) =>
   ({
-    DB: stubDb(rows, { spent }),
+    DB: stubDb(rows, { spent, allowancePct }),
     APP_USER_EMAIL: "a@example.com",
     SEATS_AERO_API_KEY: "k",
   }) as never;
@@ -155,18 +163,28 @@ describe("runAlertTick — the tick sweeps to its CALL cap, not to one route", (
     // `reserve` is measured against this route's estimated cost, so a cheaper
     // route later can legitimately pass a test this one failed. Breaking the
     // loop here would let one expensive route silence every cheap one behind it.
-    // 550 already spent today against a 600 daily budget: a 100-call route
-    // busts it, a 1-call route does not. (The stub does not advance `spent` as
-    // the tick runs — the loop re-reads, which is asserted by the fact that it
-    // asks at all, not by this number moving.)
+    // 750 already spent today against the default 800 daily budget: a 100-call
+    // route busts it, a 1-call route does not. (The stub does not advance
+    // `spent` as the tick runs — the loop re-reads, which is asserted by the
+    // fact that it asks at all, not by this number moving.)
     const rows = [
       routeRow(1, { observed_calls: 100 }),
       routeRow(2, { observed_calls: 1 }),
       routeRow(3, { observed_calls: 1 }),
     ];
-    const result = await runAlertTick(env(rows, 550));
+    const result = await runAlertTick(env(rows, 750));
     expect(result.skipped.map((s) => s.routeId)).toEqual([1]);
     expect(result.sweptRouteIds).toEqual([2, 3]);
+  });
+
+  it("reads the allowance from the settings table, not from the environment", async () => {
+    // At 10% the budget is 100 of the assumed 1000, so a 100-call route on a
+    // day with 50 spent is refused — the same route the default lets through.
+    const rows = [routeRow(1, { observed_calls: 100 })];
+    const result = await runAlertTick(env(rows, 50, 10));
+    expect(result.sweptRouteIds).toEqual([]);
+    expect(result.skipped).toEqual([{ routeId: 1, reason: "reserve" }]);
+    expect(runSearchPass).not.toHaveBeenCalled();
   });
 
   it("breaks the loop when the guard says EXHAUSTED — no route can pass that", async () => {

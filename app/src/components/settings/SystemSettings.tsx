@@ -58,13 +58,7 @@ export function SystemSettings() {
   };
 
   return (
-    <Section title="Alert recipients">
-      <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>
-        The only addresses an alert digest may be sent to. A route&rsquo;s
-        &ldquo;Send to&rdquo; picks from this list, and a send to anything else is
-        refused rather than delivered.
-      </Typography>
-
+    <Section title="Outgoing e-mail whitelist">
       {q.isPending && <CircularProgress size={20} sx={{ my: 1 }} />}
       {q.isError && (
         <Alert severity="error" sx={{ my: 1 }}>
@@ -158,10 +152,6 @@ function AccountRow({ email }: { email: string }) {
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography variant="body2" noWrap>
           {email}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          The account address. Always allowed, and where a route with no
-          recipient sends.
         </Typography>
       </Box>
       <Tooltip title="Set by APP_USER_EMAIL — cannot be removed here">

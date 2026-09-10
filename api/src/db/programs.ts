@@ -18,3 +18,29 @@ export async function selectActivePrograms(db: D1Database): Promise<ProgramRow[]
     .all<ProgramRow>();
   return results;
 }
+
+/**
+ * Which currencies book each active program, off the editable table.
+ *
+ * A find's own `transfer_currencies` column is what the seed said when the row
+ * was written; a route's currency filter reads this instead, so editing a
+ * partner surfaces the finds already stored without waiting for a rewrite.
+ */
+export async function selectProgramCurrencies(db: D1Database): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  for (const p of await selectActivePrograms(db)) {
+    try {
+      const partners: unknown = JSON.parse(p.transfer_partners);
+      if (!Array.isArray(partners)) continue;
+      out.set(
+        p.code,
+        partners
+          .map((t) => String((t as { currency?: unknown })?.currency ?? ""))
+          .filter(Boolean),
+      );
+    } catch {
+      /* an unparseable row falls back to the find's own column */
+    }
+  }
+  return out;
+}

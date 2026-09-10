@@ -152,14 +152,38 @@ export const PROGRAM_SEEDS: ProgramSeed[] = [
     transferPartners: [p("capital_one"), p("citi_ty"), p("amex_mr", "1:1.6")],
   },
   // ---- oneworld ----
+  // The Avios programs each get their own code: seats.aero carries their
+  // inventory separately and the snapshot row is keyed by program, so one shared
+  // code would keep only the cheapest of the three per slot. Avios moves between
+  // them freely, so every one takes the same currencies.
+  {
+    code: "british",
+    name: "British Airways Executive Club",
+    kind: "airline",
+    alliance: "oneworld",
+    transferPartners: [p("chase_ur"), p("capital_one"), p("bilt"), p("citi_ty"), p("amex_mr")],
+  },
+  {
+    code: "iberia",
+    name: "Iberia Plus",
+    kind: "airline",
+    alliance: "oneworld",
+    transferPartners: [p("chase_ur"), p("capital_one"), p("bilt"), p("citi_ty"), p("amex_mr")],
+  },
+  {
+    code: "qatar",
+    name: "Qatar Privilege Club",
+    kind: "airline",
+    alliance: "oneworld",
+    transferPartners: [p("chase_ur"), p("capital_one"), p("bilt"), p("citi_ty"), p("amex_mr")],
+  },
+  // Rows written before the split reference this code, and `finds.program` is
+  // a foreign key, so it stays seeded; the SQL seed marks it inactive.
   {
     code: "avios",
     name: "Avios (BA / Iberia / Aer Lingus / Qatar / Finnair)",
     kind: "airline",
     alliance: "oneworld",
-    // One code covers five programs, and Amex is the partner that does not
-    // reach all of them: BA, Iberia, Aer Lingus and Qatar take Membership
-    // Rewards, Finnair does not.
     transferPartners: [p("chase_ur"), p("capital_one"), p("bilt"), p("citi_ty"), p("amex_mr")],
   },
   {

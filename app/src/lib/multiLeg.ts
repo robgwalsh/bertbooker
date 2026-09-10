@@ -1,6 +1,6 @@
 import type { Find, TrackedRoute } from "../api";
 import { parseSegments } from "./flights";
-import { layoverMinutes } from "./format";
+import { fewestSeats, layoverMinutes } from "./format";
 import { collapseLegs } from "./roundtrip";
 import { addDaysISO, parseCodeList, routeSets } from "./routeShape";
 
@@ -224,7 +224,7 @@ export function stitchJourneys(
           totalMiles,
           totalFeesCents: a.cash_fees_cents + b.cash_fees_cents,
           feesCurrency: currency,
-          seats: Math.min(a.seats_available, b.seats_available),
+          seats: fewestSeats([a.seats_available, b.seats_available]),
           programs,
           mixed: programs.length > 1,
         });
@@ -291,7 +291,7 @@ function legFilter(route: TrackedRoute): (f: Find) => boolean {
   const cabins = new Set(parseCodeList(route.cabins));
   const currencies = new Set(parseCodeList(route.currencies));
   return (f: Find): boolean => {
-    if (f.seats_available < route.min_seats) return false;
+    if (f.seats_available > 0 && f.seats_available < route.min_seats) return false;
     if (route.point_limit != null && f.miles_cost > route.point_limit) return false;
     if (cabins.size && !cabins.has(f.cabin)) return false;
     if (!currencies.size) return true;

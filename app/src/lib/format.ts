@@ -162,3 +162,15 @@ export function countryName(country?: string | null): string {
     return country;
   }
 }
+
+/** A stored seat count of 0 means the program never reported one. */
+export function seatCount(n: number): string {
+  return n > 0 ? String(n) : "?";
+}
+
+/** The seats a multi-leg trip has: the fewest any leg reports, ignoring legs
+ *  whose program reports none. 0 when no leg reports a count. */
+export function fewestSeats(counts: readonly number[]): number {
+  const known = counts.filter((n) => n > 0);
+  return known.length ? Math.min(...known) : 0;
+}

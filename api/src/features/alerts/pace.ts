@@ -1,7 +1,7 @@
 // From `wire/`, not `providers/seatsaero.js` — see the note in `../routing.ts`.
 // Keeping this file free of the provider is what lets `SweepPacing` be part of
 // the wire contract the SPA reads.
-import { SEATSAERO_MAX_PAGES } from "../../models/wire/seatsaero.js";
+import { SEATSAERO_MAX_PAGES_PER_TASK } from "../../models/wire/seatsaero.js";
 import type { SweepPacing } from "../../models/wire/alerts.js";
 
 /**
@@ -71,10 +71,11 @@ export function routeSweepTasks(route: AlertRouteCost): number {
  * What one sweep of this route should be budgeted at.
  *
  * The direction of the guess matters more than its accuracy.
- * `estimateSearchCalls` quotes a range — one call per TASK at the floor, ten
- * times that if every task paginates out — and the two ends are a factor of ten
- * apart. Guessing low overspends the day's allowance; guessing high sweeps less
- * often than it could. So: **pessimistic while ignorant, measured once measured.**
+ * `estimateSearchCalls` quotes a range — one call per TASK at the floor,
+ * `SEATSAERO_MAX_PAGES_PER_TASK` times that if every task paginates out through
+ * every continuation. Guessing low overspends the day's allowance; guessing high
+ * sweeps less often than it could. So: **pessimistic while ignorant, measured
+ * once measured.**
  *
  * `max(observed, floor)` rather than `observed` alone because a paused sweep
  * records only the calls that pass spent, and a route resumed across three ticks
@@ -87,7 +88,7 @@ export function routeSweepTasks(route: AlertRouteCost): number {
 export function routeSweepCost(route: AlertRouteCost): number {
   const tasks = routeSweepTasks(route);
   if (tasks <= 0) return 0;
-  if (route.observedCalls == null) return tasks * SEATSAERO_MAX_PAGES;
+  if (route.observedCalls == null) return tasks * SEATSAERO_MAX_PAGES_PER_TASK;
   return Math.max(route.observedCalls, tasks);
 }
 

@@ -31,7 +31,7 @@ import { findStops, ItineraryCard } from "./Itinerary";
 import { RouteMapFill, ROUTE_MAP_CELL_WIDTH, toRouteStops } from "./RouteMap";
 import { useAirportNames } from "../../../hooks/useAirportNames";
 import { DATE_CELL_WIDTH } from "../../../lib/layout";
-import { dayLabel } from "../../../lib/format";
+import { dayLabel, seatCount } from "../../../lib/format";
 import { useIsPhone } from "../../../hooks/useBreakpoints";
 import { BookableCurrencies } from "../../brand/BookableCurrencies";
 import { CabinChip } from "../../brand/CabinChip";
@@ -146,7 +146,7 @@ function FindRow({
         <FindProgram f={f} />
       </TableCell>
       <TableCell align="right" sx={{ verticalAlign: "top", pt: 2 }}>
-        {f.seats_available}
+        {seatCount(f.seats_available)}
       </TableCell>
       <TableCell align="right" sx={{ whiteSpace: "nowrap", verticalAlign: "top", pt: 2 }}>
         <FindCost f={f} />
@@ -214,7 +214,7 @@ function FindCard({ f, opts }: { f: Find; opts: FindsTableOptions }) {
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="body2">{f.program}</Typography>
           <Typography variant="caption" color="text.secondary">
-            {f.seats_available} seat{f.seats_available === 1 ? "" : "s"}
+            {seatCount(f.seats_available)} seat{f.seats_available === 1 ? "" : "s"}
           </Typography>
         </Box>
         <Box sx={{ textAlign: "right", flexShrink: 0 }}>

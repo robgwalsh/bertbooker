@@ -1,4 +1,4 @@
-import { SEATSAERO_MAX_PAGES } from "../../models/wire/seatsaero.js";
+import { SEATSAERO_MAX_PAGES_PER_TASK } from "../../models/wire/seatsaero.js";
 import { MAX_DESTINATIONS, MAX_ORIGINS, MAX_VIA } from "../../models/route.js";
 import type { RoutePair, RouteSpec } from "../../models/route.js";
 import type { CallEstimate, RouteLegGroup, RoutePlan } from "../../models/route.js";
@@ -237,6 +237,6 @@ export function estimateSearchCalls(
     groups,
     tasks,
     floor: tasks,
-    ceiling: tasks * SEATSAERO_MAX_PAGES,
+    ceiling: tasks * SEATSAERO_MAX_PAGES_PER_TASK,
   };
 }

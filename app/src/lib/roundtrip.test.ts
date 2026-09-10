@@ -134,6 +134,14 @@ describe("pairRoundTrips — the derived fields", () => {
     expect(p.cabin).toBe("business");
   });
 
+  it("ignores an unreported seat count (0) when taking the lower", () => {
+    const o = [out("2027-03-01", { seats_available: 0 })];
+    const i = [back("2027-03-08", { seats_available: 3 })];
+    expect(pairRoundTrips(o, i, NIGHTS).pairs[0]!.seats).toBe(3);
+    const both = pairRoundTrips(o, [back("2027-03-08", { seats_available: 0 })], NIGHTS);
+    expect(both.pairs[0]!.seats).toBe(0);
+  });
+
   it("caps on the TOTAL, which is the number this pane prints", () => {
     // Both legs cleared the route's ceiling server-side; their sum does not.
     // Without this a route chipped "100,000 mi max" prints a 135,000 mi trip.

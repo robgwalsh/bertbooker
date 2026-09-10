@@ -18,8 +18,12 @@ INSERT OR REPLACE INTO programs (code, name, kind, alliance, transfer_partners, 
   ('virginatlantic', 'Virgin Atlantic Flying Club',    'airline', NULL,       '[{"currency":"chase_ur","ratio":"1:1"},{"currency":"capital_one","ratio":"1:1"},{"currency":"bilt","ratio":"1:1"},{"currency":"citi_ty","ratio":"1:1"},{"currency":"amex_mr","ratio":"1:1"}]', 1),
   -- Renamed from Club Premier. No Chase, no Bilt. Amex pays out more than it takes in.
   ('aeromexico',     'Aeroméxico Rewards',             'airline', 'skyteam',  '[{"currency":"capital_one","ratio":"1:1"},{"currency":"citi_ty","ratio":"1:1"},{"currency":"amex_mr","ratio":"1:1.6"}]', 1),
-  -- One code, five programs: Amex reaches all but Finnair.
-  ('avios',          'Avios (BA/Iberia/Aer Lingus/Qatar/Finnair)', 'airline', 'oneworld', '[{"currency":"chase_ur","ratio":"1:1"},{"currency":"capital_one","ratio":"1:1"},{"currency":"bilt","ratio":"1:1"},{"currency":"citi_ty","ratio":"1:1"},{"currency":"amex_mr","ratio":"1:1"}]', 1),
+  -- The Avios programs are seeded apart because seats.aero carries their inventory apart.
+  ('british',        'British Airways Executive Club',  'airline', 'oneworld', '[{"currency":"chase_ur","ratio":"1:1"},{"currency":"capital_one","ratio":"1:1"},{"currency":"bilt","ratio":"1:1"},{"currency":"citi_ty","ratio":"1:1"},{"currency":"amex_mr","ratio":"1:1"}]', 1),
+  ('iberia',         'Iberia Plus',                     'airline', 'oneworld', '[{"currency":"chase_ur","ratio":"1:1"},{"currency":"capital_one","ratio":"1:1"},{"currency":"bilt","ratio":"1:1"},{"currency":"citi_ty","ratio":"1:1"},{"currency":"amex_mr","ratio":"1:1"}]', 1),
+  ('qatar',          'Qatar Privilege Club',            'airline', 'oneworld', '[{"currency":"chase_ur","ratio":"1:1"},{"currency":"capital_one","ratio":"1:1"},{"currency":"bilt","ratio":"1:1"},{"currency":"citi_ty","ratio":"1:1"},{"currency":"amex_mr","ratio":"1:1"}]', 1),
+  -- Inactive: finds written before the split still reference it, and finds.program is a foreign key.
+  ('avios',          'Avios (BA/Iberia/Aer Lingus/Qatar/Finnair)', 'airline', 'oneworld', '[{"currency":"chase_ur","ratio":"1:1"},{"currency":"capital_one","ratio":"1:1"},{"currency":"bilt","ratio":"1:1"},{"currency":"citi_ty","ratio":"1:1"},{"currency":"amex_mr","ratio":"1:1"}]', 0),
   ('aadvantage',     'American AAdvantage',            'airline', 'oneworld', '[{"currency":"bilt","ratio":"1:1"}]', 1),
   ('alaska',         'Alaska Mileage Plan',            'airline', 'oneworld', '[{"currency":"bilt","ratio":"1:1"}]', 1),
   ('cathay',         'Cathay Pacific Asia Miles',      'airline', 'oneworld', '[{"currency":"capital_one","ratio":"1:1"},{"currency":"bilt","ratio":"1:1"},{"currency":"citi_ty","ratio":"1:1"},{"currency":"amex_mr","ratio":"5:4"}]', 1),

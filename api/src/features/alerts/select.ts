@@ -86,7 +86,9 @@ export function selectAlertable(
     if (c.type === "gone") {
       // Filtered on the summary, because there is nothing left to join to.
       if (routeFilters.cabins?.length && !routeFilters.cabins.includes(c.cabin)) continue;
-      if ((c.previousSeats ?? 0) < routeFilters.minSeats) continue;
+      // 0 is a count nobody reported, and passes as it does everywhere else.
+      if (c.previousSeats != null && c.previousSeats > 0 && c.previousSeats < routeFilters.minSeats)
+        continue;
       // What it cost while it existed, against the route's ceiling. A seat the
       // pane never showed because it was too dear should not announce itself on
       // the way out. Unknown price passes: `gone` is the one type filtered on the

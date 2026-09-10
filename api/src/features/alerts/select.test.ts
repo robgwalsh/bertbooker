@@ -125,21 +125,9 @@ describe("selectAlertable", () => {
     expect(out).toHaveLength(1);
   });
 
-  it("pins the first-match-wins shadow: a drop WITH more seats classifies as more_seats", () => {
-    // diffAvailability checks seats before price (diff.ts), so this event never
-    // reaches a route that enabled price_drop but not more_seats. Changing the
-    // classifier would change changes_json for the alert sweep too, so the behaviour is
-    // documented in the UI rather than fixed — and pinned here so a future
-    // change breaks a test instead of an inbox.
-    const shadowed = change({
-      type: "more_seats",
-      key: "a",
-      milesCost: 80,
-      previousMilesCost: 100,
-      seatsAvailable: 4,
-      previousSeats: 2,
-    });
-    const out = selectAlertable([shadowed], new Set(["a"]), rule, filters);
-    expect(out).toEqual([]);
+  it("lets a `gone` with an unreported seat count (0) through the seat floor", () => {
+    const unreported = change({ type: "gone", key: "a", previousSeats: 0, previousMilesCost: 100 });
+    const out = selectAlertable([unreported], new Set(), { types: ["gone"], minDropPct: 5 }, filters);
+    expect(out.map((c) => c.key)).toEqual(["a"]);
   });
 });

@@ -1,7 +1,7 @@
 import type { AvailabilityResult, Cabin, Currency, Segment } from "../models/availability.js";
 import type { SourceQuotaObservation } from "../models/task.js";
 import { PROGRAM_SEEDS } from "../models/program.js";
-import { collapseBy } from "./collapse.js";
+import { betterItinerary, collapseBy } from "./collapse.js";
 import type { Collapsible } from "../models/offer.js";
 import { BlockedError, makeTransport, type FetchLike } from "./transport.js";
 import { addDaysISO, chunkDateRange, effectiveSearchWindow } from "../util/dates.js";
@@ -13,6 +13,7 @@ import {
   SEATSAERO_HORIZON_DAYS,
   SEATSAERO_MAX_CAPTURE_BYTES,
   SEATSAERO_MAX_CHUNKS,
+  SEATSAERO_MAX_CONTINUATIONS,
   SEATSAERO_MAX_PAGES,
   SEATSAERO_REDACTED,
   SEATSAERO_SOURCE_ID,
@@ -130,11 +131,13 @@ export const SEATSAERO_PROGRAM_MAP: Record<string, string> = {
   turkish: "turkish",
   united: "united",
   virginatlantic: "virginatlantic",
-  // The Avios family — three programs seats.aero carries, one currency pool,
-  // one programs.code. Note `british`, NOT `britishairways`.
-  qatar: "avios",
-  british: "avios",
-  iberia: "avios",
+  // The Avios family shares a currency pool but not inventory, seat counts or
+  // routings, and the snapshot row is keyed by program — so each stays its own
+  // program rather than collapsing to the cheapest of the three. Note `british`,
+  // NOT `britishairways`.
+  qatar: "qatar",
+  british: "british",
+  iberia: "iberia",
 };
 
 /** The `sources` query param: ask for exactly the programs we can store, so the
@@ -308,6 +311,10 @@ export interface NormalizeResult {
   /** Max `flightDate` actually seen. The runner narrows its coverage
    *  claim to this when pagination was truncated. */
   maxDate?: string;
+  /** Rows skipped for lacking a route or a date, and cabins flagged available
+   *  at zero miles. Counted so a payload change is a number, not silence. */
+  droppedMalformed: number;
+  droppedUnpriced: number;
 }
 
 /**
@@ -327,6 +334,8 @@ export function normalizeSeatsAero(
 ): NormalizeResult {
   const offers: AvailabilityResult[] = [];
   const droppedSources: Record<string, number> = {};
+  let droppedMalformed = 0;
+  let droppedUnpriced = 0;
   let maxDate: string | undefined;
 
   for (const a of resp.data ?? []) {
@@ -338,14 +347,15 @@ export function normalizeSeatsAero(
     }
 
     const flightDate = isoDate(a.Date ?? a.ParsedDate);
-    if (!flightDate) continue;
-
     // Off the payload's own Route, never off the request: seats.aero answers a
     // multi-airport query with rows for whichever airports it has, and the
     // ingest pipeline keys coverage and pruning on the route it is told.
     const origin = String(a.Route?.OriginAirport ?? "").toUpperCase();
     const destination = String(a.Route?.DestinationAirport ?? "").toUpperCase();
-    if (!origin || !destination) continue;
+    if (!flightDate || !origin || !destination) {
+      droppedMalformed++;
+      continue;
+    }
 
     if (!maxDate || flightDate > maxDate) maxDate = flightDate;
 
@@ -384,7 +394,10 @@ export function normalizeSeatsAero(
     for (const { letter, cabin } of CABIN_LETTERS) {
       if (!truthy(a[`${letter}Available`])) continue;
       const milesCost = num(a[`${letter}MileageCost`]);
-      if (!milesCost || milesCost <= 0) continue;
+      if (!milesCost || milesCost <= 0) {
+        droppedUnpriced++;
+        continue;
+      }
 
       const airlines = splitAirlines(a[`${letter}Airlines`]);
       const directAirlines = splitAirlines(a[`${letter}DirectAirlines`]);
@@ -404,9 +417,10 @@ export function normalizeSeatsAero(
       const segments: Segment[] = detail
         ? detail.segments
         : [{ from: origin, to: destination, carrier: summaryCarrier, cabin }];
-      // With a real itinerary in hand, directness is a fact about THIS award
-      // rather than about the cabin. Without one, the row's flag is all there is.
-      const isDirect = detail ? detail.stops === 0 : nonstopExists;
+      // "A nonstop exists in this cabin", which is what every reader of
+      // `is_direct` asks. The chosen itinerary is the cheapest, and a cheaper
+      // connection must not hide the nonstop from a nonstop-only route.
+      const isDirect = nonstopExists || detail?.stops === 0;
 
       offers.push({
         origin,
@@ -415,10 +429,10 @@ export function normalizeSeatsAero(
         program,
         cabin,
         // 0 means "this program doesn't report seat counts" (AA, Emirates), not
-        // "no seats" — `Available` already told us there is at least one. Storing
-        // the literal 0 would make every such row invisible to any minSeats
-        // filter, which is the opposite of what the payload says.
-        seatsAvailable: Math.max(1, num(a[`${letter}RemainingSeats`])),
+        // "no seats" — `Available` already told us there is at least one. It is
+        // stored as 0, and every seat filter reads 0 as unknown and lets it
+        // through: a count nobody reported must not fail a minimum.
+        seatsAvailable: num(a[`${letter}RemainingSeats`]),
         milesCost,
         cashFeesCents: Math.round(num(a[`${letter}TotalTaxes`])),
         feesCurrency,
@@ -449,7 +463,7 @@ export function normalizeSeatsAero(
     }
   }
 
-  return { offers, droppedSources, maxDate };
+  return { offers, droppedSources, maxDate, droppedMalformed, droppedUnpriced };
 }
 
 // --- planning and running a search -----------------------------------------
@@ -632,6 +646,13 @@ export async function runSeatsAeroChunk(
   let truncated = false;
   let cursor: number | string | undefined;
   let pages = 0;
+  let droppedMalformed = 0;
+  let droppedUnpriced = 0;
+  // Pagination restarts from the last date seen when the page cap is hit, so
+  // the window being asked for narrows as the chunk proceeds.
+  let startDate = chunk.start;
+  let pagesInWindow = 0;
+  let continuations = 0;
 
   // The key must never reach a capture: these records are streamed to a browser
   // and summarised into D1.
@@ -666,7 +687,7 @@ export async function runSeatsAeroChunk(
     const url = buildSearchUrl({
       origin: opts.origin,
       destination: opts.destination,
-      startDate: chunk.start,
+      startDate,
       endDate: chunk.end,
       includeTrips,
       take: seatsAeroTake(includeTrips),
@@ -738,13 +759,33 @@ export async function runSeatsAeroChunk(
     for (const [src, n] of Object.entries(norm.droppedSources)) {
       dropped[src] = (dropped[src] ?? 0) + n;
     }
+    droppedMalformed += norm.droppedMalformed;
+    droppedUnpriced += norm.droppedUnpriced;
     if (norm.maxDate && (!maxDate || norm.maxDate > maxDate)) maxDate = norm.maxDate;
 
     pages++;
-    if (!body.hasMore || body.cursor == null) break;
-    if (pages >= SEATSAERO_MAX_PAGES) {
+    pagesInWindow++;
+    if (!body.hasMore) break;
+    // More remains but there is no way to ask for it: the same truncation as
+    // running out of pages, and it must narrow the claim the same way.
+    if (body.cursor == null) {
       truncated = true;
       break;
+    }
+    if (pagesInWindow >= SEATSAERO_MAX_PAGES) {
+      // Restart from the furthest date seen rather than stopping: the rows
+      // beyond it exist and nothing else will ever ask for them. Only when the
+      // last window made no progress — a single date wider than the cap — or the
+      // continuations are spent does the chunk give up.
+      if (continuations >= SEATSAERO_MAX_CONTINUATIONS || !maxDate || maxDate <= startDate) {
+        truncated = true;
+        break;
+      }
+      continuations++;
+      startDate = maxDate;
+      pagesInWindow = 0;
+      cursor = undefined;
+      continue;
     }
     cursor = body.cursor;
   }
@@ -753,15 +794,18 @@ export async function runSeatsAeroChunk(
   // by departure date (`buildSearchUrl` leaves `order_by` at its default
   // precisely so this holds), so a truncated read loses the FAR end of the window
   // and only the far end — claiming the whole chunk anyway would let a later
-  // prune delete real finds on dates we never actually saw.
+  // prune delete real finds on dates we never actually saw. The last date seen
+  // is excluded too: the page ended somewhere inside it.
   let coveredDates = chunkDates;
   if (truncated) {
-    coveredDates = maxDate ? chunkDates.filter((d) => d <= maxDate!) : [];
+    coveredDates = maxDate ? chunkDates.filter((d) => d < maxDate!) : [];
     notes.push(
-      `paginated out at ${SEATSAERO_MAX_PAGES} pages with more remaining — coverage narrowed to ${
+      `paginated out after ${pages} pages with more remaining — coverage narrowed to ${
         coveredDates.length
-      }/${chunkDates.length} dates (through ${maxDate ?? "none"})`,
+      }/${chunkDates.length} dates (before ${maxDate ?? "none"})`,
     );
+  } else if (continuations) {
+    notes.push(`continued pagination ${continuations}× from the last date seen`);
   }
 
   if (quota) {
@@ -783,6 +827,8 @@ export async function runSeatsAeroChunk(
         .join(", ")}`,
     );
   }
+  if (droppedMalformed) notes.push(`dropped ${droppedMalformed} rows with no route or date`);
+  if (droppedUnpriced) notes.push(`dropped ${droppedUnpriced} cabins flagged available at zero miles`);
 
   // Recorded, not buried. `include_trips` puts the routing on the search
   // response for free, but it is not guaranteed per row — so say how many rows
@@ -1114,17 +1160,18 @@ export function collapseTripsByCabin(
       durationMinutes: typeof t.TotalDuration === "number" ? t.TotalDuration : undefined,
       bookingUrl,
       milesCost,
-      seatsAvailable: Math.max(1, num(t.RemainingSeats)),
+      seatsAvailable: num(t.RemainingSeats),
       // `Collapsible`'s remaining fields. flightDate is constant across the
       // trips under one availability, so it plays no part in the ordering.
       flightDate: "",
     });
   }
 
-  // The shared rule, not a local one: cheapest miles (already equal), then most
-  // seats, then fewest stops, then shortest. Reusing it is what keeps a detailed
-  // row's itinerary consistent with the one ingest would have picked.
-  const details = collapseBy(candidates, (c) => c.cabin).map(
+  // Every candidate costs the same, so the choice is about the aeroplane:
+  // fewest stops first, because `is_direct` says a nonstop exists and the row's
+  // legs should show it when one is on offer at this price. Shared by both
+  // paths that turn trips into detail, so ingest and enrichment pick alike.
+  const details = collapseBy(candidates, (c) => c.cabin, betterItinerary).map(
     ({ cabin, segments, stops, durationMinutes, bookingUrl: url, milesCost, seatsAvailable }) => ({
       cabin,
       segments,

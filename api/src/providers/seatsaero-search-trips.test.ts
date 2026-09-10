@@ -212,3 +212,60 @@ describe("normalizeSeatsAero — trips embedded in the search", () => {
     expect(norm.droppedSources.azul).toBe(1);
   });
 });
+
+describe("normalizeSeatsAero — is_direct means a nonstop EXISTS", () => {
+  const avail = (trips: Record<string, unknown>[]) => ({
+    data: [
+      {
+        ID: "x",
+        Date: "2026-12-08",
+        Source: "alaska",
+        Route: { OriginAirport: "SFO", DestinationAirport: "NRT", Source: "alaska" },
+        YAvailable: true,
+        YMileageCost: "37500",
+        YRemainingSeats: 2,
+        YDirect: true,
+        YDirectMileageCost: 45000,
+        YDirectAirlines: "JL",
+        YAirlines: "AS, JL",
+        AvailabilityTrips: trips,
+      },
+    ],
+  });
+  const trip = (over: Record<string, unknown>) => ({
+    AvailabilityID: "x",
+    Cabin: "economy",
+    MileageCost: 37500,
+    RemainingSeats: 2,
+    OriginAirport: "SFO",
+    DestinationAirport: "NRT",
+    ...over,
+  });
+
+  it("stays direct when the cheapest itinerary connects", () => {
+    // The row says a nonstop exists at 45,000; the 37,500 award is a connection.
+    // A nonstop-only route must still see this date — the readers of
+    // `is_direct` ask whether a nonstop exists, not which trip is cheapest.
+    const out = normalizeSeatsAero(
+      avail([trip({ Stops: 1, Connections: ["SEA"], FlightNumbers: "AS515, JL67" })]),
+      "seatsaero",
+      999,
+    ).offers[0]!;
+    expect(out.isDirect).toBe(true);
+    expect(out.stops).toBe(1);
+    expect(out.directMilesCost).toBe(45000);
+  });
+
+  it("prefers the nonstop among equally priced trips, whatever the seat counts", () => {
+    const out = normalizeSeatsAero(
+      avail([
+        trip({ Stops: 1, RemainingSeats: 6, Connections: ["SEA"], FlightNumbers: "AS515, JL67" }),
+        trip({ Stops: 0, RemainingSeats: 2, FlightNumbers: "JL1" }),
+      ]),
+      "seatsaero",
+      999,
+    ).offers[0]!;
+    expect(out.stops).toBe(0);
+    expect(out.segments.map((s) => s.flightNumber)).toEqual(["JL1"]);
+  });
+});

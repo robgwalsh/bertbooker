@@ -109,6 +109,7 @@ export {
   SEATSAERO_CHUNK_DAYS,
   SEATSAERO_MAX_CHUNKS,
   SEATSAERO_MAX_PAGES,
+  SEATSAERO_MAX_PAGES_PER_TASK,
   SEATSAERO_SOURCE_ID,
 } from "../../../api/src/models/wire/index.js";
 

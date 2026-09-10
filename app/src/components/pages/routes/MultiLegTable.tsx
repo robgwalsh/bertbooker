@@ -25,7 +25,7 @@ import { useAirportNames } from "../../../hooks/useAirportNames";
 import { BookableCurrencies } from "../../brand/BookableCurrencies";
 import { CabinChip } from "../../brand/CabinChip";
 import { DATE_CELL_WIDTH } from "../../../lib/layout";
-import { dayLabel, formatDuration } from "../../../lib/format";
+import { dayLabel, formatDuration, seatCount } from "../../../lib/format";
 import { useIsPhone } from "../../../hooks/useBreakpoints";
 
 // Getting there in two stored legs, when the pair itself is in no program's
@@ -281,7 +281,7 @@ function JourneyRows({
               <>
                 <TableCell rowSpan={j.legs.length} align="right" sx={SPAN_CELL}>
                   <Tooltip title={seatsTitle(j)}>
-                    <span>{j.seats}</span>
+                    <span>{seatCount(j.seats)}</span>
                   </Tooltip>
                 </TableCell>
                 <TableCell
@@ -343,7 +343,7 @@ function JourneyCard({ j }: { j: Journey }) {
           </Typography>
           <Tooltip title={seatsTitle(j)}>
             <Typography variant="body2" color="text.secondary" sx={{ cursor: "help" }}>
-              {j.seats} seat{j.seats === 1 ? "" : "s"}
+              {seatCount(j.seats)} seat{j.seats === 1 ? "" : "s"}
             </Typography>
           </Tooltip>
           {j.mixed && <TwoAwardsChip />}
@@ -436,7 +436,7 @@ function TwoAwardsChip() {
 }
 
 const seatsTitle = (j: Journey): string =>
-  `The lowest leg's (${j.legs.map((l) => l.find.seats_available).join(", ")}) — a journey needs seats on every leg.`;
+  `The lowest leg's (${j.legs.map((l) => seatCount(l.find.seats_available)).join(", ")}) — a journey needs seats on every leg.`;
 
 /** What is known about the gap before a leg. An unknown one says so: a summary
  *  row carries no times at all, and printing "0m" would invent a connection. */

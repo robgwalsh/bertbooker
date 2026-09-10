@@ -73,10 +73,14 @@ const routeRow = (id: number, over: Record<string, unknown> = {}) => ({
 function stubDb(
   rows: ReturnType<typeof routeRow>[],
   quota: { spent: number; allowancePct?: number },
+  finds: Record<string, unknown>[] = [],
 ) {
+  /** Every batched statement's SQL, so a test can see what was filed. */
+  const batched: string[] = [];
   const answer = (sql: string): { results: Record<string, unknown>[] } => {
     if (sql.includes("FROM tracked_routes tr") && sql.includes("alerts_enabled = 1"))
       return { results: rows as unknown as Record<string, unknown>[] };
+    if (sql.includes("FROM finds f")) return { results: finds };
     if (sql.includes("FROM source_quota")) return { results: [] };
     if (sql.includes("SUM(calls)")) return { results: [{ spent: quota.spent }] };
     // No row is the default allowance, 80% of the assumed 1000 — an 800 budget.
@@ -101,15 +105,19 @@ function stubDb(
     };
     return self;
   };
-  return {
+  const db = {
     prepare: stmt,
-    batch: async (stmts: { __sql: string }[]) => stmts.map((s) => answer(s.__sql)),
+    batch: async (stmts: { __sql: string }[]) => {
+      batched.push(...stmts.map((s) => s.__sql));
+      return stmts.map((s) => answer(s.__sql));
+    },
   } as unknown as D1Database;
+  return { db, batched };
 }
 
 const env = (rows: ReturnType<typeof routeRow>[], spent = 0, allowancePct?: number) =>
   ({
-    DB: stubDb(rows, { spent, allowancePct }),
+    DB: stubDb(rows, { spent, allowancePct }).db,
     APP_USER_EMAIL: "a@example.com",
     SEATS_AERO_API_KEY: "k",
   }) as never;
@@ -195,5 +203,81 @@ describe("runAlertTick — the tick sweeps to its CALL cap, not to one route", (
     const result = await runAlertTick(env(rows, 1000));
     expect(result.sweptRouteIds).toEqual([]);
     expect(result.skipped).toEqual([{ routeId: 1, reason: "exhausted" }]);
+  });
+});
+
+describe("runAlertTick — what a pass files", () => {
+  const found = {
+    origin: "PIT",
+    destination: "SLC",
+    flight_date: soon(61),
+    program: "alaska",
+    cabin: "business",
+    transfer_currencies: "[]",
+    is_direct: 1,
+    miles_cost: 50_000,
+    seats_available: 2,
+  };
+  const change = {
+    type: "new" as const,
+    key: `PIT-SLC-${found.flight_date}|alaska|business`,
+    flightDate: found.flight_date,
+    program: "alaska",
+    cabin: "business",
+    origin: "PIT",
+    destination: "SLC",
+    milesCost: 50_000,
+    seatsAvailable: 2,
+  };
+  const filed = (batched: string[]) => batched.filter((sql) => sql.includes("INSERT INTO alert_outbox"));
+  const envOf = (db: D1Database) =>
+    ({ DB: db, APP_USER_EMAIL: "a@example.com", SEATS_AERO_API_KEY: "k" }) as never;
+
+  beforeEach(() => {
+    runSearchPass.mockReset();
+  });
+
+  it("files a PAUSED pass's changes rather than waiting for the run to finish", async () => {
+    // Nothing re-reads an earlier pass: the resumed pass reports only its own
+    // changes, so waiting would drop what the first tasks found. The outbox is
+    // never flushed while the run is still running, so nothing is emailed early.
+    runSearchPass.mockResolvedValue({ ...passResult(25, true), changes: [change] });
+    const { db, batched } = stubDb([routeRow(1, { observed_calls: 25 })], { spent: 0 }, [found]);
+    await runAlertTick(envOf(db));
+    expect(filed(batched)).toHaveLength(1);
+  });
+
+  it("files nothing for a paused BASELINE sweep", async () => {
+    runSearchPass.mockResolvedValue({ ...passResult(25, true), changes: [change] });
+    const { db, batched } = stubDb(
+      [routeRow(1, { observed_calls: 25, alert_last_digest_at: null })],
+      { spent: 0 },
+      [found],
+    );
+    await runAlertTick(envOf(db));
+    expect(filed(batched)).toHaveLength(0);
+  });
+});
+
+describe("runAlertTick — a cycle the day cannot afford", () => {
+  beforeEach(() => {
+    runSearchPass.mockReset();
+    runSearchPass.mockResolvedValue(passResult(1));
+  });
+
+  it("still sweeps the routes the budget guard lets through", async () => {
+    // One unmeasured wide route prices the cycle past the allowance. Refusing
+    // the whole cycle would switch every cheap route's alerts off with it.
+    const rows = [
+      routeRow(1, { observed_calls: null, via: '["ICN","DEL","HKG"]', date_end: soon(360) }),
+      routeRow(2),
+      routeRow(3),
+    ];
+    // A 20% allowance is 200 calls; the unmeasured hub route alone is priced
+    // well past it, and the two measured routes cost one call each.
+    const result = await runAlertTick(env(rows, 0, 20));
+    expect(result.pacing).toBe("cycle_exceeds_budget");
+    expect(result.sweptRouteIds).toEqual(expect.arrayContaining([2, 3]));
+    expect(result.skipped.map((s) => s.routeId)).toEqual([1]);
   });
 });

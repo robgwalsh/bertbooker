@@ -6,7 +6,7 @@
 // allowed to differ; what they must not differ on is the constants, which is
 // why those are imported rather than copied.
 
-import { SEATSAERO_CHUNK_DAYS, SEATSAERO_MAX_CHUNKS, SEATSAERO_MAX_PAGES } from "../../../api";
+import { SEATSAERO_CHUNK_DAYS, SEATSAERO_MAX_CHUNKS, SEATSAERO_MAX_PAGES_PER_TASK } from "../../../api";
 
 export interface RouteShape {
   origins: string[];
@@ -45,5 +45,5 @@ export function estimateCalls(
         return both.size * both.size - both.size;
       })()
     : form.origins.length * form.destinations.length;
-  return { pairs, chunks, floor: chunks, ceiling: chunks * SEATSAERO_MAX_PAGES };
+  return { pairs, chunks, floor: chunks, ceiling: chunks * SEATSAERO_MAX_PAGES_PER_TASK };
 }

@@ -42,10 +42,7 @@ describe("describeChange", () => {
     expect(s).toContain("90,000 → 60,000");
   });
 
-  it("mentions a price that fell alongside a seat increase", () => {
-    // The classifier is first-match-wins, so a drop coinciding with more seats
-    // arrives labelled `more_seats`. Without this the cheaper price — the thing
-    // you actually care about — would go unmentioned in the one email about it.
+  it("names the seat change and the price it holds at", () => {
     const s = describeChange(
       change({
         type: "more_seats",
@@ -53,11 +50,16 @@ describe("describeChange", () => {
         seatsAvailable: 4,
         previousSeats: 2,
         milesCost: 60000,
-        previousMilesCost: 90000,
+        previousMilesCost: 60000,
       }),
     );
     expect(s).toContain("2 → 4 seats");
-    expect(s).toContain("90,000 → 60,000");
+    expect(s).toContain("60,000");
+  });
+
+  it("shows an unreported seat count as a question mark", () => {
+    const s = describeChange(change({ type: "new", key: "k", milesCost: 60000, seatsAvailable: 0 }));
+    expect(s).toContain("? seats");
   });
 
   it("survives a summary with no origin/destination", () => {

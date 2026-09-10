@@ -30,6 +30,16 @@ export function betterOffer<T extends Collapsible>(a: T, b: T): boolean {
   return (a.durationMinutes ?? Infinity) < (b.durationMinutes ?? Infinity);
 }
 
+/** Among itineraries at ONE price: fewest stops, then more seats, then shorter.
+ *  Pure and total. */
+export function betterItinerary<T extends Collapsible>(a: T, b: T): boolean {
+  const aStops = a.stops ?? (a.segments.length ? a.segments.length - 1 : 9);
+  const bStops = b.stops ?? (b.segments.length ? b.segments.length - 1 : 9);
+  if (aStops !== bStops) return aStops < bStops;
+  if (a.seatsAvailable !== b.seatsAvailable) return a.seatsAvailable > b.seatsAvailable;
+  return (a.durationMinutes ?? Infinity) < (b.durationMinutes ?? Infinity);
+}
+
 /**
  * Keep the single best item per key.
  *
@@ -43,12 +53,16 @@ export function betterOffer<T extends Collapsible>(a: T, b: T): boolean {
  * (date, cabin); ingest sees many programs at once and keys on
  * (date, program, cabin). Pure.
  */
-export function collapseBy<T extends Collapsible>(items: T[], key: (item: T) => string): T[] {
+export function collapseBy<T extends Collapsible>(
+  items: T[],
+  key: (item: T) => string,
+  better: (a: T, b: T) => boolean = betterOffer,
+): T[] {
   const best = new Map<string, T>();
   for (const item of items) {
     const k = key(item);
     const cur = best.get(k);
-    if (!cur || betterOffer(item, cur)) best.set(k, item);
+    if (!cur || better(item, cur)) best.set(k, item);
   }
   return [...best.values()];
 }

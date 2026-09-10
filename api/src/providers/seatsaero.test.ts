@@ -11,6 +11,7 @@ import {
   datesIn,
   seatsAeroHeaders,
   seatsAeroTaskKey,
+  SEATSAERO_MAX_CONTINUATIONS,
   SEATSAERO_MAX_PAGES,
   SEATSAERO_REDACTED,
   type SeatsAeroCall,
@@ -40,9 +41,9 @@ describe("SEATSAERO_PROGRAM_MAP", () => {
     for (const code of SEATSAERO_PROGRAMS) expect(seeded.has(code)).toBe(true);
   });
 
-  it("folds the Avios family onto one program code", () => {
+  it("keeps the Avios family apart — one code would keep only the cheapest per slot", () => {
     for (const s of ["qatar", "british", "iberia"]) {
-      expect(SEATSAERO_PROGRAM_MAP[s]).toBe("avios");
+      expect(SEATSAERO_PROGRAM_MAP[s]).toBe(s);
     }
   });
 
@@ -181,13 +182,13 @@ describe("normalizeSeatsAero", () => {
     expect(norm.droppedSources).toEqual({ smiles: 1 });
   });
 
-  it("treats RemainingSeats 0 as unknown, not as no seats", () => {
+  it("keeps RemainingSeats 0 as the unknown it is", () => {
     // American reports no seat counts at all. `YAvailable: true` already said
-    // there is space, so storing the literal 0 would hide the row from every
-    // minSeats filter. Confirmed live: 21 of 200 rows in one page look like this.
+    // there is space; the 0 is stored and every seat filter reads it as
+    // unknown. Confirmed live: 21 of 200 rows in one page look like this.
     const aa = norm.offers.find((o) => o.program === "aadvantage")!;
     expect((resp.data ?? [])[1]!.YRemainingSeats).toBe(0);
-    expect(aa.seatsAvailable).toBe(1);
+    expect(aa.seatsAvailable).toBe(0);
   });
 
   it("drops a cabin flagged available but priced at zero miles", () => {
@@ -225,8 +226,8 @@ describe("normalizeSeatsAero", () => {
   it("derives bookableWith from our transfer table", () => {
     const as = norm.offers.find((o) => o.program === "alaska")!;
     expect(as.bookableWith).toEqual(["bilt"]);
-    // Qatar folds onto avios, which every currency reaches.
-    const avios = norm.offers.find((o) => o.program === "avios")!;
+    // Qatar is Avios, which every currency reaches.
+    const avios = norm.offers.find((o) => o.program === "qatar")!;
     expect(avios.bookableWith!.sort()).toEqual([
       "amex_mr",
       "bilt",
@@ -412,10 +413,39 @@ describe("runSeatsAeroChunk", () => {
     expect(urls[1]).toContain("cursor=77");
   });
 
-  it("NARROWS the coverage claim when it paginates out with more remaining", async () => {
+  it("CONTINUES from the last date seen when it paginates out, and then claims the whole chunk", async () => {
+    // Ten pages is a cap on one query, not on the window: the rows past it
+    // exist, and stopping would leave the far end of every chunk unfetched on
+    // every sweep. The restart asks from the furthest date seen with no cursor.
+    const more = { ...PAGE, hasMore: true, cursor: 1 };
+    const urls: string[] = [];
+    const impl = async (url: string) => {
+      urls.push(url);
+      const restarted = new URL(url).searchParams.get("start_date") === "2026-10-01";
+      return new Response(JSON.stringify(restarted ? { ...PAGE, hasMore: false } : more), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const c = chunk();
+    const out = await runSeatsAeroChunk(c, { ...ROUTE, apiKey: "k", transport: transportOver(impl) });
+
+    expect(urls).toHaveLength(SEATSAERO_MAX_PAGES + 1);
+    const restart = new URL(urls[SEATSAERO_MAX_PAGES]!).searchParams;
+    expect(restart.get("start_date")).toBe("2026-10-01");
+    expect(restart.get("end_date")).toBe(c.end);
+    expect(restart.get("cursor")).toBeNull();
+    expect(out.truncated).toBe(false);
+    expect(out.coveredDates).toEqual(datesIn(c.start, c.end));
+    expect(out.pages).toBe(SEATSAERO_MAX_PAGES + 1);
+  });
+
+  it("NARROWS the coverage claim to BEFORE the last date seen when the continuations run out", async () => {
     // Results are ordered by departure date, so a truncated read loses the far
     // end of the window. Claiming the whole chunk anyway would let a later prune
-    // delete real finds on dates we never saw.
+    // delete real finds on dates we never saw — and the last date seen was cut
+    // mid-way, so it is not claimed either. A window that makes no progress
+    // (one date wider than the cap) stops the continuations early.
     const endless = { ...PAGE, hasMore: true, cursor: 1 };
     const { impl, urls } = stubFetch([endless]);
     const c = chunk();
@@ -425,11 +455,43 @@ describe("runSeatsAeroChunk", () => {
       transport: transportOver(impl),
     });
 
-    expect(urls).toHaveLength(SEATSAERO_MAX_PAGES);
+    expect(urls).toHaveLength(2 * SEATSAERO_MAX_PAGES);
     expect(out.truncated).toBe(true);
     expect(out.coveredDates.length).toBeLessThan(datesIn(c.start, c.end).length);
-    expect(out.coveredDates.at(-1)).toBe("2026-10-01"); // furthest date seen
+    expect(out.coveredDates.at(-1)).toBe("2026-09-30");
+    expect(out.coveredDates).not.toContain("2026-10-01");
     expect(out.notes.some((n) => n.includes("coverage narrowed"))).toBe(true);
+  });
+
+  it("gives up after SEATSAERO_MAX_CONTINUATIONS windows that each fill their pages", async () => {
+    const urls: string[] = [];
+    let window = 0;
+    let inWindow = 0;
+    const impl = async (url: string) => {
+      urls.push(url);
+      if (!new URL(url).searchParams.has("cursor")) {
+        window++;
+        inWindow = 0;
+      }
+      inWindow++;
+      // Each window sees one date further than the last, so every restart makes
+      // progress and only the continuation cap can stop it.
+      const date = `2026-09-${String(10 + window).padStart(2, "0")}`;
+      const body = { data: [row("alaska", date)], count: 1, hasMore: true, cursor: inWindow };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const out = await runSeatsAeroChunk(chunk(), { ...ROUTE, apiKey: "k", transport: transportOver(impl) });
+    expect(urls).toHaveLength(SEATSAERO_MAX_PAGES * (1 + SEATSAERO_MAX_CONTINUATIONS));
+    expect(out.truncated).toBe(true);
+    expect(out.coveredDates.at(-1)).toBe(`2026-09-${10 + SEATSAERO_MAX_CONTINUATIONS}`);
+  });
+
+  it("treats hasMore without a cursor as truncation, not as the end", async () => {
+    const { impl } = stubFetch([{ ...PAGE, hasMore: true, cursor: null }]);
+    const c = chunk();
+    const out = await runSeatsAeroChunk(c, { ...ROUTE, apiKey: "k", transport: transportOver(impl) });
+    expect(out.truncated).toBe(true);
+    expect(out.coveredDates.length).toBeLessThan(datesIn(c.start, c.end).length);
   });
 
   it("throws rather than returning empty when the API refuses", async () => {

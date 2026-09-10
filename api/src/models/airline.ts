@@ -61,7 +61,7 @@ export const AIRLINE_SEEDS: AirlineSeed[] = [
   { code: "NZ", name: "Air New Zealand", country: "NZ", alliance: "star", partners: [] },
   { code: "CA", name: "Air China", country: "CN", alliance: "star", partners: ["virginatlantic"] },
 
-  // ---- oneworld (avios / aadvantage / alaska / cathay / qantas) ----
+  // ---- oneworld (british / iberia / qatar / aadvantage / alaska / cathay / qantas) ----
   { code: "AA", name: "American Airlines", country: "US", alliance: "oneworld", partners: [] },
   { code: "BA", name: "British Airways", country: "GB", alliance: "oneworld", partners: [] },
   { code: "IB", name: "Iberia", country: "ES", alliance: "oneworld", partners: [] },
@@ -75,7 +75,7 @@ export const AIRLINE_SEEDS: AirlineSeed[] = [
   { code: "RJ", name: "Royal Jordanian", country: "JO", alliance: "oneworld", partners: [] },
   { code: "AT", name: "Royal Air Maroc", country: "MA", alliance: "oneworld", partners: [] },
   // IAG, but not a oneworld member since 2007 — Avios is the way in.
-  { code: "EI", name: "Aer Lingus", country: "IE", alliance: null, partners: ["avios", "jetblue"] },
+  { code: "EI", name: "Aer Lingus", country: "IE", alliance: null, partners: ["british", "iberia", "qatar", "jetblue"] },
 
   // ---- SkyTeam (flyingblue) ----
   { code: "DL", name: "Delta Air Lines", country: "US", alliance: "skyteam", partners: ["virginatlantic"] },
@@ -98,7 +98,7 @@ export const AIRLINE_SEEDS: AirlineSeed[] = [
   // ---- No alliance ----
   { code: "EK", name: "Emirates", country: "AE", alliance: null, partners: ["emirates", "aeroplan", "qantas", "jetblue"] },
   { code: "EY", name: "Etihad Airways", country: "AE", alliance: null, partners: ["etihad", "aeroplan", "aadvantage"] },
-  { code: "B6", name: "JetBlue", country: "US", alliance: null, partners: ["jetblue", "avios", "emirates", "etihad", "singapore"] },
+  { code: "B6", name: "JetBlue", country: "US", alliance: null, partners: ["jetblue", "british", "iberia", "qatar", "emirates", "etihad", "singapore"] },
   { code: "HA", name: "Hawaiian Airlines", country: "US", alliance: null, partners: ["alaska", "virginatlantic"] },
   { code: "VA", name: "Virgin Australia", country: "AU", alliance: null, partners: ["virginatlantic", "singapore", "united"] },
   { code: "FJ", name: "Fiji Airways", country: "FJ", alliance: null, partners: ["alaska", "qantas"] },

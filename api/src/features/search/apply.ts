@@ -65,14 +65,16 @@ export function diffAvailability(
   const currByKey = new Map(current.map((r) => [changeKey(r), r] as const));
   const changes: AvailabilityChange[] = [];
 
+  // Price before seats: a drop that arrives with more seats is still a drop,
+  // and the default alert set fires on drops, not on seat counts.
   for (const [key, cur] of currByKey) {
     const prev = prevByKey.get(key);
     if (!prev) {
       changes.push({ type: "new", current: cur, key });
-    } else if (cur.seatsAvailable > prev.seatsAvailable) {
-      changes.push({ type: "more_seats", current: cur, previous: prev, key });
     } else if (cur.milesCost < prev.milesCost) {
       changes.push({ type: "price_drop", current: cur, previous: prev, key });
+    } else if (cur.seatsAvailable > prev.seatsAvailable) {
+      changes.push({ type: "more_seats", current: cur, previous: prev, key });
     }
   }
 

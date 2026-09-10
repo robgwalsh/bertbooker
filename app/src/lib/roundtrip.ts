@@ -1,5 +1,6 @@
 import type { Find, TrackedRoute } from "../api";
 import { addDaysISO, daysBetween, routeSets } from "./routeShape";
+import { fewestSeats } from "./format";
 
 /**
  * Pairing stored one-way finds into round trips.
@@ -253,7 +254,7 @@ export function pairRoundTrips(
       cabin: o.cabin,
       totalMiles,
       totalFeesCents: o.cash_fees_cents + i.cash_fees_cents,
-      seats: Math.min(o.seats_available, i.seats_available),
+      seats: fewestSeats([o.seats_available, i.seats_available]),
     });
   };
 

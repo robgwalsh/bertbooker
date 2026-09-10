@@ -1,4 +1,4 @@
-import { dueRoutes, routeSweepCost, sweepPacing } from "./pace.js";
+import { MAX_SWEEP_MINUTES, dueRoutes, routeSweepCost, sweepPacing } from "./pace.js";
 import { parseAlertTypes, selectAlertable } from "./select.js";
 import { alertRouteCosts, alertRouteRows, parseList, type AlertRouteRow } from "./alertRoutes.js";
 import { cycleComplete, flushOutbox, pruneOldRuns } from "./outbox.js";
@@ -17,6 +17,7 @@ import type { Cabin } from "../../models/availability.js";
 import type { Env } from "../../bindings.js";
 import { selectMatchableFinds } from "../../db/finds.js";
 import { selectSetting } from "../../db/settings.js";
+import { selectProgramCurrencies } from "../../db/programs.js";
 import {
   bumpAlertFailures,
   clearAlertFailures,
@@ -114,18 +115,20 @@ export async function runAlertTick(
   const { dailyBudget, reserve, maxCallsPerTick } = await readAlertBudget(env, now);
 
   const pacing = sweepPacing({ routes: [...costFor.values()], dailyBudget });
-  if (!pacing.affordable && opts.force === undefined) {
-    // Not a clamp and not a throw. An unaffordable set is a real state the
-    // Alerts tab renders; sweeping anyway would spend the reserve a manual
-    // search depends on.
+  if (!pacing.affordable && pacing.reason === "no_routes" && opts.force === undefined) {
     result.pacing = pacing.reason;
     return result;
   }
   // Reported either way, so a forced sweep out of `cycle_exceeds_budget` still
   // names the state it was forced out of rather than presenting itself as normal.
   result.pacing = pacing.affordable ? `every ${pacing.intervalMinutes}m` : pacing.reason;
+  // A cycle the day cannot afford still sweeps what it can: `decideSweep` guards
+  // every route against the reserve and the allowance, and one wide route must
+  // not switch every cheap route's alerts off. Daily is the slowest cadence.
+  const intervalMinutes = pacing.affordable ? pacing.intervalMinutes : MAX_SWEEP_MINUTES;
 
   const byId = new Map(routes.map((r) => [r.id, r] as const));
+  const currenciesByProgram = await selectProgramCurrencies(env.DB);
 
   // ---- sweep the due routes, until the tick's CALL budget is spent -------
   // See the docblock: 30 seconds of CPU is the constraint and parsing pages is
@@ -151,7 +154,7 @@ export async function runAlertTick(
     } else {
       targets = [forced];
     }
-  } else if (pacing.affordable) {
+  } else {
     // Most overdue first, so a tick that runs out of calls part-way through
     // starves the route that has waited least rather than an arbitrary one.
     targets = dueRoutes(
@@ -162,7 +165,7 @@ export async function runAlertTick(
         lastCheckedAt: r.last_checked_at,
         consecutiveFailures: r.alert_consecutive_failures,
       })),
-      pacing.intervalMinutes,
+      intervalMinutes,
       now,
     ).flatMap((d) => byId.get(d.routeId) ?? []);
   }
@@ -203,6 +206,7 @@ export async function runAlertTick(
       now,
       maxCalls: callsLeft,
       deadlineAt: opts.deadlineAt,
+      currenciesByProgram,
     });
     callsLeft -= spent;
     result.sweptRouteIds.push(target.id);
@@ -244,7 +248,12 @@ export async function runAlertTick(
 async function sweepRoute(
   env: Env,
   route: AlertRouteRow,
-  opts: { now: number; maxCalls: number; deadlineAt?: number },
+  opts: {
+    now: number;
+    maxCalls: number;
+    deadlineAt?: number;
+    currenciesByProgram: ReadonlyMap<string, readonly string[]>;
+  },
 ): Promise<number> {
   const email = env.APP_USER_EMAIL!;
 
@@ -292,19 +301,20 @@ async function sweepRoute(
   }
   await clearAlertFailures(env.DB, route.id);
 
-  // A paused route is only half-searched. Filing its changes now would let the
-  // flush describe half a route as though it were the whole answer.
-  if (pass.paused) return pass.totals.calls;
-
   if (route.alert_last_digest_at == null) {
-    // Baseline. Ingest kept, nothing filed, clock stamped.
-    await stampAlertDigest(env.DB, route.id, opts.now);
+    // Baseline. Ingest kept, nothing filed, and the clock stamped once the
+    // whole window has been read.
+    if (!pass.paused) await stampAlertDigest(env.DB, route.id, opts.now);
     return pass.totals.calls;
   }
 
+  // Filed on every pass, paused or not. `pass.changes` holds only what THIS
+  // pass found, and nothing re-reads an earlier pass, so waiting for the run
+  // to finish would drop the first tasks' changes. The outbox is not flushed
+  // while the run is still `running`, so a half-read route is never emailed.
   const alertable = selectAlertable(
     pass.changes,
-    await routeFindKeys(env, route),
+    await routeFindKeys(env, route, opts.currenciesByProgram),
     {
       types: parseAlertTypes(route.alert_on),
       minDropPct: route.alert_min_drop_pct ?? 0,
@@ -323,10 +333,14 @@ async function noteFailure(env: Env, routeId: number): Promise<void> {
   await bumpAlertFailures(env.DB, routeId);
 }
 
-async function routeFindKeys(env: Env, route: AlertRouteRow): Promise<Set<string>> {
+async function routeFindKeys(
+  env: Env,
+  route: AlertRouteRow,
+  currenciesByProgram: ReadonlyMap<string, readonly string[]>,
+): Promise<Set<string>> {
   const results = await selectMatchableFinds(env.DB, route);
 
-  const matcher = routeMatcher(route);
+  const matcher = routeMatcher(route, { currenciesByProgram });
   const keys = new Set<string>();
   for (const f of results) {
     if (!matcher.matches(f)) continue;

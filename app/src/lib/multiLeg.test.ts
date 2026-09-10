@@ -201,6 +201,18 @@ describe("stitchJourneys — the route's other filters", () => {
       .journeys).toEqual([]);
   });
 
+  it("lets a leg whose program reports no seat count (0) through the floor", () => {
+    // The row exists because the source said there is space; a count nobody
+    // measured cannot fail a minimum. The journey then reports the leg that did.
+    const r = route({ min_seats: 4 });
+    const out = stitch(
+      [first("2027-03-10", { seats_available: 0 }), second("2027-03-10", { seats_available: 6 })],
+      r,
+    );
+    expect(out.journeys).toHaveLength(1);
+    expect(out.journeys[0]!.seats).toBe(6);
+  });
+
   it("drops a leg over the route's point limit", () => {
     // Borrowed legs never went through `routeMatcher` under THIS route, so
     // the ceiling has to be re-applied here or a capped route is shown a

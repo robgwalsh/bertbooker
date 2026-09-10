@@ -48,10 +48,24 @@ export const SEATSAERO_MAX_CHUNKS = 5;
  * single-pair chunk was 851 rows, so this is ~6x headroom — and multi-airport
  * spends that headroom, since one call now covers several city pairs.
  *
- * Hitting it is not a failure: the coverage claim gets narrowed to the last date
- * actually seen rather than over-stated, and the chunk says so in its notes.
+ * Hitting it restarts pagination from the last date seen (see
+ * `SEATSAERO_MAX_CONTINUATIONS`); only once those are spent is the coverage
+ * claim narrowed to the dates before that one, and the run marked partial.
  */
 export const SEATSAERO_MAX_PAGES = 10;
+
+/**
+ * Times a chunk may restart pagination from the last date it saw after hitting
+ * `SEATSAERO_MAX_PAGES`. A busy multi-airport or hub query can hold more rows
+ * than the page cap allows, and without continuing, the far end of every 90-day
+ * chunk would never be fetched on any sweep.
+ */
+export const SEATSAERO_MAX_CONTINUATIONS = 3;
+
+/** The most calls one task can spend: the initial window plus every
+ *  continuation paginating to the cap. What the cost estimates and the budget
+ *  guard price an unmeasured task at. */
+export const SEATSAERO_MAX_PAGES_PER_TASK = SEATSAERO_MAX_PAGES * (1 + SEATSAERO_MAX_CONTINUATIONS);
 
 /** seats.aero's cache runs roughly a year out, further than any single carrier's
  *  own booking horizon. */

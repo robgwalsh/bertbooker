@@ -75,6 +75,8 @@ export interface MatchableFind {
   destination: string;
   flight_date: string;
   cabin: string;
+  /** Read only when the caller supplies `currenciesByProgram`. */
+  program?: string;
   /** Absent and null are the same answer: a currency-filtered route excludes the
    *  find, because there is nothing to intersect. The wire `Find` declares this
    *  optional and the D1 row reads it as nullable, so both spellings arrive. */
@@ -155,8 +157,16 @@ export interface RouteMatcher {
   matches(find: MatchableFind): boolean;
 }
 
+export interface RouteMatcherOptions {
+  /** The programs table's answer to "what books this program". When given, it
+   *  is read instead of the find's stored `transfer_currencies`, which froze
+   *  the seed's answer at write time; a program missing from it falls back to
+   *  the column. */
+  currenciesByProgram?: ReadonlyMap<string, readonly string[]>;
+}
+
 /** Parse a route once, then test finds against it. */
-export function routeMatcher(route: MatchableRoute): RouteMatcher {
+export function routeMatcher(route: MatchableRoute, opts: RouteMatcherOptions = {}): RouteMatcher {
   const origins = codeSet(route.origins, route.origin);
   const destinations = codeSet(route.destinations, route.destination);
   const via = hubSet(route.via);
@@ -191,7 +201,9 @@ export function routeMatcher(route: MatchableRoute): RouteMatcher {
         (secondLeg && f.flight_date >= route.date_start && f.flight_date <= secondLegEnd);
       if (!belongs) return false;
 
-      if (f.seats_available < route.min_seats) return false;
+      // 0 is a count the program never reported, not an empty cabin — the row
+      // exists because the source said there is space — so it passes.
+      if (f.seats_available > 0 && f.seats_available < route.min_seats) return false;
       if (route.direct_only !== 0 && f.is_direct !== 1) return false;
       // Compared against miles_cost, which quotes the CHEAPEST itinerary of any
       // shape for this slot — not direct_miles_cost, which is what the nonstop
@@ -200,7 +212,8 @@ export function routeMatcher(route: MatchableRoute): RouteMatcher {
       if (route.point_limit != null && f.miles_cost > route.point_limit) return false;
       if (cabins && !cabins.has(f.cabin)) return false;
       if (currencies) {
-        const held = filterSet(f.transfer_currencies);
+        const live = f.program != null ? opts.currenciesByProgram?.get(f.program) : undefined;
+        const held = live ? new Set(live) : filterSet(f.transfer_currencies);
         if (!held) return false;
         let hit = false;
         for (const c of held) {

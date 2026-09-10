@@ -50,7 +50,7 @@ import {
 import { BookableCurrencies } from "../../brand/BookableCurrencies";
 import { CabinChip } from "../../brand/CabinChip";
 import { DATE_CELL_WIDTH } from "../../../lib/layout";
-import { dayLabel, dollars, miles, sinceLabel } from "../../../lib/format";
+import { dayLabel, dollars, miles, seatCount, sinceLabel } from "../../../lib/format";
 import { useIsPhone } from "../../../hooks/useBreakpoints";
 
 // What a ROUND-TRIP route's pane shows in place of the flat finds table: which
@@ -229,9 +229,9 @@ function PairRow({
         </TableCell>
         <TableCell rowSpan={2} align="right" sx={spanCell}>
           <Tooltip
-            title={`The lower of the two legs (out ${p.outbound.seats_available}, back ${p.inbound.seats_available}) — a trip needs seats both ways.`}
+            title={`The lower of the two legs (out ${seatCount(p.outbound.seats_available)}, back ${seatCount(p.inbound.seats_available)}) — a trip needs seats both ways.`}
           >
-            <span>{p.seats}</span>
+            <span>{seatCount(p.seats)}</span>
           </Tooltip>
         </TableCell>
         <TableCell rowSpan={2} align="right" sx={{ ...spanCell, whiteSpace: "nowrap" }}>
@@ -295,10 +295,10 @@ function PairCard({ p }: { p: RoundTripPair }) {
               needs seats in both directions, so the pair's number is the lower
               of the two and not a sum. */}
           <Tooltip
-            title={`The lower of the two legs (out ${p.outbound.seats_available}, back ${p.inbound.seats_available}) — a trip needs seats both ways.`}
+            title={`The lower of the two legs (out ${seatCount(p.outbound.seats_available)}, back ${seatCount(p.inbound.seats_available)}) — a trip needs seats both ways.`}
           >
             <Typography variant="body2" color="text.secondary" sx={{ cursor: "help" }}>
-              {p.seats} seat{p.seats === 1 ? "" : "s"}
+              {seatCount(p.seats)} seat{p.seats === 1 ? "" : "s"}
             </Typography>
           </Tooltip>
         </Stack>

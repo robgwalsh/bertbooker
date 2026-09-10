@@ -64,6 +64,9 @@ export interface SourceTaskReport {
   /** Narrower than `dates` when the source answered for only part of the window.
    *  Defaults to `dates`. Over-claiming here deletes real finds. */
   coveredDates?: string[];
+  /** The source had more rows than the task could read. The run must not read
+   *  as clean: a silent partial looks exactly like "there is no award space". */
+  truncated?: boolean;
   offers: AvailabilityResult[];
 }
 

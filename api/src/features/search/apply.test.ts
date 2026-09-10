@@ -5,6 +5,7 @@ import {
   claimsCoverage,
   collapseOffers,
   coverageSlices,
+  diffAvailability,
   hashResult,
   prunable,
   routesTouched,
@@ -192,6 +193,22 @@ describe("prunable", () => {
   });
 });
 
+describe("diffAvailability", () => {
+  it("classifies a drop that arrives with more seats as price_drop", () => {
+    // The default alert set fires on drops and not on seat counts, so the
+    // stronger signal has to win the label.
+    const prev = offer({ milesCost: 100_000, seatsAvailable: 2 });
+    const cur = offer({ milesCost: 80_000, seatsAvailable: 4 });
+    expect(diffAvailability([prev], [cur]).map((c) => c.type)).toEqual(["price_drop"]);
+  });
+
+  it("still reports more seats at an unchanged price", () => {
+    const prev = offer({ milesCost: 100_000, seatsAvailable: 2 });
+    const cur = offer({ milesCost: 100_000, seatsAvailable: 4 });
+    expect(diffAvailability([prev], [cur]).map((c) => c.type)).toEqual(["more_seats"]);
+  });
+});
+
 describe("hashResult", () => {
   it("is stable for an unchanged result", () => {
     expect(hashResult(offer())).toBe(hashResult(offer()));
@@ -224,7 +241,9 @@ interface StubbedRow extends Record<string, unknown> {
 }
 
 function stubDb(baseline: StubbedRow[]) {
-  const inserts: unknown[][] = [];
+  /** One entry per ROW, expanded out of the JSON payload each upsert statement
+   *  carries, so a test reads a column by name. */
+  const inserts: Record<string, unknown>[] = [];
   const deletes: unknown[][] = [];
   /** Every `.all()` read, so a test can assert on the baseline query's SHAPE
    *  and not only on what came back from it. */
@@ -247,7 +266,9 @@ function stubDb(baseline: StubbedRow[]) {
     prepare: (sql: string) => statement(sql),
     batch: async (stmts: { sql: string; args: unknown[] }[]) => {
       for (const s of stmts) {
-        if (s.sql.includes("INSERT INTO finds")) inserts.push(s.args);
+        if (s.sql.includes("INSERT INTO finds")) {
+          inserts.push(...(JSON.parse(String(s.args[0])) as Record<string, unknown>[]));
+        }
         else if (s.sql.includes("DELETE FROM finds")) deletes.push(s.args);
       }
       return stmts.map(() => ({ meta: { changes: 1 } }));
@@ -405,17 +426,11 @@ describe("applyTask — write-on-change", () => {
     expect(out.snapshotsWritten).toBe(1);
   });
 
-  // The INSERT's trailing binds, in the order the statement lists them:
-  //   source_record_id, detail_level, stop_count, airlines,
-  //   direct_airlines, direct_miles_cost
-  const TAIL = 6;
-  const tail = (insert: unknown[]) => insert.slice(-TAIL);
-
   it("persists the enrichment handle and the detail level", async () => {
     const { db, inserts } = stubDb([]);
     await applyTask(db, seatsAeroTask());
     expect(inserts).toHaveLength(1);
-    expect(tail(inserts[0]!).slice(0, 2)).toEqual(["avail-1", "summary"]);
+    expect(inserts[0]).toMatchObject({ source_record_id: "avail-1", detail_level: "summary" });
   });
 
   it("defaults a source that says nothing to 'itinerary'", async () => {
@@ -423,7 +438,7 @@ describe("applyTask — write-on-change", () => {
     // seats.aero's Cached-Search summaries — "itinerary" is the right default.
     const { db, inserts } = stubDb([]);
     await applyTask(db, task({ offers: [offer()] }));
-    expect(tail(inserts[0]!).slice(0, 2)).toEqual([null, "itinerary"]);
+    expect(inserts[0]).toMatchObject({ source_record_id: null, detail_level: "itinerary" });
   });
 
   it("writes NULL stop_count when the source never said how many stops", async () => {
@@ -433,7 +448,7 @@ describe("applyTask — write-on-change", () => {
     const { db, inserts } = stubDb([]);
     await applyTask(db, task({ source: "seatsaero", offers: [offer({ isDirect: false, stops: undefined })] }),
     );
-    expect(tail(inserts[0]!)[2]).toBeNull();
+    expect(inserts[0]!.stop_count).toBeNull();
   });
 
   it("keeps the carriers and the nonstop price the summary row reported", async () => {
@@ -448,7 +463,11 @@ describe("applyTask — write-on-change", () => {
         ],
       }),
     );
-    expect(tail(inserts[0]!).slice(3)).toEqual(['["AS","CX","JL"]', '["JL"]', 37500]);
+    expect(inserts[0]).toMatchObject({
+      airlines: '["AS","CX","JL"]',
+      direct_airlines: '["JL"]',
+      direct_miles_cost: 37500,
+    });
   });
 });
 

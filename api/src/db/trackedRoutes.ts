@@ -292,6 +292,9 @@ export async function stampLastChecked(db: D1Database, id: number, at: number): 
  * `observed_calls` is read off `runs.calls` for THIS route by `route_id` — the
  * `origin`/`destination` scalars are only the route's primary airports, so two
  * routes sharing a pair would otherwise be priced off each other's measurements.
+ * A manual search counts as a measurement too: until something has measured a
+ * route it is priced at the ceiling, and a route only ever swept by the cron
+ * would otherwise stay there for as long as that ceiling kept it unaffordable.
  */
 export async function selectAlertRoutes(db: D1Database): Promise<AlertRouteRow[]> {
   const { results } = await db
@@ -305,8 +308,7 @@ export async function selectAlertRoutes(db: D1Database): Promise<AlertRouteRow[]
               tr.alert_last_attempt_at, tr.alert_last_digest_at,
               tr.alert_consecutive_failures, tr.last_checked_at,
               (SELECT hr.calls FROM runs hr
-                WHERE hr.route_id = tr.id AND hr.trigger = 'alert'
-                  AND hr.finished_at IS NOT NULL
+                WHERE hr.route_id = tr.id AND hr.finished_at IS NOT NULL
                 ORDER BY hr.started_at DESC LIMIT 1) AS observed_calls
          FROM tracked_routes tr
         WHERE tr.alerts_enabled = 1

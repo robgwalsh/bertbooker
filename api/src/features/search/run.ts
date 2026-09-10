@@ -10,7 +10,7 @@ import {
   type FetchLike,
   makeTransport,
 } from "../../providers/transport.js";
-import { todayISO } from "../../util/dates.js";
+import { addDaysISO, todayISO } from "../../util/dates.js";
 import { failRun, finishRun, insertRun, selectRunForResume } from "../../db/runs.js";
 import { recordQuota } from "../../db/sourceQuota.js";
 import { selectSearchRoute, stampLastChecked } from "../../db/trackedRoutes.js";
@@ -50,8 +50,9 @@ export const CAPTURE_BUDGET_BYTES = 6_000_000;
  * `run_continue`.
  *
  * A Worker has a per-request subrequest budget. `include_trips` forces a
- * smaller page, so a chunk can take up to 10 of them and 5 chunks can reach 50
- * calls — a number that has to be tracked explicitly, not left to luck.
+ * smaller page, so one task can take `SEATSAERO_MAX_PAGES_PER_TASK` of them —
+ * a number that has to be tracked explicitly, not left to luck. The check is
+ * between tasks, so a pass can overrun this by one task's pages.
  *
  * So the search became resumable instead of capped. Every task is durable the
  * moment `applyTask` returns, so stopping between tasks costs nothing and the
@@ -126,9 +127,10 @@ export function runStatus(
   ok: number,
   failed: number,
   planned: number,
+  truncated = 0,
 ): Exclude<RunStatus, "running"> {
   if (planned === 0) return "ok";
-  if (failed === 0) return "ok";
+  if (failed === 0) return truncated > 0 ? "partial" : "ok";
   if (ok === 0) return "failed";
   return "partial";
 }
@@ -226,7 +228,20 @@ export async function planSearchPass(
   // starts. Both orders cost the same, and this one keeps a paused run's
   // coverage contiguous in DATE rather than leaving one direction of the whole
   // window unasked.
-  const tasks = chunks.flatMap((chunk) => groups.map((group) => ({ chunk, group })));
+  //
+  // The hub->destination leg may depart the day after the window closes — an
+  // overnight in the hub on the last date — and `routeMatcher` shows it, so the
+  // last inbound query asks one day further than the route says.
+  const last = chunks.length - 1;
+  const tasks = chunks.flatMap((chunk, i) =>
+    groups.map((group) => ({
+      chunk:
+        group.role === "inbound" && i === last
+          ? { start: chunk.start, end: addDaysISO(chunk.end, 1) }
+          : chunk,
+      group,
+    })),
+  );
   const from = Math.max(0, Number(opts.from ?? 0) || 0);
   if (from >= tasks.length) {
     return { ok: false, failure: { code: "nothing_to_resume", total: tasks.length } };
@@ -339,6 +354,7 @@ export async function runSearchPass(
   const changes: ChangeSummary[] = [];
   let lastQuota: number | undefined;
   let aborted = false;
+  let truncated = 0;
   // Shared across chunks, so an early chunk with a huge payload doesn't leave
   // the later ones with nothing to show — it just runs the budget down.
   let captureLeft = opts.captureBudgetBytes ?? CAPTURE_BUDGET_BYTES;
@@ -422,6 +438,7 @@ export async function runSearchPass(
           startedAt: taskStartedAt,
           finishedAt: Date.now(),
           coveredDates: out.coveredDates,
+          truncated: out.truncated,
           offers: out.offers,
         };
         if (out.quota) {
@@ -463,6 +480,7 @@ export async function runSearchPass(
       totals.calls += calls;
       if (report.status === "ok" || report.status === "empty") totals.ok += 1;
       else totals.failed += 1;
+      if (report.truncated) truncated += 1;
       totals.offers += applied.offersKept;
       totals.written += applied.snapshotsWritten;
       totals.pruned += applied.snapshotsPruned;
@@ -502,7 +520,7 @@ export async function runSearchPass(
       ? ("aborted" as const)
       : paused
         ? ("running" as const)
-        : runStatus(totals.ok, totals.failed, tasks.length);
+        : runStatus(totals.ok, totals.failed, tasks.length, truncated);
 
     await finishRun(db, runId, { status, paused, finishedAt, totals, changes });
 

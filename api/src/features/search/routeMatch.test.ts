@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type MatchableFind, type MatchableRoute, matchesRoute } from "./routeMatch.js";
+import { type MatchableFind, type MatchableRoute, matchesRoute, routeMatcher } from "./routeMatch.js";
 
 /**
  * One witness per branch of the SQL predicate this replaces, in the
@@ -92,6 +92,24 @@ describe("the filter clauses", () => {
   it("honours min_seats", () => {
     expect(matchesRoute(find({ seats_available: 1 }), route({ min_seats: 2 }))).toBe(false);
     expect(matchesRoute(find({ seats_available: 2 }), route({ min_seats: 2 }))).toBe(true);
+  });
+
+  it("lets an unreported seat count (0) through any minimum", () => {
+    // AA and Emirates report no counts; the row exists because the source said
+    // there is space, and hiding it behind a floor nobody measured loses deals.
+    expect(matchesRoute(find({ seats_available: 0 }), route({ min_seats: 2 }))).toBe(true);
+  });
+
+  it("reads currencies off the programs table when given one", () => {
+    // The stored column is the seed's answer when the row was written; the
+    // table is what the user edits.
+    const r = route({ currencies: '["amex_mr"]' });
+    const f = find({ program: "alaska", transfer_currencies: '["bilt"]' });
+    expect(matchesRoute(f, r)).toBe(false);
+    const live = new Map([["alaska", ["bilt", "amex_mr"]]]);
+    expect(routeMatcher(r, { currenciesByProgram: live }).matches(f)).toBe(true);
+    // A program the table does not know falls back to the column.
+    expect(routeMatcher(r, { currenciesByProgram: new Map() }).matches(f)).toBe(false);
   });
 
   it("honours direct_only — the one clause with no prior TS twin", () => {

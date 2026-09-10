@@ -80,12 +80,29 @@ describe("the ingest UPSERT", () => {
   beforeEach(() => {
     db = new DatabaseSync(":memory:");
     db.exec(findsDdl());
-    const stmt = db.prepare(statementFrom("INSERT INTO finds"));
+    // The statement interpolates one thing, its own column list as
+    // `json_extract` calls; rebuilt here from the INSERT's columns so the test
+    // still runs the real text.
+    const template = statementFrom("INSERT INTO finds");
+    const columns = template.match(/\((.*?)\)/s)![1]!.split(",").map((c) => c.trim());
+    const sql = template.replace(
+      "${FINDS_UPSERT_SELECT}",
+      columns.map((c) => `json_extract(value, '$.${c}')`).join(", "),
+    );
+    expect(sql).not.toContain("${");
+    const stmt = db.prepare(sql);
     write = (miles, hash, detail) =>
       stmt.run(
-        "SFO", "NRT", "2026-10-08", "alaska", "business",
-        2, miles, 0, "USD", 1, "[]", 1, hash, "[]", null, null,
-        null, detail, null, null, null, null,
+        JSON.stringify([
+          {
+            origin: "SFO", destination: "NRT", flight_date: "2026-10-08", program: "alaska",
+            cabin: "business", seats_available: 2, miles_cost: miles, cash_fees_cents: 0,
+            fees_currency: "USD", is_direct: 1, segments_json: "[]", source_fetched_at: 1,
+            raw_hash: hash, transfer_currencies: "[]", duration_minutes: null, booking_url: null,
+            source_record_id: null, detail_level: detail, stop_count: null, airlines: null,
+            direct_airlines: null, direct_miles_cost: null,
+          },
+        ]),
       );
   });
 
@@ -109,6 +126,24 @@ describe("the ingest UPSERT", () => {
     expect(
       db.prepare("SELECT enriched_at, detail_level, segments_json FROM finds").get(),
     ).toEqual({ enriched_at: null, detail_level: "summary", segments_json: "[]" });
+  });
+});
+
+describe("the enrichment write", () => {
+  it("never lowers is_direct — the trip bought is one itinerary, the flag is about the cabin", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(findsDdl());
+    db.prepare(
+      `INSERT INTO finds (origin, destination, flight_date, program, cabin,
+         seats_available, miles_cost, source_fetched_at, raw_hash, is_direct)
+       VALUES ('SFO','NRT','2026-10-08','alaska','business',2,60000,1,'h',1)`,
+    ).run();
+    db.prepare(statementFrom("UPDATE finds SET\n         segments_json"))
+      .run("[legs]", 1, null, null, 0, 5, "SFO", "NRT", "2026-10-08", "alaska", "business", "h");
+    expect(db.prepare("SELECT is_direct, stop_count FROM finds").get()).toEqual({
+      is_direct: 1,
+      stop_count: 1,
+    });
   });
 });
 

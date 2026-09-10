@@ -3,6 +3,7 @@ import type { Env, Vars } from "../bindings.js";
 import type { Find, RoutesData, TrackedRoute } from "../models/wire/index.js";
 import { selectRouteFinds } from "../db/finds.js";
 import { selectRoutesForPage } from "../db/trackedRoutes.js";
+import { selectProgramCurrencies } from "../db/programs.js";
 import { routeMatcher } from "../features/search/routeMatch.js";
 
 /**
@@ -23,16 +24,27 @@ export const routes = new Hono<{ Bindings: Env; Variables: Vars }>();
 // ---- The Routes page: monitors + best current finds ----
 routes.get("/api/routes", async (c) => {
 
-  const routeRows = await selectRoutesForPage(c.env.DB);
+  const [routeRows, currenciesByProgram] = await Promise.all([
+    selectRoutesForPage(c.env.DB),
+    selectProgramCurrencies(c.env.DB),
+  ]);
 
   const findRows = await selectRouteFinds(c.env.DB, routeRows);
 
-  const found = [...findRows].sort(
-    (a, b) =>
-      a.flight_date.localeCompare(b.flight_date) ||
-      b.seats_available - a.seats_available ||
-      a.miles_cost - b.miles_cost,
-  );
+  // The programs table decides what books a find, not the seed the row was
+  // written from. Rewritten on the way out so the SPA's own currency checks
+  // (stitching borrowed legs) read the same answer the matcher did.
+  const found = findRows
+    .map((f) => {
+      const live = currenciesByProgram.get(f.program);
+      return live ? { ...f, transfer_currencies: JSON.stringify(live) } : f;
+    })
+    .sort(
+      (a, b) =>
+        a.flight_date.localeCompare(b.flight_date) ||
+        b.seats_available - a.seats_available ||
+        a.miles_cost - b.miles_cost,
+    );
 
   // Tag each find with every route that would show it. One row per
   // (find, route) pair exactly as the join emitted — a find overlapping two
@@ -41,7 +53,7 @@ routes.get("/api/routes", async (c) => {
   // by route, which is the order the join produced.
   const matchingFinds: Find[] = [];
   for (const route of routeRows) {
-    const matcher = routeMatcher(route);
+    const matcher = routeMatcher(route, { currenciesByProgram });
     for (const f of found) {
       if (matcher.matches(f)) matchingFinds.push({ ...f, tracked_route_id: route.id });
     }

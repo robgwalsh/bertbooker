@@ -10,7 +10,7 @@ import {
   queryGroupCount,
 } from "./plan.js";
 import { MAX_ORIGINS, MAX_VIA } from "../../models/route.js";
-import { SEATSAERO_MAX_PAGES } from "../../models/wire/seatsaero.js";
+import { SEATSAERO_MAX_PAGES_PER_TASK } from "../../models/wire/seatsaero.js";
 
 const SEA_NRT = { origins: ["SEA"], destinations: ["NRT"] };
 
@@ -74,7 +74,7 @@ describe("estimateSearchCalls", () => {
   it("quotes a range, because the true cost depends on how many rows exist", () => {
     const plain = estimateSearchCalls(SEA_NRT, 5);
     expect(plain).toMatchObject({ pairs: 1, floor: 5 });
-    expect(plain.ceiling).toBe(5 * SEATSAERO_MAX_PAGES);
+    expect(plain.ceiling).toBe(5 * SEATSAERO_MAX_PAGES_PER_TASK);
   });
 
   it("does NOT scale with pairs — which is the whole point", () => {
@@ -232,7 +232,7 @@ describe("estimateSearchCalls — hubs", () => {
     expect(hubbed.groups).toBe(2);
     expect(hubbed.tasks).toBe(10);
     expect(hubbed.floor).toBe(2 * plain.floor);
-    expect(hubbed.ceiling).toBe(10 * SEATSAERO_MAX_PAGES);
+    expect(hubbed.ceiling).toBe(10 * SEATSAERO_MAX_PAGES_PER_TASK);
   });
 
   it("does not scale past two, however many hubs there are", () => {

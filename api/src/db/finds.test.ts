@@ -236,10 +236,11 @@ describe("routeFindsScope — the read filters", () => {
     expect(admitted(scope, [find({ cabin: "economy" })])).toHaveLength(0);
   });
 
-  it("pushes min_seats", () => {
+  it("pushes min_seats, letting an unreported count (0) through", () => {
     const scope = routeFindsScope([route({ min_seats: 2 })]);
     expect(admitted(scope, [find({ seats_available: 2 })])).toHaveLength(1);
     expect(admitted(scope, [find({ seats_available: 1 })])).toHaveLength(0);
+    expect(admitted(scope, [find({ seats_available: 0 })])).toHaveLength(1);
   });
 
   it("pushes direct_only", () => {
@@ -312,7 +313,7 @@ describe("routeFindsScope — the read filters", () => {
     ]) {
       for (const flight_date of ["2026-10-07", "2026-10-08", "2026-10-20", "2026-10-21"]) {
         for (const cabin of ["economy", "business"]) {
-          for (const seats_available of [1, 4]) {
+          for (const seats_available of [0, 1, 4]) {
             for (const miles_cost of [50_000, 150_000]) {
               for (const is_direct of [0, 1]) {
                 rows.push(
@@ -380,7 +381,7 @@ describe("routeFindsScope — the bind budget", () => {
     ]);
     expect(scope.where).toEqual([
       "((origin IN (?, ?) AND destination IN (?, ?) AND flight_date BETWEEN ? AND ?" +
-        " AND cabin IN (?) AND seats_available >= ? AND miles_cost <= ?))",
+        " AND cabin IN (?) AND (seats_available = 0 OR seats_available >= ?) AND miles_cost <= ?))",
     ]);
   });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SEATSAERO_MAX_PAGES_PER_TASK } from "../../models/wire/seatsaero.js";
 import {
   MAX_SWEEP_MINUTES,
   MIN_SWEEP_MINUTES,
@@ -26,8 +27,9 @@ const MIN = 60_000;
 describe("routeSweepCost", () => {
   it("is pessimistic while ignorant — a never-swept route is priced at the CEILING", () => {
     // The floor would be 5. Guessing low is the direction that overspends the
-    // day's allowance, so an unmeasured route is priced at chunks * MAX_PAGES.
-    expect(routeSweepCost({ routeId: 1, chunks: 5 })).toBe(50);
+    // day's allowance, so an unmeasured route is priced at every task
+    // paginating out through every continuation.
+    expect(routeSweepCost({ routeId: 1, chunks: 5 })).toBe(5 * SEATSAERO_MAX_PAGES_PER_TASK);
   });
 
   it("uses the measured cost once a sweep has run", () => {
@@ -44,7 +46,7 @@ describe("routeSweepCost", () => {
   it("counts TASKS, not chunks — a hub route plans two queries per range", () => {
     // Counting its chunks would budget a hub route at half what it spends, which
     // is guessing low: the one direction this is built not to.
-    expect(routeSweepCost({ routeId: 1, chunks: 5, groups: 2 })).toBe(100);
+    expect(routeSweepCost({ routeId: 1, chunks: 5, groups: 2 })).toBe(10 * SEATSAERO_MAX_PAGES_PER_TASK);
     expect(routeSweepCost({ routeId: 1, chunks: 5, groups: 2, observedCalls: 4 })).toBe(10);
   });
 
@@ -77,7 +79,7 @@ describe("sweepPacing", () => {
     expect(p.affordable).toBe(false);
     if (!p.affordable) {
       expect(p.reason).toBe("cycle_exceeds_budget");
-      expect(p.cycleCost).toBe(150);
+      expect(p.cycleCost).toBe(15 * SEATSAERO_MAX_PAGES_PER_TASK);
     }
   });
 

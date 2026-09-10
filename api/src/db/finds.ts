@@ -183,10 +183,10 @@ function pushFilters(r: RouteFilters, parts: string[], binds: unknown[]): void {
     parts.push(`cabin IN (${cabins.map(() => "?").join(", ")})`);
     binds.push(...cabins);
   }
-  // Only above 1. `seats_available >= 1` excludes the same nothing on real data
-  // and costs a bind out of the budget that decides whether this form is used.
+  // Only above 1, since 0 (unreported) and 1 both pass a minimum of one. The
+  // `= 0` arm mirrors the matcher's reading of an unreported count.
   if (r.min_seats != null && r.min_seats > 1) {
-    parts.push(`seats_available >= ?`);
+    parts.push(`(seats_available = 0 OR seats_available >= ?)`);
     binds.push(r.min_seats);
   }
   if (r.direct_only) parts.push(`is_direct = 1`);
@@ -475,70 +475,99 @@ export async function upsertFinds(
   rows: readonly { result: AvailabilityResult; rawHash: string }[],
 ): Promise<number> {
   if (!rows.length) return 0;
-  const inserts = rows.map(({ result: r, rawHash }) =>
-    db
-      .prepare(
-        `INSERT INTO finds
-           (origin, destination, flight_date, program, cabin,
-            seats_available, miles_cost, cash_fees_cents, fees_currency,
-            is_direct, segments_json, source_fetched_at, raw_hash,
-            transfer_currencies, duration_minutes, booking_url,
-            source_record_id, detail_level,
-            stop_count, airlines, direct_airlines, direct_miles_cost)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (origin, destination, flight_date, program, cabin) DO UPDATE SET
-           seats_available = excluded.seats_available,
-           miles_cost = excluded.miles_cost,
-           cash_fees_cents = excluded.cash_fees_cents,
-           fees_currency = excluded.fees_currency,
-           is_direct = excluded.is_direct,
-           segments_json = excluded.segments_json,
-           source_fetched_at = excluded.source_fetched_at,
-           raw_hash = excluded.raw_hash,
-           transfer_currencies = excluded.transfer_currencies,
-           duration_minutes = excluded.duration_minutes,
-           booking_url = excluded.booking_url,
-           source_record_id = excluded.source_record_id,
-           detail_level = excluded.detail_level,
-           stop_count = excluded.stop_count,
-           airlines = excluded.airlines,
-           direct_airlines = excluded.direct_airlines,
-           direct_miles_cost = excluded.direct_miles_cost,
-           -- The SET list must reproduce A BRAND NEW ROW, not patch the old
-           -- one. See the docblock above; pinned by findsSql.test.ts.
-           enriched_at = NULL`,
-      )
-      .bind(
-        r.origin,
-        r.destination,
-        r.flightDate,
-        r.program,
-        r.cabin,
-        r.seatsAvailable,
-        r.milesCost,
-        r.cashFeesCents,
-        r.feesCurrency,
-        r.isDirect ? 1 : 0,
-        JSON.stringify(r.segments),
-        r.sourceFetchedAt,
-        rawHash,
-        JSON.stringify(r.bookableWith ?? []),
-        r.durationMinutes ?? null,
-        r.bookingUrl ?? null,
-        r.sourceRecordId ?? null,
+  const statements: D1PreparedStatement[] = [];
+  for (let i = 0; i < rows.length; i += FINDS_UPSERT_CHUNK) {
+    const payload = JSON.stringify(
+      rows.slice(i, i + FINDS_UPSERT_CHUNK).map(({ result: r, rawHash }) => ({
+        origin: r.origin,
+        destination: r.destination,
+        flight_date: r.flightDate,
+        program: r.program,
+        cabin: r.cabin,
+        seats_available: r.seatsAvailable,
+        miles_cost: r.milesCost,
+        cash_fees_cents: r.cashFeesCents,
+        fees_currency: r.feesCurrency,
+        is_direct: r.isDirect ? 1 : 0,
+        segments_json: JSON.stringify(r.segments),
+        source_fetched_at: r.sourceFetchedAt,
+        raw_hash: rawHash,
+        transfer_currencies: JSON.stringify(r.bookableWith ?? []),
+        duration_minutes: r.durationMinutes ?? null,
+        booking_url: r.bookingUrl ?? null,
+        source_record_id: r.sourceRecordId ?? null,
         // Absent means the source produced real legs — which is every source
         // except seats.aero's Cached Search asked without `include_trips`.
-        r.detailLevel ?? "itinerary",
+        detail_level: r.detailLevel ?? "itinerary",
         // NULL is a real answer and the whole reason this column is nullable.
-        r.stops ?? null,
-        r.airlines?.length ? JSON.stringify(r.airlines) : null,
-        r.directAirlines?.length ? JSON.stringify(r.directAirlines) : null,
-        r.directMilesCost ?? null,
-      ),
-  );
-  await db.batch(inserts);
-  return inserts.length;
+        stop_count: r.stops ?? null,
+        airlines: r.airlines?.length ? JSON.stringify(r.airlines) : null,
+        direct_airlines: r.directAirlines?.length ? JSON.stringify(r.directAirlines) : null,
+        direct_miles_cost: r.directMilesCost ?? null,
+      })),
+    );
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO finds
+             (origin, destination, flight_date, program, cabin,
+              seats_available, miles_cost, cash_fees_cents, fees_currency,
+              is_direct, segments_json, source_fetched_at, raw_hash,
+              transfer_currencies, duration_minutes, booking_url,
+              source_record_id, detail_level,
+              stop_count, airlines, direct_airlines, direct_miles_cost)
+           SELECT ${FINDS_UPSERT_SELECT}
+             FROM json_each(?)
+            WHERE true
+           ON CONFLICT (origin, destination, flight_date, program, cabin) DO UPDATE SET
+             seats_available = excluded.seats_available,
+             miles_cost = excluded.miles_cost,
+             cash_fees_cents = excluded.cash_fees_cents,
+             fees_currency = excluded.fees_currency,
+             is_direct = excluded.is_direct,
+             segments_json = excluded.segments_json,
+             source_fetched_at = excluded.source_fetched_at,
+             raw_hash = excluded.raw_hash,
+             transfer_currencies = excluded.transfer_currencies,
+             duration_minutes = excluded.duration_minutes,
+             booking_url = excluded.booking_url,
+             source_record_id = excluded.source_record_id,
+             detail_level = excluded.detail_level,
+             stop_count = excluded.stop_count,
+             airlines = excluded.airlines,
+             direct_airlines = excluded.direct_airlines,
+             direct_miles_cost = excluded.direct_miles_cost,
+             -- The SET list must reproduce A BRAND NEW ROW, not patch the old
+             -- one. See the docblock above; pinned by findsSql.test.ts.
+             enriched_at = NULL`,
+        )
+        .bind(payload),
+    );
+  }
+  await db.batch(statements);
+  return rows.length;
 }
+
+/** Rows per upsert statement. D1 counts every statement in a batch against its
+ *  per-invocation query ceiling, and a first search of a busy chunk writes
+ *  thousands of rows; bound as ONE JSON parameter and expanded with `json_each`,
+ *  fifty rows cost one statement. The `WHERE true` is SQLite's required
+ *  disambiguation between a SELECT's join clause and the upsert's ON CONFLICT. */
+const FINDS_UPSERT_CHUNK = 50;
+
+/** In the INSERT's column order; the JSON keys are the column names. */
+const FINDS_UPSERT_COLUMNS = [
+  "origin", "destination", "flight_date", "program", "cabin",
+  "seats_available", "miles_cost", "cash_fees_cents", "fees_currency",
+  "is_direct", "segments_json", "source_fetched_at", "raw_hash",
+  "transfer_currencies", "duration_minutes", "booking_url",
+  "source_record_id", "detail_level",
+  "stop_count", "airlines", "direct_airlines", "direct_miles_cost",
+] as const;
+
+/** Built without a template literal so the statement above stays one literal
+ *  that `findsSql.test.ts` can lift out of this file by its opening backtick. */
+const FINDS_UPSERT_SELECT = FINDS_UPSERT_COLUMNS.map((c) => "json_extract(value, '$." + c + "')").join(", ");
 
 /** Delete the slots the caller's coverage claim licenses. WHAT is prunable is
  *  `prunable`'s question, not this one's. Returns the rows actually removed. */
@@ -703,7 +732,8 @@ export function stampEnrichAttemptStatement(
  *
  * `stops` is written straight rather than left NULL: an enriched row's stop
  * count is never a guess, so leaving it unknown would downgrade a fact the
- * moment the detail arrived. `is_direct` follows from it.
+ * moment the detail arrived. `is_direct` is only ever raised: it says a nonstop
+ * exists in the cabin, and the trip bought here is one itinerary among several.
  */
 export function enrichItineraryStatement(
   db: D1Database,
@@ -720,7 +750,7 @@ export function enrichItineraryStatement(
     .prepare(
       `UPDATE finds SET
          segments_json = ?, stop_count = ?, duration_minutes = ?,
-         booking_url = COALESCE(?, booking_url), is_direct = ?,
+         booking_url = COALESCE(?, booking_url), is_direct = MAX(is_direct, ?),
          detail_level = 'itinerary', enriched_at = ?
        WHERE origin = ? AND destination = ? AND flight_date = ?
          AND program = ? AND cabin = ? AND raw_hash = ?`,

@@ -58,6 +58,9 @@ export function escapeHtml(s: string): string {
 const fmtMiles = (n: number | undefined): string =>
   n == null ? "—" : `${Math.round(n).toLocaleString("en-US")}`;
 
+/** A stored seat count of 0 means the program never reported one. */
+const seats = (n: number | undefined): string => (n == null || n <= 0 ? "?" : String(n));
+
 /** One change as a sentence, without markup — shared by both renderings so they
  *  cannot describe the same event differently. */
 export function describeChange(c: ChangeSummary): string {
@@ -68,20 +71,13 @@ export function describeChange(c: ChangeSummary): string {
 
   switch (c.type) {
     case "new":
-      return `${what} — ${fmtMiles(c.milesCost)} miles, ${c.seatsAvailable ?? "?"} seat${
+      return `${what} — ${fmtMiles(c.milesCost)} miles, ${seats(c.seatsAvailable)} seat${
         c.seatsAvailable === 1 ? "" : "s"
       }`;
     case "price_drop":
       return `${what} — ${fmtMiles(c.previousMilesCost)} → ${fmtMiles(c.milesCost)} miles`;
     case "more_seats":
-      // Named for what actually changed, but the price is carried too: the
-      // classifier is first-match-wins, so a drop that coincided with a seat
-      // increase arrives here and would otherwise go unmentioned.
-      return `${what} — ${c.previousSeats ?? "?"} → ${c.seatsAvailable ?? "?"} seats${
-        c.previousMilesCost != null && c.milesCost != null && c.milesCost < c.previousMilesCost
-          ? `, and ${fmtMiles(c.previousMilesCost)} → ${fmtMiles(c.milesCost)} miles`
-          : ""
-      }`;
+      return `${what} — ${seats(c.previousSeats)} → ${seats(c.seatsAvailable)} seats at ${fmtMiles(c.milesCost)} miles`;
     case "gone":
       return `${what} — gone (was ${fmtMiles(c.previousMilesCost)} miles)`;
   }

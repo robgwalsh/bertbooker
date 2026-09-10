@@ -1,10 +1,11 @@
 # BertBooker
 
-A self-hosted award-travel availability tracker to use with your seats.aero API key, or your own data provider. Run it locally or deploy to a free Cloudflare account.
+A self-hosted award-travel availability tracker to use with your seats.aero API key, or your own data provider. Run it locally or deploy to a free Cloudflare account. It aims to provide a richer user experience than seats.aero, with significantly more advanced searching and tracking capabilities, while using their high quality data which is not easy to reproduce.
 
 * Search trips with award deals, one way or round trip.
 * Find routes built from separate tickets from separate award providers.
 * Set automated monitoring and alerting.
+* Tools providing complete transparency about what award currencies/programs/networks, airlines, and route coverage is provided by the seats.aero data.
 
 <table>
 <tr>
